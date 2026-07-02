@@ -77,7 +77,9 @@
   --secondary: oklch(0.965 0.006 74);
   --secondary-foreground: oklch(0.28 0.015 52);
   --muted: oklch(0.93 0.007 74);
-  --muted-foreground: oklch(0.48 0.014 58);
+  /* Darkened a touch so [11–13px] helper text clears WCAG AA on both the cream
+     background and white cards. */
+  --muted-foreground: oklch(0.44 0.016 58);
   --accent: oklch(0.55 0.06 168);
   --accent-foreground: oklch(0.98 0.008 78);
   --destructive: oklch(0.55 0.18 27);

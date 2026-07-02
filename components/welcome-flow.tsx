@@ -1,18 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import {
-  Check,
-  ArrowRight,
-  Radar,
-  PenLine,
-  Send,
-  ScanLine,
-  Sparkles,
-} from 'lucide-react'
+import { Check, ArrowRight, ScanLine, Sparkles } from 'lucide-react'
 import type { Contact } from '@/lib/types'
 import type { NewContactInput } from '@/lib/contacts-store'
 import { ContactAvatar } from '@/components/contact-avatar'
+import { LandingIntro } from '@/components/landing-intro'
 import { NudgeLogo } from '@/components/nudge-logo'
 import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { ShaderBackdrop } from '@/components/shader-backdrop'
@@ -58,6 +51,11 @@ export function WelcomeFlow({
     setScanOpen(false)
   }
 
+  // Step 0 is the full marketing landing surface, which owns its own layout.
+  if (step === 0) {
+    return <LandingIntro onGetStarted={() => setStep(1)} />
+  }
+
   return (
     <div className="relative isolate mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-background">
       {/* Ambient shader field — strongest at the top/bottom edges, fading out
@@ -74,9 +72,9 @@ export function WelcomeFlow({
         </span>
       </header>
 
-      {/* Progress — a calm, crafted indicator of where you are */}
+      {/* Progress — a calm, crafted indicator of where you are (steps 1–3) */}
       <div className="flex items-center justify-center gap-1.5 px-6 pt-5 pb-1">
-        {[0, 1, 2, 3].map((i) => (
+        {[1, 2, 3].map((i) => (
           <span
             key={i}
             className={cn(
@@ -92,8 +90,6 @@ export function WelcomeFlow({
       </div>
 
       <div className="flex flex-1 flex-col px-6">
-        {step === 0 && <IntroStep onNext={() => setStep(1)} />}
-
         {step === 1 && (
           <PeopleStep
             contacts={contacts}
@@ -156,100 +152,6 @@ function PrimaryButton({
       )}
       <span className="relative flex items-center gap-2">{children}</span>
     </button>
-  )
-}
-
-const INTRO_FEATURES = [
-  {
-    icon: Radar,
-    title: 'We notice who’s due',
-    body: 'FollowApp surfaces the connections you’re due to reach — ranked by how much each one matters to you.',
-  },
-  {
-    icon: PenLine,
-    title: 'We find the words',
-    body: 'A warm, ready-to-send opener written in your voice — no blank screen, no awkward re-intro.',
-  },
-  {
-    icon: Send,
-    title: 'You just send',
-    body: 'One tap and it’s on its way. Staying in touch finally fits a busy schedule.',
-  },
-]
-
-function IntroStep({ onNext }: { onNext: () => void }) {
-  return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex flex-1 flex-col items-center justify-center py-6 text-center">
-        {/* Brand mark — the ambient shader field behind the flow provides the
-            surrounding glow, so the mark only needs its own soft shadow. */}
-        <div className="relative flex items-center justify-center">
-          <div className="animate-bloom relative flex size-[4.75rem] items-center justify-center rounded-[1.5rem] bg-primary text-primary-foreground shadow-card-lg">
-            <NudgeLogo className="size-10" />
-          </div>
-        </div>
-
-        <h1
-          className="animate-rise mt-10 text-balance font-serif text-[2.6rem] font-medium leading-[1.04] tracking-tight"
-          style={{ animationDelay: '0.12s' }}
-        >
-          Keep your professional
-          <br />
-          relationships warm.
-        </h1>
-        <p
-          className="animate-rise mt-4 max-w-[20rem] text-pretty leading-relaxed text-muted-foreground"
-          style={{ animationDelay: '0.2s' }}
-        >
-          The people who matter to your career are easy to lose touch with.
-          FollowApp tells you who to reach and helps you say it — in seconds.
-        </p>
-
-        {/* Grouped, hairline-divided feature card — one considered surface */}
-        <div
-          className="animate-rise mt-9 w-full overflow-hidden rounded-3xl border border-border/70 bg-card/70 text-left shadow-card backdrop-blur-sm"
-          style={{ animationDelay: '0.3s' }}
-        >
-          <ul className="divide-y divide-border/60">
-            {INTRO_FEATURES.map((f, i) => {
-              const Icon = f.icon
-              return (
-                <li
-                  key={f.title}
-                  className="animate-rise flex items-start gap-3.5 px-4 py-3.5"
-                  style={{ animationDelay: `${0.38 + i * 0.1}s` }}
-                >
-                  <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-primary">
-                    <Icon className="size-[18px]" />
-                  </span>
-                  <span className="flex flex-col">
-                    <span className="text-[0.9375rem] font-medium leading-snug text-foreground">
-                      {f.title}
-                    </span>
-                    <span className="mt-0.5 text-[0.8125rem] leading-relaxed text-muted-foreground">
-                      {f.body}
-                    </span>
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      </div>
-
-      <div
-        className="animate-rise pb-8 pt-6"
-        style={{ animationDelay: '0.7s' }}
-      >
-        <PrimaryButton onClick={onNext} sweep>
-          Let’s begin
-          <ArrowRight className="size-4 transition-transform duration-200 group-active:translate-x-0.5" />
-        </PrimaryButton>
-        <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground">
-          Takes about a minute. No account needed.
-        </p>
-      </div>
-    </div>
   )
 }
 

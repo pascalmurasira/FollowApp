@@ -84,7 +84,7 @@ export function YouPanel({
       <button
         type="button"
         onClick={onShowCard}
-        className="mt-4 flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition-colors active:bg-muted"
+        className="mt-4 flex w-full items-center gap-3 rounded-2xl bg-card p-4 text-left shadow-card transition-colors active:bg-secondary/60"
       >
         <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/[0.08] text-primary">
           <QrCode className="size-5" />
@@ -101,7 +101,7 @@ export function YouPanel({
       </button>
 
       {/* People management */}
-      <section className="mt-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <section className="mt-4 rounded-2xl bg-card p-5 shadow-card">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="font-heading text-base font-semibold leading-tight">
@@ -133,7 +133,7 @@ export function YouPanel({
       </section>
 
       {/* Voice summary */}
-      <section className="mt-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <section className="mt-4 rounded-2xl bg-card p-5 shadow-card">
         <div className="flex items-center gap-2.5">
           <span className="flex size-9 items-center justify-center rounded-full bg-primary/12 text-primary">
             <Sparkles className="size-[18px]" />
@@ -181,7 +181,7 @@ export function YouPanel({
       </section>
 
       {/* Privacy reassurance */}
-      <section className="mt-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <section className="mt-4 rounded-2xl bg-card p-5 shadow-card">
         <div className="flex items-start gap-2.5">
           <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
             <Lock className="size-[18px]" />

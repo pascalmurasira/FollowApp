@@ -79,7 +79,7 @@ export function ChatList({
                     {preview.text}
                   </p>
                   {level === 'cold' && (
-                    <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                    <span className="shrink-0 rounded-full bg-primary/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-primary">
                       Drifting
                     </span>
                   )}
