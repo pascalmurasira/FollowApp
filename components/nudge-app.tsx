@@ -348,7 +348,7 @@ export function NudgeApp() {
                 </h1>
               </div>
               <div className="flex items-center gap-3">
-                <p className="text-[12px] text-appbar-foreground/70">
+                <p className="text-[12px] font-medium text-appbar-foreground/85">
                   {tab === 'nudges'
                     ? 'Your network'
                     : tab === 'chats'

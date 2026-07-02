@@ -10,6 +10,7 @@ import {
   DEFAULT_PROFILE,
 } from '@/lib/profile'
 import { getDeviceId } from '@/lib/device-id'
+import { cn } from '@/lib/utils'
 
 function initials(name: string) {
   return (
@@ -156,8 +157,18 @@ export function ProfileHeader({
 
       {/* Stats */}
       <div className="mt-2 grid w-full grid-cols-2 gap-3">
-        <Stat icon={Users} value={peopleCount} label="people you keep close" />
-        <Stat icon={Flame} value={streak} label={streak === 1 ? 'day streak' : 'day streak'} />
+        <Stat
+          icon={Users}
+          value={peopleCount}
+          label="people you keep close"
+          active={peopleCount > 0}
+        />
+        <Stat
+          icon={Flame}
+          value={streak}
+          label="day streak"
+          active={streak > 0}
+        />
       </div>
     </section>
   )
@@ -167,15 +178,24 @@ function Stat({
   icon: Icon,
   value,
   label,
+  active,
 }: {
   icon: typeof Users
   value: number
   label: string
+  active: boolean
 }) {
   return (
     <div className="flex flex-col items-center gap-0.5 rounded-xl bg-secondary/50 px-3 py-3 text-center">
-      <Icon className="size-4 text-primary" />
-      <span className="tnum font-heading text-xl font-semibold text-foreground">
+      <Icon
+        className={cn('size-4', active ? 'text-primary' : 'text-muted-foreground')}
+      />
+      <span
+        className={cn(
+          'tnum font-heading text-xl font-semibold',
+          active ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
         {value}
       </span>
       <span className="text-[11px] leading-tight text-muted-foreground text-pretty">
