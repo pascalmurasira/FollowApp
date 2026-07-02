@@ -72,7 +72,7 @@ export function YouPanel({
   }
 
   return (
-    <div className="px-5 py-5">
+    <div className="mx-auto max-w-4xl px-5 py-5 sm:px-8 lg:py-7">
       {/* Profile */}
       <ProfileHeader
         voiceLabel={voiceLabel}

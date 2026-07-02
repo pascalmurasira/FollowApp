@@ -18,7 +18,6 @@ import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { MyCardSheet } from '@/components/my-card-sheet'
 import { QrScanSheet } from '@/components/qr-scan-sheet'
 import { SecureNudgeSheet } from '@/components/secure-nudge-sheet'
-import { ShaderBackdrop } from '@/components/shader-backdrop'
 import { useSyncPrompt } from '@/hooks/use-sync-prompt'
 import {
   loadOnboarding,
@@ -274,7 +273,7 @@ export function NudgeApp() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-background">
+    <div className="mx-auto flex min-h-[100dvh] w-full max-w-6xl flex-col bg-background lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.25rem] lg:border lg:border-border lg:shadow-card-lg">
       {activeContact ? (
         <ConversationView
           contact={activeContact}
@@ -284,46 +283,45 @@ export function NudgeApp() {
         />
       ) : (
         <>
-          <header className="glass-appbar relative isolate sticky top-0 z-10 overflow-hidden px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-appbar-foreground">
-            {/* Ambient shader living behind the glass tint — same indigo family
-                as the bar, so it adds depth without hurting white-text contrast. */}
-            <ShaderBackdrop
-              variant="appbar"
-              speed={0.12}
-              className="-z-10 opacity-55 [mask-image:linear-gradient(to_bottom,black,transparent)]"
-            />
+          <header className="glass-appbar sticky top-0 z-10 px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-appbar-foreground lg:static lg:px-8 lg:py-5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="flex size-9 items-center justify-center rounded-full bg-appbar-foreground/15">
-                  <NudgeLogo className="size-[20px]" />
+              <div className="flex items-center gap-3">
+                <span className="flex size-9 items-center justify-center rounded-lg border border-appbar-foreground/15 bg-appbar-foreground/10">
+                  <NudgeLogo className="size-[18px]" />
                 </span>
-                <h1 className="font-heading text-xl font-semibold tracking-tight">
-                  FollowApp
-                </h1>
+                <div>
+                  <h1 className="font-heading text-lg font-semibold tracking-tight">
+                    FollowApp
+                  </h1>
+                  <p className="hidden text-xs text-appbar-foreground/55 lg:block">
+                    Relationship command center
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
-                <p className="text-[12px] font-medium text-appbar-foreground/85">
+                <p className="hidden text-xs font-medium text-appbar-foreground/70 sm:block">
                   {tab === 'nudges'
-                    ? 'Your network'
+                    ? `${contacts.length} relationships`
                     : tab === 'chats'
-                      ? 'Your chats'
-                      : 'Your assistant'}
+                      ? 'Private conversations'
+                      : 'Profile & preferences'}
                 </p>
                 {tab === 'nudges' && (
                   <button
                     type="button"
                     onClick={() => setShowAddContact(true)}
                     aria-label="Add someone"
-                    className="flex size-11 items-center justify-center rounded-full bg-appbar-foreground/15 text-appbar-foreground transition-transform active:scale-95"
+                    className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-appbar-foreground/15 bg-appbar-foreground/10 px-3 text-sm font-medium text-appbar-foreground transition-colors hover:bg-appbar-foreground/15 active:bg-appbar-foreground/20"
                   >
                     <UserPlus className="size-[18px]" />
+                    <span className="hidden sm:inline">Add contact</span>
                   </button>
                 )}
               </div>
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto overscroll-y-contain pb-24">
+          <main className="order-2 flex-1 overflow-y-auto overscroll-y-contain pb-24 lg:pb-8">
             {tab === 'nudges' ? (
               <NudgeFeed
                 contacts={contacts}

@@ -101,7 +101,7 @@ export function ConversationView({
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-background">
+    <div className="mx-auto flex h-[100dvh] w-full max-w-3xl flex-col bg-background lg:h-[calc(100dvh-3rem)] lg:border-x lg:border-border">
       <header className="glass-appbar z-10 flex items-center gap-2 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2.5 text-appbar-foreground">
         <button
           type="button"

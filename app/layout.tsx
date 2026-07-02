@@ -1,30 +1,12 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono, Fraunces, Hanken_Grotesk } from 'next/font/google'
 import './globals.css'
-
-const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-})
-// Slick, premium grotesque used for headings and prominent UI labels.
-const hankenGrotesk = Hanken_Grotesk({
-  variable: '--font-hanken',
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-})
-const fraunces = Fraunces({
-  variable: '--font-fraunces',
-  subsets: ['latin'],
-  axes: ['opsz', 'SOFT'],
-})
 
 export const metadata: Metadata = {
   title: 'FollowApp — keep your professional relationships warm',
   description:
     'The follow-up app for busy professionals. FollowApp tells you who to reach and writes the opener — so staying in touch fits your schedule.',
-  generator: 'v0.app',
+  applicationName: 'FollowApp',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -44,8 +26,8 @@ export const viewport: Viewport = {
   // keyboard opens, keeping the bottom-anchored composers above it.
   interactiveWidget: 'resizes-content',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f7f3ec' },
-    { media: '(prefers-color-scheme: dark)', color: '#222019' },
+    { media: '(prefers-color-scheme: light)', color: '#f7f8fa' },
+    { media: '(prefers-color-scheme: dark)', color: '#172033' },
   ],
 }
 
@@ -55,10 +37,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${hankenGrotesk.variable} ${fraunces.variable} bg-background`}
-    >
+    <html lang="en" className="bg-background">
       <body className="font-sans antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
