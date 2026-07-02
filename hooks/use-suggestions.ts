@@ -75,7 +75,6 @@ export function useSuggestions(
 
   useEffect(() => {
     if (enabled) fetchSuggestions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, fetchSuggestions])
 
   return { suggestions, loading, refresh: fetchSuggestions }

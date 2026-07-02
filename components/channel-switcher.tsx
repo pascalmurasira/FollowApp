@@ -38,6 +38,14 @@ export function ChannelSwitcher({
   }, [open])
 
   // Nothing to switch between — show a static label instead of a control.
+  if (options.length === 0) {
+    return (
+      <span className="rounded-full bg-secondary/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+        No send channel
+      </span>
+    )
+  }
+
   if (options.length <= 1) {
     return (
       <span className="flex items-center gap-1.5 rounded-full bg-secondary/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">

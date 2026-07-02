@@ -126,27 +126,89 @@ interface PeopleResponse {
   circles: GroupTags
 }
 
-/** Fetch this device's added contacts and circle assignments from Neon. */
-export async function fetchPeople(deviceId: string): Promise<PeopleResponse> {
+const LOCAL_PEOPLE_KEY = 'followapp.people.v1'
+
+function readLocalPeople(): PeopleResponse {
+  if (typeof window === 'undefined') return { contacts: [], circles: {} }
   try {
-    const res = await fetch(`/api/contacts?deviceId=${encodeURIComponent(deviceId)}`)
-    if (!res.ok) throw new Error(`Contacts fetch failed: ${res.status}`)
-    const data = (await res.json()) as PeopleResponse
-    return { contacts: data.contacts ?? [], circles: data.circles ?? {} }
+    const raw = window.localStorage.getItem(LOCAL_PEOPLE_KEY)
+    if (!raw) return { contacts: [], circles: {} }
+    const parsed = JSON.parse(raw) as Partial<PeopleResponse>
+    return {
+      contacts: Array.isArray(parsed.contacts)
+        ? parsed.contacts.filter((c) => c?.id && c?.name)
+        : [],
+      circles:
+        parsed.circles && typeof parsed.circles === 'object'
+          ? parsed.circles
+          : {},
+    }
   } catch (error) {
-    console.error('[v0] Failed to load people:', error)
+    console.error('[v0] Failed to load local people:', error)
     return { contacts: [], circles: {} }
   }
 }
 
-/** Persist a newly added contact for this device. */
-export async function apiAddContact(deviceId: string, contact: Contact): Promise<void> {
+function writeLocalPeople(people: PeopleResponse): void {
+  if (typeof window === 'undefined') return
   try {
-    await fetch('/api/contacts', {
+    window.localStorage.setItem(LOCAL_PEOPLE_KEY, JSON.stringify(people))
+  } catch (error) {
+    console.error('[v0] Failed to save local people:', error)
+  }
+}
+
+function upsertContacts(existing: Contact[], incoming: Contact[]): Contact[] {
+  const byId = new Map(existing.map((contact) => [contact.id, contact]))
+  for (const contact of incoming) byId.set(contact.id, contact)
+  return [...byId.values()]
+}
+
+/**
+ * Load contacts from this browser first. Signed-in users also merge in their
+ * server copy; anonymous users never transmit their network.
+ */
+export async function fetchPeople(
+  deviceId: string,
+  syncRemote = false,
+): Promise<PeopleResponse> {
+  const local = readLocalPeople()
+  if (!syncRemote) return local
+  try {
+    const res = await fetch(`/api/contacts?deviceId=${encodeURIComponent(deviceId)}`)
+    if (!res.ok) throw new Error(`Contacts fetch failed: ${res.status}`)
+    const data = (await res.json()) as PeopleResponse
+    const merged = {
+      contacts: upsertContacts(data.contacts ?? [], local.contacts),
+      circles: { ...(data.circles ?? {}), ...local.circles },
+    }
+    writeLocalPeople(merged)
+    return merged
+  } catch (error) {
+    console.error('[v0] Failed to load people:', error)
+    return local
+  }
+}
+
+/** Persist a contact locally, and remotely only after sign-in. */
+export async function apiAddContact(
+  deviceId: string,
+  contact: Contact,
+  syncRemote = false,
+): Promise<void> {
+  const local = readLocalPeople()
+  writeLocalPeople({
+    ...local,
+    contacts: upsertContacts(local.contacts, [contact]),
+  })
+  if (!syncRemote) return
+  try {
+    const res = await fetch('/api/contacts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceId, contact }),
     })
+    if (!res.ok) throw new Error(`Contact save failed: ${res.status}`)
   } catch (error) {
     console.error('[v0] Failed to add contact:', error)
   }
@@ -156,7 +218,14 @@ export async function apiAddContact(deviceId: string, contact: Contact): Promise
 export async function apiImportContacts(
   deviceId: string,
   contacts: Contact[],
+  syncRemote = false,
 ): Promise<number> {
+  const local = readLocalPeople()
+  writeLocalPeople({
+    ...local,
+    contacts: upsertContacts(local.contacts, contacts),
+  })
+  if (!syncRemote) return contacts.length
   try {
     const res = await fetch('/api/contacts/import', {
       method: 'POST',
@@ -165,10 +234,10 @@ export async function apiImportContacts(
     })
     if (!res.ok) throw new Error(`Import failed: ${res.status}`)
     const data = (await res.json()) as { saved?: number }
-    return data.saved ?? 0
+    return data.saved ?? contacts.length
   } catch (error) {
     console.error('[v0] Failed to import contacts:', error)
-    return 0
+    return contacts.length
   }
 }
 
@@ -177,13 +246,21 @@ export async function apiSetCircle(
   deviceId: string,
   contactId: string,
   circle: string | null,
+  syncRemote = false,
 ): Promise<void> {
+  const local = readLocalPeople()
+  const circles = { ...local.circles }
+  if (circle) circles[contactId] = [circle]
+  else delete circles[contactId]
+  writeLocalPeople({ ...local, circles })
+  if (!syncRemote) return
   try {
-    await fetch('/api/contacts', {
+    const res = await fetch('/api/contacts', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceId, contactId, circle }),
     })
+    if (!res.ok) throw new Error(`Circle save failed: ${res.status}`)
   } catch (error) {
     console.error('[v0] Failed to set circle:', error)
   }

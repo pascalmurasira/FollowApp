@@ -11,6 +11,7 @@ import { lastTouchShort, healthLevel } from '@/lib/format'
 import {
   deliver,
   resolveChannel,
+  canDeliver,
   sendActionLabel,
   sentConfirmLabel,
 } from '@/lib/channels'
@@ -44,14 +45,16 @@ export function NudgeCard({
   // so the CTA shows the real destination.
   const preferred = getChannelPref(contact.id)
   const channel = resolveChannel(contact, preferred)
+  const canSend = canDeliver(contact)
   // WhatsApp sends wear WhatsApp's own green so the handoff to the app is
   // instantly recognizable; every other Nudge action stays brand blue.
   const isWhatsApp = channel === 'whatsapp'
 
   const handleSend = async () => {
-    if (!nudge) return
+    if (!nudge || !canSend) return
     // Hand off synchronously (within the click) so the deep link isn't blocked.
-    deliver(contact, nudge.text, preferred)
+    const deliveredVia = deliver(contact, nudge.text, preferred)
+    if (!deliveredVia) return
     setSending(true)
     await onSend(nudge.text)
     onOpen()
@@ -157,7 +160,7 @@ export function NudgeCard({
           <button
             type="button"
             onClick={handleSend}
-            disabled={loading || !nudge || sending}
+            disabled={loading || !nudge || sending || !canSend}
             className={cn(
               'flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold transition-all active:scale-[0.98] disabled:opacity-40',
               isWhatsApp
@@ -175,7 +178,11 @@ export function NudgeCard({
             ) : (
               <ChannelIcon channel={channel} className="size-[18px]" />
             )}
-            {sending ? sentConfirmLabel(channel) : sendActionLabel(channel)}
+            {sending
+              ? sentConfirmLabel(channel)
+              : canSend
+                ? sendActionLabel(channel)
+                : 'Add phone or email'}
           </button>
           {onSnooze && (
             <button

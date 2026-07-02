@@ -5,7 +5,6 @@ import jsQR from 'jsqr'
 import {
   X,
   ScanLine,
-  Loader2,
   UserPlus,
   Smartphone,
   CameraOff,

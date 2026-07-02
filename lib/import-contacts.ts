@@ -83,13 +83,18 @@ function normHeader(h: string): string {
 }
 
 /** Find the index of the first header matching any of the candidate names. */
-function findCol(headers: string[], candidates: string[]): number {
+function findCol(
+  headers: string[],
+  candidates: string[],
+  allowLooseMatch = true,
+): number {
   const normalized = headers.map(normHeader)
   for (const cand of candidates) {
     const idx = normalized.indexOf(cand)
     if (idx !== -1) return idx
   }
   // Loose contains-match as a fallback.
+  if (!allowLooseMatch) return -1
   for (let i = 0; i < normalized.length; i++) {
     if (candidates.some((c) => normalized[i].includes(c))) return i
   }
@@ -148,7 +153,13 @@ export function parseContactsCsv(text: string): ParseResult {
 
   const firstNameCol = findCol(headers, ['first name', 'given name'])
   const lastNameCol = findCol(headers, ['last name', 'family name'])
-  const fullNameCol = findCol(headers, ['name', 'full name', 'display name'])
+  // Keep this exact: a loose match for "name" incorrectly treats columns such
+  // as "Company Name" as the contact's name.
+  const fullNameCol = findCol(
+    headers,
+    ['name', 'full name', 'display name'],
+    false,
+  )
   const emailCol = findCol(headers, ['email address', 'e mail 1 value', 'email', 'e mail'])
   const phoneCol = findCol(headers, ['phone 1 value', 'phone', 'mobile', 'tel'])
   const companyCol = findCol(headers, ['company', 'organization 1 name', 'organization'])
@@ -218,9 +229,10 @@ export function parseContactsText(text: string): ParseResult {
       rest = rest.replace(emailMatch[0], '').trim()
     }
 
-    // Split on commas or dashes into [name, role/company...]
+    // Split on commas or spaced dashes into [name, role/company...]. A bare
+    // hyphen may be part of a person's name (for example, Mary-Jane).
     const parts = rest
-      .split(/[,–—-]|\bat\b/)
+      .split(/,|\s+[–—-]\s+|\bat\b/)
       .map((p) => p.trim())
       .filter(Boolean)
 
