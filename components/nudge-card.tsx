@@ -1,10 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronRight, Clock, Moon, Check } from 'lucide-react'
+import { ChevronRight, Clock, CalendarPlus, Check } from 'lucide-react'
 import type { Contact } from '@/lib/types'
 import type { Nudge } from '@/hooks/use-nudges'
-import type { SnoozeDuration } from '@/hooks/use-engagement'
+import { RemindMenu } from '@/components/remind-menu'
 import { ContactAvatar } from '@/components/contact-avatar'
 import { ChannelIcon } from '@/components/channel-icon'
 import { lastTouchShort, healthLevel } from '@/lib/format'
@@ -25,7 +25,8 @@ export function NudgeCard({
   featured = false,
   onOpen,
   onSend,
-  onSnooze,
+  onRemind,
+  onAddToCalendar,
 }: {
   contact: Contact
   nudge?: Nudge
@@ -34,10 +35,13 @@ export function NudgeCard({
   featured?: boolean
   onOpen: () => void
   onSend: (text: string) => Promise<void>
-  onSnooze?: (duration: SnoozeDuration) => void
+  /** Create a reminder for this contact due at the given epoch-ms time. */
+  onRemind?: (dueAt: number) => void
+  /** Open the "Add to calendar" modal seeded with this contact. */
+  onAddToCalendar?: () => void
 }) {
   const [sending, setSending] = useState(false)
-  const [showSnooze, setShowSnooze] = useState(false)
+  const [showRemind, setShowRemind] = useState(false)
 
   // Channel-agnostic: respect any per-contact preference, else the smart
   // default, with automatic fallback so it's never a choke point. Resolved here
@@ -57,9 +61,9 @@ export function NudgeCard({
     onOpen()
   }
 
-  const handleSnooze = (duration: SnoozeDuration) => {
-    setShowSnooze(false)
-    onSnooze?.(duration)
+  const handleRemind = (dueAt: number) => {
+    setShowRemind(false)
+    onRemind?.(dueAt)
   }
 
   return (
@@ -133,24 +137,21 @@ export function NudgeCard({
       </div>
 
       {/* Actions */}
-      {showSnooze ? (
-        <div className="mt-5 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleSnooze('later')}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
-          >
-            <Clock className="size-4" />
-            Later today
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSnooze('weekend')}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
-          >
-            <Moon className="size-4" />
-            This weekend
-          </button>
+      {showRemind ? (
+        <div>
+          <div className="mt-4 flex items-center justify-between px-1">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Remind me to follow up
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowRemind(false)}
+              className="text-xs font-medium text-muted-foreground transition-colors active:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+          <RemindMenu onPick={handleRemind} />
         </div>
       ) : (
         <div className={cn('flex items-center gap-2', featured ? 'mt-5' : 'mt-4')}>
@@ -177,11 +178,21 @@ export function NudgeCard({
             )}
             {sending ? sentConfirmLabel(channel) : sendActionLabel(channel)}
           </button>
-          {onSnooze && (
+          {onAddToCalendar && (
             <button
               type="button"
-              onClick={() => setShowSnooze(true)}
-              aria-label={`Snooze ${contact.name}`}
+              onClick={onAddToCalendar}
+              aria-label={`Add a calendar appointment with ${contact.name}`}
+              className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary active:bg-muted"
+            >
+              <CalendarPlus className="size-[18px]" />
+            </button>
+          )}
+          {onRemind && (
+            <button
+              type="button"
+              onClick={() => setShowRemind(true)}
+              aria-label={`Remind me to follow up with ${contact.name}`}
               className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary active:bg-muted"
             >
               <Clock className="size-[18px]" />

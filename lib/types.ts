@@ -89,4 +89,4 @@ export interface TalkingPoint {
   text: string
 }
 
-export type Tab = 'nudges' | 'chats' | 'you'
+export type Tab = 'nudges' | 'chats' | 'tasks' | 'you'

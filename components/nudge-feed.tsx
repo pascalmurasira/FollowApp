@@ -3,8 +3,9 @@
 import { useMemo } from 'react'
 import { Sparkles, Check } from 'lucide-react'
 import type { Contact } from '@/lib/types'
-import type { SnoozeDuration } from '@/hooks/use-engagement'
+import type { Reminder } from '@/hooks/use-reminders'
 import { NudgeCard } from '@/components/nudge-card'
+import { RemindersSection } from '@/components/reminders-section'
 import { useNudges } from '@/hooks/use-nudges'
 import { cadenceForTier } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -16,10 +17,16 @@ export function NudgeFeed({
   snoozedIds = [],
   groups = [],
   groupFilter = null,
+  dueReminders = [],
+  upcomingReminders = [],
   onFilterChange,
   onOpen,
   onSend,
-  onSnooze,
+  onRemind,
+  onAddToCalendar,
+  onCompleteReminder,
+  onSnoozeReminder,
+  onDismissReminder,
 }: {
   contacts: Contact[]
   voice: string
@@ -27,10 +34,18 @@ export function NudgeFeed({
   snoozedIds?: string[]
   groups?: string[]
   groupFilter?: string | null
+  dueReminders?: Reminder[]
+  upcomingReminders?: Reminder[]
   onFilterChange?: (group: string | null) => void
   onOpen: (id: string) => void
   onSend: (id: string, text: string) => Promise<void>
-  onSnooze: (id: string, duration: SnoozeDuration) => void
+  /** Create a reminder for a contact due at the given epoch-ms time. */
+  onRemind: (id: string, dueAt: number) => void
+  /** Open the calendar modal seeded with a contact. */
+  onAddToCalendar: (id: string) => void
+  onCompleteReminder: (id: string) => void
+  onSnoozeReminder: (id: string, dueAt: number) => void
+  onDismissReminder: (id: string) => void
 }) {
   // Connections needing a follow-up: chosen contacts first, then by who's most
   // overdue *relative to their tier's cadence* — so a key contact overdue by a
@@ -80,6 +95,14 @@ export function NudgeFeed({
         </div>
       )}
 
+      <RemindersSection
+        due={dueReminders}
+        upcoming={upcomingReminders}
+        onComplete={onCompleteReminder}
+        onSnooze={onSnoozeReminder}
+        onDismiss={onDismissReminder}
+      />
+
       {dailyPick ? (
         <section className="flex flex-col gap-3">
           <SectionLabel>
@@ -99,7 +122,8 @@ export function NudgeFeed({
             featured
             onOpen={() => onOpen(dailyPick.id)}
             onSend={(text) => onSend(dailyPick.id, text)}
-              onSnooze={(duration) => onSnooze(dailyPick.id, duration)}
+            onRemind={(dueAt) => onRemind(dailyPick.id, dueAt)}
+            onAddToCalendar={() => onAddToCalendar(dailyPick.id)}
           />
         </section>
       ) : (
@@ -124,7 +148,8 @@ export function NudgeFeed({
                 pinned={pinnedIds.includes(contact.id)}
                 onOpen={() => onOpen(contact.id)}
                 onSend={(text) => onSend(contact.id, text)}
-                      onSnooze={(duration) => onSnooze(contact.id, duration)}
+                onRemind={(dueAt) => onRemind(contact.id, dueAt)}
+                onAddToCalendar={() => onAddToCalendar(contact.id)}
               />
             ))}
           </div>

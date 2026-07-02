@@ -8,6 +8,7 @@ import {
   Newspaper,
   Check,
   MessageCircle,
+  CalendarPlus,
 } from 'lucide-react'
 import type { Contact, EnrichmentHook } from '@/lib/types'
 import { ContactAvatar } from '@/components/contact-avatar'
@@ -34,12 +35,15 @@ export function ConversationView({
   isTyping,
   onBack,
   onSend,
+  onAddToCalendar,
 }: {
   contact: Contact
   voice: string
   isTyping: boolean
   onBack: () => void
   onSend: (text: string) => Promise<void>
+  /** Open the "Add to calendar" modal seeded with this conversation. */
+  onAddToCalendar?: () => void
 }) {
   // Per-contact preference (if set) wins; otherwise the smart default applies,
   // with automatic fallback. Never a hard dependency on any one channel.
@@ -121,6 +125,16 @@ export function ConversationView({
               : driftLabel(contact.daysSinceContact)}
           </p>
         </div>
+        {onAddToCalendar && (
+          <button
+            type="button"
+            onClick={onAddToCalendar}
+            aria-label={`Add a calendar appointment with ${contact.name}`}
+            className="flex size-11 items-center justify-center rounded-full text-appbar-foreground transition-colors active:bg-appbar-foreground/15"
+          >
+            <CalendarPlus className="size-5" />
+          </button>
+        )}
         <ChannelSwitcher
           contact={contact}
           preferred={preferred}
