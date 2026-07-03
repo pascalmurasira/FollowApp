@@ -1,0 +1,390 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+/* Nudge theme overrides below */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-hanken), var(--font-geist-sans), 'Geist Fallback';
+  --font-serif: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-geist-sans), 'Geist Fallback';
+  --font-mono: var(--font-geist-mono), 'Geist Mono Fallback';
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-chat-bg: var(--chat-bg);
+  --color-bubble-in: var(--bubble-in);
+  --color-bubble-in-foreground: var(--bubble-in-foreground);
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-out-foreground: var(--bubble-out-foreground);
+  --color-appbar: var(--appbar);
+  --color-appbar-foreground: var(--appbar-foreground);
+  --color-whatsapp: var(--whatsapp);
+  --color-whatsapp-foreground: var(--whatsapp-foreground);
+  --color-health-good: var(--health-good);
+  --color-health-warn: var(--health-warn);
+  --color-health-late: var(--health-late);
+  --color-glass-border: var(--glass-border);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.3);
+  --radius-2xl: calc(var(--radius) * 1.55);
+  --radius-3xl: calc(var(--radius) * 1.85);
+  --radius-4xl: calc(var(--radius) * 2.2);
+}
+
+:root {
+  color-scheme: light;
+  --background: oklch(0.945 0.008 76);
+  --foreground: oklch(0.19 0.012 55);
+  --card: oklch(0.995 0.002 80);
+  --card-foreground: oklch(0.19 0.012 55);
+  --popover: oklch(0.995 0.002 80);
+  --popover-foreground: oklch(0.19 0.012 55);
+  --primary: oklch(0.47 0.17 264);
+  --primary-foreground: oklch(0.99 0.006 260);
+  --secondary: oklch(0.965 0.006 74);
+  --secondary-foreground: oklch(0.28 0.015 52);
+  --muted: oklch(0.93 0.007 74);
+  /* Darkened a touch so [11–13px] helper text clears WCAG AA on both the cream
+     background and white cards. */
+  --muted-foreground: oklch(0.44 0.016 58);
+  --accent: oklch(0.55 0.06 168);
+  --accent-foreground: oklch(0.98 0.008 78);
+  --destructive: oklch(0.55 0.18 27);
+  --border: oklch(0.89 0.007 72);
+  --input: oklch(0.89 0.007 72);
+  --ring: oklch(0.47 0.17 264);
+  /* Messenger surfaces */
+  --appbar: oklch(0.47 0.17 264);
+  --appbar-foreground: oklch(0.98 0.01 260);
+  /* WhatsApp brand green — reserved exclusively for the WhatsApp send action,
+     so the channel handoff is instantly recognizable. Slightly deepened from
+     #25D366 for legible white text. */
+  --whatsapp: oklch(0.62 0.15 150);
+  --whatsapp-foreground: oklch(0.99 0.012 150);
+  /* Relationship-health dot: on-track (green), due-soon (amber), overdue (red). */
+  --health-good: oklch(0.64 0.13 150);
+  --health-warn: oklch(0.76 0.13 75);
+  --health-late: oklch(0.6 0.17 28);
+  --chat-bg: oklch(0.955 0.013 76);
+  --bubble-in: oklch(0.997 0.002 80);
+  --bubble-in-foreground: oklch(0.19 0.012 55);
+  --bubble-out: oklch(0.905 0.05 258);
+  --bubble-out-foreground: oklch(0.33 0.09 266);
+  --chart-1: oklch(0.5 0.16 264);
+  --chart-2: oklch(0.58 0.06 165);
+  --chart-3: oklch(0.7 0.09 72);
+  --chart-4: oklch(0.5 0.12 25);
+  --chart-5: oklch(0.46 0.05 160);
+  /* Liquid Glass — frosted translucent surfaces (light). */
+  --glass-bg: oklch(0.99 0.004 80 / 0.6);
+  --glass-bg-strong: oklch(0.995 0.003 80 / 0.74);
+  --glass-border: oklch(1 0 0 / 0.6);
+  --glass-highlight: oklch(1 0 0 / 0.7);
+  --glass-shadow: oklch(0.4 0.03 50 / 0.16);
+  --appbar-glass: oklch(0.47 0.17 264 / 0.72);
+  --radius: 0.8rem;
+  --sidebar: oklch(0.972 0.006 78);
+  --sidebar-foreground: oklch(0.21 0.012 55);
+  --sidebar-primary: oklch(0.5 0.16 264);
+  --sidebar-primary-foreground: oklch(0.99 0.006 260);
+  --sidebar-accent: oklch(0.952 0.008 72);
+  --sidebar-accent-foreground: oklch(0.3 0.015 52);
+  --sidebar-border: oklch(0.905 0.007 72);
+  --sidebar-ring: oklch(0.5 0.16 264);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.17 0.008 58);
+  --foreground: oklch(0.95 0.008 78);
+  --card: oklch(0.215 0.01 56);
+  --card-foreground: oklch(0.95 0.008 78);
+  --popover: oklch(0.215 0.01 56);
+  --popover-foreground: oklch(0.95 0.008 78);
+  --primary: oklch(0.62 0.16 264);
+  --primary-foreground: oklch(0.99 0.006 260);
+  --secondary: oklch(0.26 0.012 56);
+  --secondary-foreground: oklch(0.95 0.008 78);
+  --muted: oklch(0.26 0.012 56);
+  --muted-foreground: oklch(0.71 0.016 64);
+  --accent: oklch(0.66 0.06 165);
+  --accent-foreground: oklch(0.16 0.008 58);
+  --destructive: oklch(0.68 0.18 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 13%);
+  --ring: oklch(0.62 0.16 264);
+  /* Messenger surfaces */
+  --appbar: oklch(0.3 0.075 264);
+  --appbar-foreground: oklch(0.97 0.012 260);
+  /* Brightened WhatsApp green for the warm-dark canvas. */
+  --whatsapp: oklch(0.68 0.16 152);
+  --whatsapp-foreground: oklch(0.16 0.02 150);
+  /* Relationship-health dot, brightened for the dark canvas. */
+  --health-good: oklch(0.72 0.14 150);
+  --health-warn: oklch(0.8 0.13 78);
+  --health-late: oklch(0.68 0.17 30);
+  --chat-bg: oklch(0.155 0.009 58);
+  --bubble-in: oklch(0.245 0.012 56);
+  --bubble-in-foreground: oklch(0.95 0.008 78);
+  --bubble-out: oklch(0.45 0.12 264);
+  --bubble-out-foreground: oklch(0.98 0.012 260);
+  --chart-1: oklch(0.62 0.16 264);
+  --chart-2: oklch(0.66 0.06 165);
+  --chart-3: oklch(0.72 0.09 72);
+  --chart-4: oklch(0.6 0.12 25);
+  --chart-5: oklch(0.52 0.05 160);
+  /* Liquid Glass — frosted translucent surfaces (dark). */
+  --glass-bg: oklch(0.26 0.012 56 / 0.55);
+  --glass-bg-strong: oklch(0.24 0.012 56 / 0.72);
+  --glass-border: oklch(1 0 0 / 0.14);
+  --glass-highlight: oklch(1 0 0 / 0.16);
+  --glass-shadow: oklch(0 0 0 / 0.45);
+  --appbar-glass: oklch(0.3 0.075 264 / 0.72);
+  --sidebar: oklch(0.215 0.01 56);
+  --sidebar-foreground: oklch(0.95 0.008 78);
+  --sidebar-primary: oklch(0.62 0.16 264);
+  --sidebar-primary-foreground: oklch(0.99 0.006 260);
+  --sidebar-accent: oklch(0.26 0.012 56);
+  --sidebar-accent-foreground: oklch(0.95 0.008 78);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.62 0.16 264);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  html {
+    @apply font-sans;
+    /* Keep type stable when the device rotates; never auto-inflate text. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  /* Kill the grey flash on tap across the app; we render our own :active
+     states. (Double-tap zoom / tap delay are already handled by the
+     non-scalable viewport, so no touch-action override is needed.) */
+  a,
+  button,
+  [role='button'],
+  input,
+  textarea,
+  select,
+  label {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Long-pressing a control shouldn't select its label text. Inputs/textareas
+     are intentionally excluded so users can still select, edit, and copy the
+     text they're typing. */
+  button,
+  a,
+  [role='button'],
+  label {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Suppress the iOS long-press callout menu on controls (non-standard prop
+     kept in a separate rule so it can't interfere with the rule above). */
+  button,
+  a,
+  [role='button'],
+  label {
+    -webkit-touch-callout: none;
+  }
+  /* Slick grotesque headings: tighter tracking + crisp ligatures for a
+     premium, modern feel. */
+  .font-heading {
+    font-feature-settings: 'ss01' 1, 'cv01' 1, 'liga' 1, 'calt' 1;
+    letter-spacing: -0.018em;
+  }
+  /* Editorial serif: tighter display sizing, refined ligatures. */
+  .font-serif {
+    font-optical-sizing: auto;
+    font-feature-settings: 'liga' 1, 'calt' 1;
+    letter-spacing: -0.005em;
+  }
+}
+
+/* Tabular figures for streak/stat numbers so they don't jitter. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle messenger-style chat wallpaper — faint warm dot texture over paper. */
+.chat-wallpaper {
+  background-color: var(--chat-bg);
+  background-image: radial-gradient(
+    oklch(0.5 0.05 50 / 0.04) 1px,
+    transparent 1.5px
+  );
+  background-size: 22px 22px;
+}
+
+/* Soft, layered card elevation — warm-tinted shadow for a premium feel. */
+.shadow-card {
+  box-shadow:
+    0 1px 2px oklch(0.4 0.03 50 / 0.04),
+    0 2px 6px oklch(0.4 0.03 50 / 0.04);
+}
+.shadow-card-lg {
+  box-shadow:
+    0 1px 2px oklch(0.4 0.03 50 / 0.05),
+    0 6px 16px -6px oklch(0.4 0.03 50 / 0.1),
+    0 16px 40px -20px oklch(0.4 0.03 50 / 0.16);
+}
+
+/* ----------------------------------------------------------------------------
+   Liquid Glass — frosted, translucent surfaces with a soft specular top edge,
+   in the spirit of visionOS / iOS glass. Use `.glass` for floating chrome
+   (nav, pills) and `.glass-strong` for larger panels (sheets, headers). The
+   `::before` paints a faint top-down sheen so the glass catches light.
+---------------------------------------------------------------------------- */
+.glass,
+.glass-strong {
+  background-color: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  /* Specular top edge + soft lift — the "glass catches light" cue, baked into
+     box-shadow so the effect needs no extra element and never disturbs the
+     surface's own positioning (fixed/sticky/static all work). */
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-highlight),
+    0 8px 30px -12px var(--glass-shadow);
+}
+.glass-strong {
+  background-color: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+}
+/* Frosted app bar that keeps the brand tint while letting content scroll
+   beneath it. */
+.glass-appbar {
+  background-color: var(--appbar-glass);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: inset 0 -1px 0 0 oklch(1 0 0 / 0.08);
+}
+
+/* Graceful fallback: if the browser can't do backdrop-filter, fall back to
+   the opaque surface tokens so nothing turns unreadable. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-strong {
+    background-color: var(--card);
+  }
+  .glass-appbar {
+    background-color: var(--appbar);
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   First-touch motion. Deliberate, eased entrances that make the app feel
+   considered the instant it opens. Curves use an "ease-out-expo" feel so
+   elements arrive with intent and settle, never bounce cheaply. All guarded
+   by prefers-reduced-motion.
+---------------------------------------------------------------------------- */
+@keyframes nudge-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nudge-bloom {
+  0% {
+    opacity: 0;
+    transform: scale(0.84);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* A slow, breathing glow that radiates from the brand mark — the "spark." */
+@keyframes nudge-halo {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.09);
+  }
+}
+
+.animate-rise {
+  animation: nudge-rise 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-bloom {
+  animation: nudge-bloom 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-halo {
+  animation: nudge-halo 5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* A single light sweep across the primary CTA — a quiet sign of craft. */
+@keyframes nudge-sheen {
+  from {
+    transform: translateX(-130%) skewX(-14deg);
+  }
+  to {
+    transform: translateX(240%) skewX(-14deg);
+  }
+}
+.animate-sheen {
+  animation: nudge-sheen 1.15s cubic-bezier(0.16, 1, 0.3, 1) 0.55s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-bloom,
+  .animate-halo,
+  .animate-sheen {
+    animation: none !important;
+  }
+}
