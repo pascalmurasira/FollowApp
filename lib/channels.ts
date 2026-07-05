@@ -1,4 +1,5 @@
 import type { Contact } from './types'
+import { copyText, openExternalUrl, tapFeedback } from './native'
 
 export type ChannelId = 'whatsapp' | 'email'
 
@@ -92,11 +93,12 @@ const whatsapp: Channel = {
   // Only offer WhatsApp when we can build a routable international number.
   canSend: (c) => toWhatsAppNumber(c.phone) !== null,
   open: (c, text) => {
+    void tapFeedback()
     const number = toWhatsAppNumber(c.phone)
     if (!number) {
       // Shouldn't happen (canSend gates this), but never open a dead link —
       // keep the composed message by copying it to the clipboard.
-      void navigator.clipboard?.writeText(text).catch(() => {})
+      void copyText(text).catch(() => {})
       return
     }
     // Route explicitly so the link never dead-ends: the app/wa.me on mobile,
@@ -104,7 +106,7 @@ const whatsapp: Channel = {
     const url = isMobile()
       ? `https://wa.me/${number}?text=${encodeURIComponent(text)}`
       : `https://web.whatsapp.com/send?phone=${number}&text=${encodeURIComponent(text)}`
-    window.open(url, '_blank', 'noopener,noreferrer')
+    void openExternalUrl(url)
   },
 }
 
@@ -112,6 +114,7 @@ const email: Channel = {
   id: 'email',
   canSend: (c) => !!c.email && c.email.trim().length > 0,
   open: (c, text) => {
+    void tapFeedback()
     const address = (c.email ?? '').trim()
     // The composed nudge becomes the email body; a light subject keeps it from
     // landing as a blank-subject message.

@@ -1,4 +1,5 @@
 import type { Contact } from '@/lib/types'
+import { copyText, shareContent } from '@/lib/native'
 
 const STORAGE_KEY = 'nudge.invited.v1'
 
@@ -6,7 +7,7 @@ const STORAGE_KEY = 'nudge.invited.v1'
 export function inviteLink(contact: Contact): string {
   const code = `${contact.id}-${contact.name.split(' ')[0].toLowerCase()}`
   const base =
-    typeof window !== 'undefined' ? window.location.origin : 'https://followapp.app'
+    typeof window !== 'undefined' ? window.location.origin : 'https://followapp.chat'
   return `${base}/i/${code}`
 }
 
@@ -28,20 +29,18 @@ export async function shareInvite(
   const url = inviteLink(contact)
   const text = inviteMessage(contact, channelLabel)
 
-  if (typeof navigator !== 'undefined' && navigator.share) {
-    try {
-      await navigator.share({ title: 'Join me on FollowApp', text, url })
-      return 'shared'
-    } catch (error) {
-      // User cancelled the share sheet — not a real failure, just stop.
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return 'failed'
-      }
+  try {
+    await shareContent({ title: 'Join me on FollowApp', text, url })
+    return 'shared'
+  } catch (error) {
+    // User cancelled the share sheet — not a real failure, just stop.
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return 'failed'
     }
   }
 
   try {
-    await navigator.clipboard.writeText(`${text}\n\n${url}`)
+    await copyText(`${text}\n\n${url}`)
     return 'copied'
   } catch (error) {
     console.error('Failed to copy invite link:', error)

@@ -1,0 +1,3 @@
+app_identifier(ENV.fetch('FOLLOWAPP_IOS_BUNDLE_ID', 'com.pascalmurasira.followapp'))
+apple_id(ENV.fetch('FOLLOWAPP_APPLE_ID', ''))
+team_id(ENV.fetch('FOLLOWAPP_APPLE_TEAM_ID', ''))

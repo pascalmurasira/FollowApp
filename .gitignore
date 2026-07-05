@@ -11,5 +11,11 @@ __v0_jsx-dev-runtime.ts
 
 # Common ignores
 node_modules
+vendor/bundle
 .next/
+build/
+out/
 .DS_Store
+.vercel
+.env*
+ios/fastlane/report.xml
