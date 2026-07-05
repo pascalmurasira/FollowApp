@@ -5,6 +5,7 @@ import { X, Camera, ScanLine, Loader2, UserPlus, Smartphone } from 'lucide-react
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { Tier } from '@/lib/types'
 import { saveToPhone } from '@/lib/card'
+import { captureImageDataUrl, tapFeedback } from '@/lib/native'
 import { cn } from '@/lib/utils'
 
 interface ScannedCard {
@@ -31,7 +32,7 @@ const TIER_OPTIONS: { value: Tier; label: string; hint: string }[] = [
   { value: 'casual', label: 'Casual', hint: 'every ~3 months' },
 ]
 
-type Stage = 'capture' | 'reading' | 'review'
+type Stage = 'capture' | 'reading' | 'review' | 'added'
 
 /**
  * Downscale a captured photo to a JPEG data URL no wider/taller than `max`,
@@ -49,6 +50,24 @@ async function downscale(file: File, max = 1600): Promise<string> {
   if (!ctx) throw new Error('Canvas unavailable')
   ctx.drawImage(bitmap, 0, 0, w, h)
   bitmap.close?.()
+  return canvas.toDataURL('image/jpeg', 0.85)
+}
+
+async function normalizeDataUrl(dataUrl: string, max = 1600): Promise<string> {
+  const image = new Image()
+  image.decoding = 'async'
+  image.src = dataUrl
+  await image.decode()
+
+  const scale = Math.min(1, max / Math.max(image.naturalWidth, image.naturalHeight))
+  const w = Math.max(1, Math.round(image.naturalWidth * scale))
+  const h = Math.max(1, Math.round(image.naturalHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas unavailable')
+  ctx.drawImage(image, 0, 0, w, h)
   return canvas.toDataURL('image/jpeg', 0.85)
 }
 
@@ -86,13 +105,10 @@ export function ScanCardSheet({
     onClose()
   }
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const readCardImage = async (image: string) => {
     setError(null)
     setStage('reading')
     try {
-      const image = await downscale(file)
       const res = await fetch('/api/scan-card', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -131,15 +147,52 @@ export function ScanCardSheet({
     }
   }
 
+  const handleNativeCamera = async () => {
+    setError(null)
+    await tapFeedback()
+    try {
+      const image = await captureImageDataUrl()
+      if (!image) {
+        fileRef.current?.click()
+        return
+      }
+      await readCardImage(await normalizeDataUrl(image))
+    } catch (err) {
+      const error = err as { message?: string }
+      const cancelled =
+        error?.message?.toLowerCase().includes('cancel') ||
+        error?.message?.toLowerCase().includes('user denied')
+      if (!cancelled) {
+        console.error('[v0] Native card capture failed:', err)
+        setError('Camera was not available — choose a photo or enter the details by hand.')
+        setStage('capture')
+      }
+    }
+  }
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      await readCardImage(await downscale(file))
+    } finally {
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   const update = (key: keyof ScannedCard, value: string) =>
     setCard((prev) => ({ ...prev, [key]: value }))
 
   const submit = () => {
     if (!card.name.trim()) return
     const titleAndCompany = [card.title, card.company].filter(Boolean).join(' · ')
+    const relationship =
+      card.company.trim() || card.title.trim()
+        ? `Met ${card.company ? `at ${card.company}` : 'through work'}`
+        : 'New connection'
     onAdd({
       name: card.name,
-      relationship: card.company ? `Connection at ${card.company}` : '',
+      relationship,
       title: titleAndCompany || undefined,
       tier,
       phone: card.phone || undefined,
@@ -147,7 +200,7 @@ export function ScanCardSheet({
       context: note || undefined,
       interests: [],
     })
-    close()
+    setStage('added')
   }
 
   return (
@@ -185,7 +238,7 @@ export function ScanCardSheet({
         />
 
         <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-          {stage === 'capture' && (
+            {stage === 'capture' && (
             <div className="flex flex-col items-center gap-5 py-6 text-center">
               <div className="flex size-20 items-center justify-center rounded-2xl bg-primary/[0.08] text-primary">
                 <ScanLine className="size-9" />
@@ -201,11 +254,18 @@ export function ScanCardSheet({
               </div>
               <button
                 type="button"
-                onClick={() => fileRef.current?.click()}
+                onClick={handleNativeCamera}
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
               >
                 <Camera className="size-4" />
                 Take a photo
+              </button>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="min-h-11 w-full text-sm font-semibold text-primary transition-colors active:text-primary/75"
+              >
+                Choose from photos instead
               </button>
             </div>
           )}
@@ -217,8 +277,38 @@ export function ScanCardSheet({
                 Reading the card…
               </p>
               <p className="text-[12px] text-muted-foreground">
-                Pulling out the details
+              Pulling out the details
               </p>
+            </div>
+          )}
+
+          {stage === 'added' && (
+            <div className="flex flex-col items-center gap-4 py-14 text-center">
+              <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/[0.08] text-primary">
+                <UserPlus className="size-7" />
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-foreground">
+                  {card.name.trim()} is in FollowApp
+                </p>
+                <p className="mt-1 text-pretty text-sm text-muted-foreground">
+                  We’ll use the card details to draft a warmer first follow-up.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={close}
+                className="mt-2 flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground"
+              >
+                Done
+              </button>
+              <button
+                type="button"
+                onClick={reset}
+                className="min-h-11 text-sm font-semibold text-primary"
+              >
+                Scan another card
+              </button>
             </div>
           )}
 
@@ -310,7 +400,7 @@ export function ScanCardSheet({
 
               <button
                 type="button"
-                onClick={() => fileRef.current?.click()}
+                onClick={handleNativeCamera}
                 className="self-start text-[13px] font-semibold text-primary"
               >
                 Retake photo

@@ -14,6 +14,13 @@
 export const TEXT_MODEL = 'google/gemini-2.5-flash-lite'
 
 /**
+ * Vision-capable model for OCR-style image extraction, such as business cards.
+ * Kept separate so card scanning cannot accidentally be pointed at a text-only
+ * model if the default drafting model changes later.
+ */
+export const VISION_MODEL = 'google/gemini-2.5-flash-lite'
+
+/**
  * Search-grounded model used only where we need live web research (contact
  * enrichment). Perplexity Sonar searches the web; TEXT_MODEL then structures
  * the findings.

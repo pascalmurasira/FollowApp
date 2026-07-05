@@ -47,6 +47,23 @@ export async function openExternalUrl(url: string): Promise<void> {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+export async function captureImageDataUrl(): Promise<string | null> {
+  if (!(await isNativeRuntime())) return null
+
+  const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
+  const photo = await Camera.getPhoto({
+    quality: 82,
+    allowEditing: false,
+    correctOrientation: true,
+    resultType: CameraResultType.DataUrl,
+    source: CameraSource.Camera,
+    promptLabelHeader: 'Scan business card',
+    promptLabelPhoto: 'Take photo',
+  })
+
+  return photo.dataUrl ?? null
+}
+
 export async function tapFeedback(): Promise<void> {
   if (!(await isNativeRuntime())) return
   try {

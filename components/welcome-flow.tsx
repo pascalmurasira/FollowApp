@@ -47,7 +47,6 @@ export function WelcomeFlow({
   const handleScanAdd = (input: NewContactInput) => {
     onScanContact(input)
     setScannedName(input.name?.trim() || 'your contact')
-    setScanOpen(false)
   }
 
   // Step 0 is the full marketing landing surface, which owns its own layout.
@@ -217,12 +216,17 @@ function PeopleStep({
       </div>
 
       <div className="pb-8 pt-6">
-        <PrimaryButton onClick={onNext} disabled={selected.length === 0}>
+        <PrimaryButton onClick={onNext}>
           {selected.length === 0
-            ? 'Pick at least one'
+            ? 'Continue'
             : `Continue with ${selected.length}`}
-          {selected.length > 0 && <ArrowRight className="size-4" />}
+          <ArrowRight className="size-4" />
         </PrimaryButton>
+        {selected.length === 0 && (
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            You can skip the examples and add your own people next.
+          </p>
+        )}
       </div>
     </div>
   )

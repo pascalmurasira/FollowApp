@@ -1,6 +1,6 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
-import { TEXT_MODEL } from '@/lib/ai'
+import { VISION_MODEL } from '@/lib/ai'
 
 export const maxDuration = 30
 
@@ -49,7 +49,12 @@ interface RequestBody {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as RequestBody
+  let body: RequestBody
+  try {
+    body = (await req.json()) as RequestBody
+  } catch {
+    return Response.json({ status: 'error', message: 'Invalid request body.' }, { status: 400 })
+  }
   const image = body.image?.trim()
 
   if (!image || !image.startsWith('data:image/')) {
@@ -64,13 +69,13 @@ export async function POST(req: Request) {
 
   try {
     const result = await generateText({
-      model: TEXT_MODEL,
+      model: VISION_MODEL,
       // Don't retry: on the gateway free tier a 429 just makes the user wait
       // for a guaranteed failure. Fail fast so the UI can drop into manual
       // entry immediately instead of stalling ~8s on doomed retries.
       maxRetries: 0,
       system:
-        'You read business cards. Extract ONLY the information actually printed on the card. Never guess or invent details. If a field is not present or not legible, return an empty string for it. Normalize phone numbers to international format when the country is clear from context (country code, address, or dialing prefix).',
+        'You read business cards from camera photos. Extract ONLY the information actually printed on the card. Never guess or invent details. If a field is not present or not legible, return an empty string for it. Normalize phone numbers to international format when the country is clear from context (country code, address, or dialing prefix). If the image is rotated, low contrast, or partially cropped, still extract every clearly legible field.',
       messages: [
         {
           role: 'user',
