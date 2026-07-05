@@ -1,4 +1,5 @@
-const KEY = 'nudge.deviceId.v1'
+const KEY = 'followapp.deviceId.v1'
+const LEGACY_KEY = 'nudge.deviceId.v1'
 
 /**
  * A stable, anonymous identifier for this browser/device. Used to scope the
@@ -8,6 +9,14 @@ const KEY = 'nudge.deviceId.v1'
 export function getDeviceId(): string {
   if (typeof window === 'undefined') return ''
   let id = localStorage.getItem(KEY)
+  if (!id) {
+    const legacy = localStorage.getItem(LEGACY_KEY)
+    if (legacy) {
+      localStorage.setItem(KEY, legacy)
+      localStorage.removeItem(LEGACY_KEY)
+      id = legacy
+    }
+  }
   if (!id) {
     id =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -26,4 +35,5 @@ export function getDeviceId(): string {
 export function setDeviceId(id: string) {
   if (typeof window === 'undefined' || !id) return
   localStorage.setItem(KEY, id)
+  localStorage.removeItem(LEGACY_KEY)
 }

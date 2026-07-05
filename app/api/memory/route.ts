@@ -4,6 +4,7 @@ import {
   buildUserLearnings,
   type SignalKind,
 } from '@/lib/memory'
+import { requestedDeviceId } from '@/lib/server/request-device'
 
 export const maxDuration = 10
 
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const deviceId = new URL(req.url).searchParams.get('deviceId')
+  const deviceId = requestedDeviceId(req)
   if (!deviceId) {
     return Response.json({ error: 'Missing deviceId' }, { status: 400 })
   }
@@ -68,7 +69,7 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const deviceId = new URL(req.url).searchParams.get('deviceId')
+  const deviceId = requestedDeviceId(req)
   if (!deviceId) {
     return Response.json({ error: 'Missing deviceId' }, { status: 400 })
   }

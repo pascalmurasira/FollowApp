@@ -5,10 +5,10 @@ import { Pool } from 'pg'
 import { sendMagicLinkEmail } from '@/lib/email'
 
 /**
- * Better Auth server config for Nudge.
+ * Better Auth server config for FollowApp.
  *
  * We use ONLY the magic-link plugin (no email/password) — the product decision
- * is a passwordless "secure your Nudge" flow. On a successful magic-link
+ * is a passwordless "secure your FollowApp" flow. On a successful magic-link
  * verification, `onMagicLinkVerify` (wired via the app's sign-in callback) is
  * where the current device's anonymous data is adopted by the account.
  */
@@ -23,6 +23,11 @@ function resolveBaseURL() {
 
 const baseURL = resolveBaseURL()
 
+const authSecret = process.env.BETTER_AUTH_SECRET
+if (process.env.NODE_ENV === 'production' && (!authSecret || authSecret.length < 32)) {
+  throw new Error('BETTER_AUTH_SECRET must be set to at least 32 characters in production.')
+}
+
 const trustedOrigins = [
   baseURL,
   process.env.V0_RUNTIME_URL,
@@ -35,7 +40,7 @@ const trustedOrigins = [
 
 export const auth = betterAuth({
   database: new Pool({ connectionString: process.env.DATABASE_URL }),
-  secret: process.env.BETTER_AUTH_SECRET,
+  secret: authSecret,
   baseURL,
   trustedOrigins,
   plugins: [

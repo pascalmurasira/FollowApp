@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { UserPlus } from 'lucide-react'
-import { CONTACTS, CURRENT_USER } from '@/lib/mock-data'
+import { CONTACTS, CURRENT_USER, DEMO_CONTACT_IDS } from '@/lib/mock-data'
 import type { Contact, Message, Tab, Tier } from '@/lib/types'
 import { BottomNav } from '@/components/bottom-nav'
 import { NudgeFeed } from '@/components/nudge-feed'
@@ -18,9 +18,7 @@ import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { MyCardSheet } from '@/components/my-card-sheet'
 import { QrScanSheet } from '@/components/qr-scan-sheet'
 import { SecureNudgeSheet } from '@/components/secure-nudge-sheet'
-import { ShaderBackdrop } from '@/components/shader-backdrop'
 import { useSyncPrompt } from '@/hooks/use-sync-prompt'
-import { fallbackFriendReply } from '@/lib/fallback'
 import {
   loadOnboarding,
   saveOnboarding,
@@ -33,6 +31,7 @@ import {
   apiAddContact,
   apiImportContacts,
   apiSetCircle,
+  apiTouchContact,
   createContact,
   allGroupNames,
   type GroupTags,
@@ -43,6 +42,7 @@ import {
   type ParsedContact,
 } from '@/lib/import-contacts'
 import { getDeviceId } from '@/lib/device-id'
+import { useSession } from '@/lib/auth-client'
 import { useEngagement } from '@/hooks/use-engagement'
 import { primeEnrichment } from '@/hooks/use-enrichment'
 
@@ -58,10 +58,11 @@ function prioritize(list: Contact[], selectedIds: string[]): Contact[] {
 }
 
 export function NudgeApp() {
+  const { data: session, isPending: sessionPending } = useSession()
+  const signedIn = !!session?.user
   const [contacts, setContacts] = useState<Contact[]>(CONTACTS)
   const [tab, setTab] = useState<Tab>('nudges')
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [typingId, setTypingId] = useState<string | null>(null)
   const [voice, setVoice] = useState<string>(CURRENT_USER.voice)
   const [toneLabel, setToneLabel] = useState<string>('low-key & chill')
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
@@ -75,8 +76,7 @@ export function NudgeApp() {
   const [showSecure, setShowSecure] = useState(false)
   // How many contacts the user added themselves — our main "invested" signal.
   const [customCount, setCustomCount] = useState(0)
-  const { streak, reachedToday, snoozedIds, recordReachOut, snooze } =
-    useEngagement()
+  const { streak, snoozedIds, recordReachOut, snooze } = useEngagement()
 
   // The user has something worth protecting once they've added their own
   // people or built up a streak. Drives when the "Secure your Nudge" prompt
@@ -93,12 +93,13 @@ export function NudgeApp() {
   const [phase, setPhase] = useState<'pending' | 'onboarding' | 'app'>('pending')
 
   useEffect(() => {
+    if (sessionPending) return
     const saved = loadOnboarding()
     const deviceId = getDeviceId()
     let cancelled = false
     ;(async () => {
       const { contacts: custom, circles } = deviceId
-        ? await fetchPeople(deviceId)
+        ? await fetchPeople(deviceId, signedIn)
         : { contacts: [], circles: {} as GroupTags }
       if (cancelled) return
       const merged = mergeContacts(CONTACTS, custom, circles)
@@ -118,7 +119,7 @@ export function NudgeApp() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [sessionPending, signedIn])
 
   const completeOnboarding = useCallback(
     ({
@@ -154,11 +155,11 @@ export function NudgeApp() {
     setCustomCount((n) => n + 1)
 
     if (deviceId) {
-      void apiAddContact(deviceId, contact)
-      if (group) void apiSetCircle(deviceId, contact.id, group)
+      void apiAddContact(deviceId, contact, signedIn)
+      if (group) void apiSetCircle(deviceId, contact.id, group, signedIn)
     }
     return contact
-  }, [])
+  }, [signedIn])
 
   // A scanned card flows through the same add path, then warms the enrichment
   // cache in the background so recent-news hooks are ready when its
@@ -189,10 +190,10 @@ export function NudgeApp() {
       setCustomCount((n) => n + built.length)
 
       const deviceId = getDeviceId()
-      if (deviceId) return apiImportContacts(deviceId, built)
+      if (deviceId) return apiImportContacts(deviceId, built, signedIn)
       return built.length
     },
-    [],
+    [signedIn],
   )
 
   // Assign (or clear) a contact's circle. Tags are stored separately so the
@@ -211,9 +212,9 @@ export function NudgeApp() {
         ),
       )
       const deviceId = getDeviceId()
-      if (deviceId) void apiSetCircle(deviceId, contactId, group)
+      if (deviceId) void apiSetCircle(deviceId, contactId, group, signedIn)
     },
-    [],
+    [signedIn],
   )
 
   // Every group name currently in use, for the add sheet and feed filter.
@@ -222,13 +223,6 @@ export function NudgeApp() {
   const activeContact = useMemo(
     () => contacts.find((c) => c.id === activeId) ?? null,
     [contacts, activeId],
-  )
-
-  const updateContact = useCallback(
-    (id: string, updater: (c: Contact) => Contact) => {
-      setContacts((prev) => prev.map((c) => (c.id === id ? updater(c) : c)))
-    },
-    [],
   )
 
   const sendMessage = useCallback(
@@ -244,63 +238,28 @@ export function NudgeApp() {
       }
 
       // Optimistically add my message and mark the thread as fresh.
-      let snapshot: Contact | undefined
       setContacts((prev) =>
         prev.map((c) => {
           if (c.id !== contactId) return c
-          const updated = {
+          return {
             ...c,
             daysSinceContact: 0,
             messages: [...c.messages, myMessage],
           }
-          snapshot = updated
-          return updated
         }),
       )
 
-      if (!snapshot) return
-
       // Reaching out keeps the relationship warm — counts toward the streak.
       recordReachOut(contactId)
-
-      setTypingId(contactId)
-      try {
-        const res = await fetch('/api/reply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: snapshot.name,
-            relationship: snapshot.relationship,
-            context: snapshot.context,
-            interests: snapshot.interests,
-            recentMessages: snapshot.messages
-              .slice(-8)
-              .map((m) => ({ sender: m.sender, text: m.text })),
-          }),
-        })
-        const data = (await res.json()) as { text?: string }
-        const replyText = data.text || fallbackFriendReply(snapshot)
-        updateContact(contactId, (c) => ({
-          ...c,
-          messages: [
-            ...c.messages,
-            { id: nextId(), sender: 'them', text: replyText, minutesAgo: 0 },
-          ],
-        }))
-      } catch (error) {
-        console.error('Reply generation failed, using fallback:', error)
-        updateContact(contactId, (c) => ({
-          ...c,
-          messages: [
-            ...c.messages,
-            { id: nextId(), sender: 'them', text: fallbackFriendReply(snapshot as Contact), minutesAgo: 0 },
-          ],
-        }))
-      } finally {
-        setTypingId(null)
+      if (!DEMO_CONTACT_IDS.has(contactId)) {
+        const deviceId = getDeviceId()
+        if (deviceId) void apiTouchContact(deviceId, contactId, signedIn)
       }
+
+      // External replies stay in WhatsApp/email. Do not fabricate a response
+      // inside FollowApp; this local entry only records the user's outreach.
     },
-    [updateContact, recordReachOut],
+    [recordReachOut, signedIn],
   )
 
   // Avoid an onboarding/app flash before localStorage is read.
@@ -319,57 +278,55 @@ export function NudgeApp() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-background">
+    <div className="mx-auto flex min-h-[100dvh] w-full max-w-6xl flex-col bg-background lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.25rem] lg:border lg:border-border lg:shadow-card-lg">
       {activeContact ? (
         <ConversationView
           contact={activeContact}
           voice={voice}
-          isTyping={typingId === activeContact.id}
-                onBack={() => setActiveId(null)}
-                onSend={(text) => sendMessage(activeContact.id, text)}
-              />
+          onBack={() => setActiveId(null)}
+          onSend={(text) => sendMessage(activeContact.id, text)}
+        />
       ) : (
         <>
-          <header className="glass-appbar relative isolate sticky top-0 z-10 overflow-hidden px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-appbar-foreground">
-            {/* Ambient shader living behind the glass tint — same indigo family
-                as the bar, so it adds depth without hurting white-text contrast. */}
-            <ShaderBackdrop
-              variant="appbar"
-              speed={0.12}
-              className="-z-10 opacity-55 [mask-image:linear-gradient(to_bottom,black,transparent)]"
-            />
+          <header className="glass-appbar sticky top-0 z-10 px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-appbar-foreground lg:static lg:px-8 lg:py-5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="flex size-9 items-center justify-center rounded-full bg-appbar-foreground/15">
-                  <NudgeLogo className="size-[20px]" />
+              <div className="flex items-center gap-3">
+                <span className="flex size-9 items-center justify-center rounded-lg border border-appbar-foreground/15 bg-appbar-foreground/10">
+                  <NudgeLogo className="size-[18px]" />
                 </span>
-                <h1 className="font-heading text-xl font-semibold tracking-tight">
-                  FollowApp
-                </h1>
+                <div>
+                  <h1 className="font-heading text-lg font-semibold tracking-tight">
+                    FollowApp
+                  </h1>
+                  <p className="hidden text-xs text-appbar-foreground/55 lg:block">
+                    Relationship command center
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
-                <p className="text-[12px] font-medium text-appbar-foreground/85">
+                <p className="hidden text-xs font-medium text-appbar-foreground/70 sm:block">
                   {tab === 'nudges'
-                    ? 'Your network'
+                    ? `${contacts.length} relationships`
                     : tab === 'chats'
-                      ? 'Your chats'
-                      : 'Your assistant'}
+                      ? 'Private conversations'
+                      : 'Profile & preferences'}
                 </p>
                 {tab === 'nudges' && (
                   <button
                     type="button"
                     onClick={() => setShowAddContact(true)}
                     aria-label="Add someone"
-                    className="flex size-11 items-center justify-center rounded-full bg-appbar-foreground/15 text-appbar-foreground transition-transform active:scale-95"
+                    className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-appbar-foreground/15 bg-appbar-foreground/10 px-3 text-sm font-medium text-appbar-foreground transition-colors hover:bg-appbar-foreground/15 active:bg-appbar-foreground/20"
                   >
                     <UserPlus className="size-[18px]" />
+                    <span className="hidden sm:inline">Add contact</span>
                   </button>
                 )}
               </div>
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto overscroll-y-contain pb-24">
+          <main className="order-2 flex-1 overflow-y-auto overscroll-y-contain pb-24 lg:pb-8">
             {tab === 'nudges' ? (
               <NudgeFeed
                 contacts={contacts}

@@ -12,7 +12,6 @@ export async function withRetry<T>(
   { retries = 3, baseDelayMs = 800 }: { retries?: number; baseDelayMs?: number } = {},
 ): Promise<T> {
   let attempt = 0
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
       return await task()

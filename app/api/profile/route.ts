@@ -1,10 +1,11 @@
 import { getProfile, saveProfile } from '@/lib/server/people'
+import { requestedDeviceId } from '@/lib/server/request-device'
 import type { Profile } from '@/lib/types'
 
 export const maxDuration = 10
 
 export async function GET(req: Request) {
-  const deviceId = new URL(req.url).searchParams.get('deviceId')
+  const deviceId = requestedDeviceId(req)
   if (!deviceId) {
     return Response.json({ error: 'Missing deviceId' }, { status: 400 })
   }

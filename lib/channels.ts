@@ -153,9 +153,9 @@ export function deliver(
   contact: Contact,
   text: string,
   preferred?: ChannelId,
-): ChannelId {
-  const channel =
-    orderedFor(preferred).find((c) => c.canSend(contact)) ?? whatsapp
+): ChannelId | null {
+  const channel = orderedFor(preferred).find((c) => c.canSend(contact))
+  if (!channel) return null
   void channel.open(contact, text)
   return channel.id
 }
@@ -168,6 +168,11 @@ export function resolveChannel(contact: Contact, preferred?: ChannelId): Channel
 /** Channels that can actually reach this contact — for the switcher UI. */
 export function selectableChannels(contact: Contact): ChannelId[] {
   return SELECTABLE_ORDER.filter((id) => CHANNELS[id].canSend(contact))
+}
+
+/** Whether at least one external channel can reach this contact. */
+export function canDeliver(contact: Contact): boolean {
+  return selectableChannels(contact).length > 0
 }
 
 /** Display name of a channel, e.g. for a banner. */

@@ -8,7 +8,6 @@ import { ContactAvatar } from '@/components/contact-avatar'
 import { LandingIntro } from '@/components/landing-intro'
 import { NudgeLogo } from '@/components/nudge-logo'
 import { ScanCardSheet } from '@/components/scan-card-sheet'
-import { ShaderBackdrop } from '@/components/shader-backdrop'
 import { TONE_OPTIONS } from '@/lib/onboarding'
 import { cn } from '@/lib/utils'
 
@@ -57,39 +56,38 @@ export function WelcomeFlow({
   }
 
   return (
-    <div className="relative isolate mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-background">
-      {/* Ambient shader field — strongest at the top/bottom edges, fading out
-          through the middle so step content and text stay perfectly legible. */}
-      <ShaderBackdrop
-        variant="hero"
-        className="-z-10 opacity-90 [mask-image:linear-gradient(to_bottom,black,transparent_46%,transparent_56%,black)]"
-      />
-      {/* Clay app bar — matches the main messenger shell */}
-      <header className="flex items-center justify-center gap-2 bg-appbar px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-appbar-foreground">
-        <NudgeLogo className="size-[20px]" />
-        <span className="font-heading text-lg font-semibold tracking-tight">
-          FollowApp
+    <div className="mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col bg-background lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.25rem] lg:border lg:border-border lg:shadow-card-lg">
+      <header className="flex items-center justify-between border-b border-border bg-card px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 sm:px-8 lg:py-4">
+        <span className="flex items-center gap-2.5">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <NudgeLogo className="size-[17px]" />
+          </span>
+          <span className="font-heading text-base font-semibold tracking-tight">
+            FollowApp
+          </span>
+        </span>
+        <span className="text-xs font-medium text-muted-foreground">
+          Step {step} of 3
         </span>
       </header>
 
-      {/* Progress — a calm, crafted indicator of where you are (steps 1–3) */}
-      <div className="flex items-center justify-center gap-1.5 px-6 pt-5 pb-1">
+      <div className="flex items-center gap-2 px-6 pt-6 pb-1 sm:px-10">
         {[1, 2, 3].map((i) => (
           <span
             key={i}
             className={cn(
-              'h-1.5 rounded-full transition-all duration-500 ease-out',
+              'h-1 flex-1 rounded-full transition-colors duration-300',
               i === step
-                ? 'w-8 bg-primary'
+                ? 'bg-primary'
                 : i < step
-                  ? 'w-1.5 bg-primary/45'
-                  : 'w-1.5 bg-border',
+                  ? 'bg-primary/45'
+                  : 'bg-border',
             )}
           />
         ))}
       </div>
 
-      <div className="flex flex-1 flex-col px-6">
+      <div className="flex flex-1 flex-col px-6 sm:px-10">
         {step === 1 && (
           <PeopleStep
             contacts={contacts}
@@ -142,7 +140,7 @@ function PrimaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="group relative flex min-h-13 w-full items-center justify-center gap-2 overflow-hidden rounded-full bg-primary font-medium text-primary-foreground shadow-card transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+    className="group relative flex min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-card transition-all duration-200 active:scale-[0.99] disabled:opacity-40 disabled:shadow-none"
     >
       {sweep && !disabled && (
         <span
@@ -169,7 +167,7 @@ function PeopleStep({
   return (
     <div className="flex flex-1 flex-col">
       <div className="animate-rise pt-6">
-        <h2 className="text-balance font-serif text-[1.85rem] font-medium leading-tight tracking-tight">
+        <h2 className="text-balance font-heading text-[1.85rem] font-semibold leading-tight tracking-tight">
           Who do you keep meaning to text?
         </h2>
         <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
@@ -193,7 +191,7 @@ function PeopleStep({
                   onClick={() => onToggle(contact.id)}
                   aria-pressed={isSelected}
                   className={cn(
-                    'relative flex min-h-11 w-full flex-col items-center gap-2 rounded-2xl border p-4 text-center transition-all duration-200 active:scale-[0.97]',
+                    'relative flex min-h-11 w-full flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all duration-200 active:scale-[0.98]',
                     isSelected
                       ? 'scale-[1.02] border-primary bg-primary/[0.06] shadow-card ring-2 ring-primary/25'
                       : 'border-border bg-card hover:border-primary/40',
@@ -242,7 +240,7 @@ function ToneStep({
   return (
     <div className="flex flex-1 flex-col">
       <div className="animate-rise pt-6">
-        <h2 className="text-balance font-serif text-[1.85rem] font-medium leading-tight tracking-tight">
+        <h2 className="text-balance font-heading text-[1.85rem] font-semibold leading-tight tracking-tight">
           How do you sound?
         </h2>
         <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">

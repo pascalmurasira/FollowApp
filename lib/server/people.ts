@@ -1,6 +1,6 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
-import { db } from '@/lib/db'
+import { db, pool } from '@/lib/db'
 import { circleTags, profiles, userContacts } from '@/lib/db/schema'
 import type { Contact, Profile } from '@/lib/types'
 
@@ -62,6 +62,24 @@ export async function saveProfile(deviceId: string, profile: Profile): Promise<v
 
 const HUES: Contact['avatarHue'][] = ['coral', 'teal', 'amber', 'rose', 'sage']
 
+let contactSchemaReady: Promise<void> | null = null
+
+function ensureContactSchema(): Promise<void> {
+  contactSchemaReady ??= pool
+    .query(
+      'ALTER TABLE user_contacts ADD COLUMN IF NOT EXISTS last_contacted_at timestamptz',
+    )
+    .then(() => undefined)
+  return contactSchemaReady
+}
+
+function daysSince(date: Date | string | null | undefined): number {
+  if (!date) return 7
+  const ms = Date.now() - new Date(date).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return 0
+  return Math.max(0, Math.floor(ms / 86_400_000))
+}
+
 function rowToContact(row: typeof userContacts.$inferSelect): Contact {
   let interests: string[] = []
   if (row.interests) {
@@ -87,9 +105,8 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
     avatarHue: (HUES.includes(row.avatarHue as Contact['avatarHue'])
       ? row.avatarHue
       : 'coral') as Contact['avatarHue'],
-    // Messages aren't persisted (they're demo-only); start fresh and gently
-    // drifting so the contact surfaces in the feed with a cold-open.
-    daysSinceContact: 7,
+    // Messages aren't persisted; relationship freshness is.
+    daysSinceContact: daysSince(row.lastContactedAt ?? row.createdAt),
     context: row.context ?? '',
     interests,
     messages: [],
@@ -97,6 +114,7 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
 }
 
 export async function getUserContacts(deviceId: string): Promise<Contact[]> {
+  await ensureContactSchema()
   const rows = await db
     .select()
     .from(userContacts)
@@ -106,6 +124,7 @@ export async function getUserContacts(deviceId: string): Promise<Contact[]> {
 }
 
 export async function addUserContact(deviceId: string, contact: Contact): Promise<void> {
+  await ensureContactSchema()
   await db.insert(userContacts).values({
     id: contact.id,
     deviceId,
@@ -118,6 +137,7 @@ export async function addUserContact(deviceId: string, contact: Contact): Promis
     avatarHue: contact.avatarHue,
     context: contact.context,
     interests: JSON.stringify(contact.interests ?? []),
+    lastContactedAt: new Date(Date.now() - contact.daysSinceContact * 86_400_000),
   })
 }
 
@@ -127,6 +147,7 @@ export async function addUserContacts(
   contacts: Contact[],
 ): Promise<number> {
   if (contacts.length === 0) return 0
+  await ensureContactSchema()
   const values = contacts.map((contact) => ({
     id: contact.id,
     deviceId,
@@ -139,9 +160,21 @@ export async function addUserContacts(
     avatarHue: contact.avatarHue,
     context: contact.context,
     interests: JSON.stringify(contact.interests ?? []),
+    lastContactedAt: new Date(Date.now() - contact.daysSinceContact * 86_400_000),
   }))
   await db.insert(userContacts).values(values)
   return values.length
+}
+
+export async function touchUserContact(
+  deviceId: string,
+  contactId: string,
+): Promise<void> {
+  await ensureContactSchema()
+  await db
+    .update(userContacts)
+    .set({ lastContactedAt: new Date() })
+    .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
 }
 
 // ---- Circle (group) tags ----

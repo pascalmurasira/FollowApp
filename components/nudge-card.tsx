@@ -11,6 +11,7 @@ import { lastTouchShort, healthLevel } from '@/lib/format'
 import {
   deliver,
   resolveChannel,
+  canDeliver,
   sendActionLabel,
   sentConfirmLabel,
 } from '@/lib/channels'
@@ -44,14 +45,16 @@ export function NudgeCard({
   // so the CTA shows the real destination.
   const preferred = getChannelPref(contact.id)
   const channel = resolveChannel(contact, preferred)
+  const canSend = canDeliver(contact)
   // WhatsApp sends wear WhatsApp's own green so the handoff to the app is
   // instantly recognizable; every other Nudge action stays brand blue.
   const isWhatsApp = channel === 'whatsapp'
 
   const handleSend = async () => {
-    if (!nudge) return
+    if (!nudge || !canSend) return
     // Hand off synchronously (within the click) so the deep link isn't blocked.
-    deliver(contact, nudge.text, preferred)
+    const deliveredVia = deliver(contact, nudge.text, preferred)
+    if (!deliveredVia) return
     setSending(true)
     await onSend(nudge.text)
     onOpen()
@@ -65,10 +68,10 @@ export function NudgeCard({
   return (
     <article
       className={cn(
-        'bg-card',
+        'border border-border bg-card transition-shadow hover:shadow-card',
         featured
-          ? 'rounded-3xl p-5 shadow-card-lg'
-          : 'rounded-2xl p-4 shadow-card',
+          ? 'rounded-2xl border-primary/20 p-5 shadow-card-lg sm:p-6'
+          : 'rounded-xl p-4',
       )}
     >
       {/* Header */}
@@ -115,14 +118,14 @@ export function NudgeCard({
           </div>
         ) : (
           <>
-            <span className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
-              {nudge.tone}
+            <span className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Suggested opener · {nudge.tone}
             </span>
             <p
               className={cn(
                 'text-pretty text-foreground',
                 featured
-                  ? 'text-[19px] leading-[1.5] tracking-[-0.01em]'
+                  ? 'text-[18px] leading-[1.55] tracking-[-0.012em]'
                   : 'line-clamp-2 text-[15px] leading-relaxed',
               )}
             >
@@ -138,7 +141,7 @@ export function NudgeCard({
           <button
             type="button"
             onClick={() => handleSnooze('later')}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
           >
             <Clock className="size-4" />
             Later today
@@ -146,7 +149,7 @@ export function NudgeCard({
           <button
             type="button"
             onClick={() => handleSnooze('weekend')}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
           >
             <Moon className="size-4" />
             This weekend
@@ -157,9 +160,9 @@ export function NudgeCard({
           <button
             type="button"
             onClick={handleSend}
-            disabled={loading || !nudge || sending}
+            disabled={loading || !nudge || sending || !canSend}
             className={cn(
-              'flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold transition-all active:scale-[0.98] disabled:opacity-40',
+              'flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40',
               isWhatsApp
                 ? // Hero pick gets the bold, solid WhatsApp green; secondary
                   // cards get a quiet tonal green so only one button shouts per
@@ -175,14 +178,18 @@ export function NudgeCard({
             ) : (
               <ChannelIcon channel={channel} className="size-[18px]" />
             )}
-            {sending ? sentConfirmLabel(channel) : sendActionLabel(channel)}
+            {sending
+              ? sentConfirmLabel(channel)
+              : canSend
+                ? sendActionLabel(channel)
+                : 'Add phone or email'}
           </button>
           {onSnooze && (
             <button
               type="button"
               onClick={() => setShowSnooze(true)}
               aria-label={`Snooze ${contact.name}`}
-              className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary active:bg-muted"
+              className="flex size-11 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-secondary active:bg-muted"
             >
               <Clock className="size-[18px]" />
             </button>
@@ -191,7 +198,7 @@ export function NudgeCard({
             type="button"
             onClick={onOpen}
             aria-label="Open conversation"
-            className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary active:bg-muted"
+            className="flex size-11 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-secondary active:bg-muted"
           >
             <ChevronRight className="size-[18px]" />
           </button>

@@ -7,10 +7,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-heading: var(--font-hanken), var(--font-geist-sans), 'Geist Fallback';
-  --font-serif: var(--font-fraunces), Georgia, serif;
-  --font-sans: var(--font-geist-sans), 'Geist Fallback';
-  --font-mono: var(--font-geist-mono), 'Geist Mono Fallback';
+  --font-heading: 'SF Pro Display', 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+  --font-serif: 'SF Pro Display', 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+  --font-sans: 'SF Pro Text', 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -66,29 +66,27 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(0.945 0.008 76);
-  --foreground: oklch(0.19 0.012 55);
-  --card: oklch(0.995 0.002 80);
-  --card-foreground: oklch(0.19 0.012 55);
-  --popover: oklch(0.995 0.002 80);
-  --popover-foreground: oklch(0.19 0.012 55);
-  --primary: oklch(0.47 0.17 264);
-  --primary-foreground: oklch(0.99 0.006 260);
-  --secondary: oklch(0.965 0.006 74);
-  --secondary-foreground: oklch(0.28 0.015 52);
-  --muted: oklch(0.93 0.007 74);
-  /* Darkened a touch so [11–13px] helper text clears WCAG AA on both the cream
-     background and white cards. */
-  --muted-foreground: oklch(0.44 0.016 58);
-  --accent: oklch(0.55 0.06 168);
-  --accent-foreground: oklch(0.98 0.008 78);
+  --background: oklch(0.975 0.004 255);
+  --foreground: oklch(0.205 0.025 258);
+  --card: oklch(0.998 0.001 255);
+  --card-foreground: oklch(0.205 0.025 258);
+  --popover: oklch(0.998 0.001 255);
+  --popover-foreground: oklch(0.205 0.025 258);
+  --primary: oklch(0.32 0.085 258);
+  --primary-foreground: oklch(0.99 0.004 255);
+  --secondary: oklch(0.955 0.007 255);
+  --secondary-foreground: oklch(0.29 0.035 258);
+  --muted: oklch(0.945 0.006 255);
+  --muted-foreground: oklch(0.48 0.025 258);
+  --accent: oklch(0.55 0.085 162);
+  --accent-foreground: oklch(0.99 0.004 255);
   --destructive: oklch(0.55 0.18 27);
-  --border: oklch(0.89 0.007 72);
-  --input: oklch(0.89 0.007 72);
-  --ring: oklch(0.47 0.17 264);
+  --border: oklch(0.895 0.009 255);
+  --input: oklch(0.895 0.009 255);
+  --ring: oklch(0.42 0.09 258);
   /* Messenger surfaces */
-  --appbar: oklch(0.47 0.17 264);
-  --appbar-foreground: oklch(0.98 0.01 260);
+  --appbar: oklch(0.255 0.055 258);
+  --appbar-foreground: oklch(0.98 0.006 255);
   /* WhatsApp brand green — reserved exclusively for the WhatsApp send action,
      so the channel handoff is instantly recognizable. Slightly deepened from
      #25D366 for legible white text. */
@@ -98,24 +96,24 @@
   --health-good: oklch(0.64 0.13 150);
   --health-warn: oklch(0.76 0.13 75);
   --health-late: oklch(0.6 0.17 28);
-  --chat-bg: oklch(0.955 0.013 76);
-  --bubble-in: oklch(0.997 0.002 80);
-  --bubble-in-foreground: oklch(0.19 0.012 55);
-  --bubble-out: oklch(0.905 0.05 258);
-  --bubble-out-foreground: oklch(0.33 0.09 266);
+  --chat-bg: oklch(0.965 0.005 255);
+  --bubble-in: oklch(1 0 0);
+  --bubble-in-foreground: oklch(0.205 0.025 258);
+  --bubble-out: oklch(0.91 0.035 258);
+  --bubble-out-foreground: oklch(0.27 0.07 258);
   --chart-1: oklch(0.5 0.16 264);
   --chart-2: oklch(0.58 0.06 165);
   --chart-3: oklch(0.7 0.09 72);
   --chart-4: oklch(0.5 0.12 25);
   --chart-5: oklch(0.46 0.05 160);
   /* Liquid Glass — frosted translucent surfaces (light). */
-  --glass-bg: oklch(0.99 0.004 80 / 0.6);
-  --glass-bg-strong: oklch(0.995 0.003 80 / 0.74);
-  --glass-border: oklch(1 0 0 / 0.6);
+  --glass-bg: oklch(0.99 0.003 255 / 0.92);
+  --glass-bg-strong: oklch(0.995 0.002 255 / 0.96);
+  --glass-border: oklch(0.88 0.012 255 / 0.9);
   --glass-highlight: oklch(1 0 0 / 0.7);
-  --glass-shadow: oklch(0.4 0.03 50 / 0.16);
-  --appbar-glass: oklch(0.47 0.17 264 / 0.72);
-  --radius: 0.8rem;
+  --glass-shadow: oklch(0.2 0.03 258 / 0.12);
+  --appbar-glass: oklch(0.255 0.055 258 / 0.97);
+  --radius: 0.625rem;
   --sidebar: oklch(0.972 0.006 78);
   --sidebar-foreground: oklch(0.21 0.012 55);
   --sidebar-primary: oklch(0.5 0.16 264);
@@ -189,6 +187,12 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image: linear-gradient(
+      180deg,
+      oklch(0.985 0.003 255),
+      oklch(0.965 0.007 255)
+    );
+    background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -235,11 +239,10 @@
     font-feature-settings: 'ss01' 1, 'cv01' 1, 'liga' 1, 'calt' 1;
     letter-spacing: -0.018em;
   }
-  /* Editorial serif: tighter display sizing, refined ligatures. */
+  /* Display type stays within the same disciplined grotesque family. */
   .font-serif {
-    font-optical-sizing: auto;
     font-feature-settings: 'liga' 1, 'calt' 1;
-    letter-spacing: -0.005em;
+    letter-spacing: -0.035em;
   }
 }
 
@@ -261,14 +264,13 @@
 /* Soft, layered card elevation — warm-tinted shadow for a premium feel. */
 .shadow-card {
   box-shadow:
-    0 1px 2px oklch(0.4 0.03 50 / 0.04),
-    0 2px 6px oklch(0.4 0.03 50 / 0.04);
+    0 1px 2px oklch(0.2 0.03 258 / 0.04),
+    0 4px 12px -8px oklch(0.2 0.03 258 / 0.1);
 }
 .shadow-card-lg {
   box-shadow:
-    0 1px 2px oklch(0.4 0.03 50 / 0.05),
-    0 6px 16px -6px oklch(0.4 0.03 50 / 0.1),
-    0 16px 40px -20px oklch(0.4 0.03 50 / 0.16);
+    0 1px 2px oklch(0.2 0.03 258 / 0.05),
+    0 12px 32px -18px oklch(0.2 0.03 258 / 0.22);
 }
 
 /* ----------------------------------------------------------------------------
@@ -280,8 +282,8 @@
 .glass,
 .glass-strong {
   background-color: var(--glass-bg);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  backdrop-filter: blur(16px) saturate(120%);
   /* Specular top edge + soft lift — the "glass catches light" cue, baked into
      box-shadow so the effect needs no extra element and never disturbs the
      surface's own positioning (fixed/sticky/static all work). */
@@ -298,8 +300,8 @@
    beneath it. */
 .glass-appbar {
   background-color: var(--appbar-glass);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  backdrop-filter: blur(16px) saturate(120%);
   box-shadow: inset 0 -1px 0 0 oklch(1 0 0 / 0.08);
 }
 
