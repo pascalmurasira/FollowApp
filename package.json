@@ -1,16 +1,26 @@
 {
-  "name": "my-project",
+  "name": "followapp",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "native:sync": "cap sync ios",
+    "native:open:ios": "cap open ios",
+    "native:run:ios": "cap run ios"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.4",
     "@base-ui/react": "^1.5.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/clipboard": "^8.0.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/share": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@paper-design/shaders-react": "^0.0.76",
     "@vercel/analytics": "1.6.1",
     "ai": "^7.0.3",
@@ -34,6 +44,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
     "@tailwindcss/postcss": "^4.2.0",
     "@types/node": "^24",
     "@types/pg": "^8.20.0",
