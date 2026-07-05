@@ -94,6 +94,16 @@ export function createContact(input: NewContactInput, seed = Date.now()): Contac
   }
 }
 
+export function touchLocalContact(contactId: string): void {
+  const local = readLocalPeople()
+  writeLocalPeople({
+    ...local,
+    contacts: local.contacts.map((contact) =>
+      contact.id === contactId ? { ...contact, daysSinceContact: 0 } : contact,
+    ),
+  })
+}
+
 // ---- Circle (group) tags ----
 
 /** Map of contactId -> circle names. Applies to seed + custom contacts alike. */
@@ -175,7 +185,9 @@ export async function fetchPeople(
   const local = readLocalPeople()
   if (!syncRemote) return local
   try {
-    const res = await fetch(`/api/contacts?deviceId=${encodeURIComponent(deviceId)}`)
+    const res = await fetch('/api/contacts', {
+      headers: { 'X-FollowApp-Device-Id': deviceId },
+    })
     if (!res.ok) throw new Error(`Contacts fetch failed: ${res.status}`)
     const data = (await res.json()) as PeopleResponse
     const merged = {
@@ -187,6 +199,25 @@ export async function fetchPeople(
   } catch (error) {
     console.error('[v0] Failed to load people:', error)
     return local
+  }
+}
+
+export async function apiTouchContact(
+  deviceId: string,
+  contactId: string,
+  syncRemote = false,
+): Promise<void> {
+  touchLocalContact(contactId)
+  if (!syncRemote) return
+  try {
+    const res = await fetch('/api/contacts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId, contactId, action: 'touch' }),
+    })
+    if (!res.ok) throw new Error(`Contact touch failed: ${res.status}`)
+  } catch (error) {
+    console.error('[v0] Failed to update last contact date:', error)
   }
 }
 

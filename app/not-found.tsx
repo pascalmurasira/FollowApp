@@ -16,7 +16,7 @@ export default function NotFound() {
         href="/"
         className="flex min-h-11 items-center justify-center rounded-full bg-primary px-6 font-medium text-primary-foreground transition-transform active:scale-[0.98]"
       >
-        Back to Nudge
+        Back to FollowApp
       </Link>
     </main>
   )

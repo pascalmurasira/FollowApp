@@ -21,8 +21,10 @@ interface Learnings {
   insights: string[]
 }
 
-const fetcher = (url: string): Promise<Learnings> =>
-  fetch(url).then((r) => r.json())
+const fetcher = ([url, deviceId]: [string, string]): Promise<Learnings> =>
+  fetch(url, { headers: { 'X-FollowApp-Device-Id': deviceId } }).then((r) =>
+    r.json(),
+  )
 
 export function YouPanel({
   voiceLabel,
@@ -44,7 +46,7 @@ export function YouPanel({
   const peopleCount = contacts.length
   const deviceId = getDeviceId()
   const { data, isLoading, mutate } = useSWR<Learnings>(
-    deviceId ? `/api/memory?deviceId=${encodeURIComponent(deviceId)}` : null,
+    deviceId ? ['/api/memory', deviceId] : null,
     fetcher,
   )
   const [confirming, setConfirming] = useState(false)
@@ -59,8 +61,9 @@ export function YouPanel({
     // Optimistically empty the panel.
     mutate({ count: 0, insights: [] }, false)
     try {
-      await fetch(`/api/memory?deviceId=${encodeURIComponent(deviceId)}`, {
+      await fetch('/api/memory', {
         method: 'DELETE',
+        headers: { 'X-FollowApp-Device-Id': deviceId },
       })
     } catch (error) {
       console.error('[v0] Failed to clear memory:', error)

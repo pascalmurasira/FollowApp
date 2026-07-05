@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { UserPlus } from 'lucide-react'
-import { CONTACTS, CURRENT_USER } from '@/lib/mock-data'
+import { CONTACTS, CURRENT_USER, DEMO_CONTACT_IDS } from '@/lib/mock-data'
 import type { Contact, Message, Tab, Tier } from '@/lib/types'
 import { BottomNav } from '@/components/bottom-nav'
 import { NudgeFeed } from '@/components/nudge-feed'
@@ -31,6 +31,7 @@ import {
   apiAddContact,
   apiImportContacts,
   apiSetCircle,
+  apiTouchContact,
   createContact,
   allGroupNames,
   type GroupTags,
@@ -250,11 +251,15 @@ export function NudgeApp() {
 
       // Reaching out keeps the relationship warm — counts toward the streak.
       recordReachOut(contactId)
+      if (!DEMO_CONTACT_IDS.has(contactId)) {
+        const deviceId = getDeviceId()
+        if (deviceId) void apiTouchContact(deviceId, contactId, signedIn)
+      }
 
       // External replies stay in WhatsApp/email. Do not fabricate a response
       // inside FollowApp; this local entry only records the user's outreach.
     },
-    [recordReachOut],
+    [recordReachOut, signedIn],
   )
 
   // Avoid an onboarding/app flash before localStorage is read.

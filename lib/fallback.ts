@@ -169,23 +169,3 @@ export function fallbackTalkingPoints(contact: Contact): TalkingPoint[] {
 
   return points.slice(0, 3)
 }
-
-// A simulated reply from the friend for when the model is unavailable, so
-// the demo conversation always continues naturally.
-export function fallbackFriendReply(contact: Contact): string {
-  const firstName = (contact.name.split(' ')[0] || 'there').toLowerCase()
-  const interest = contact.interests[0]
-  const options = [
-    `aw this honestly means a lot, thank you. i've missed you too`,
-    `omg hi!! perfect timing, i was just thinking about you`,
-    interest
-      ? `ha yes still very much into ${interest}. we really need to catch up properly`
-      : `we really need to catch up properly. how have YOU been??`,
-    `okay we are NOT letting it go this long again. call this weekend?`,
-  ]
-  let hash = 0
-  const seed = contact.id + contact.messages.length
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
-  void firstName
-  return options[Math.abs(hash) % options.length]
-}

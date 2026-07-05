@@ -17,8 +17,6 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   // Extend under the notch / home indicator so the env(safe-area-inset-*)
   // padding used throughout the app actually resolves to real values.
   viewportFit: 'cover',

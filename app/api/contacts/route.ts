@@ -3,13 +3,15 @@ import {
   getCircleTags,
   getUserContacts,
   setCircleTag,
+  touchUserContact,
 } from '@/lib/server/people'
+import { requestedDeviceId } from '@/lib/server/request-device'
 import type { Contact } from '@/lib/types'
 
 export const maxDuration = 10
 
 export async function GET(req: Request) {
-  const deviceId = new URL(req.url).searchParams.get('deviceId')
+  const deviceId = requestedDeviceId(req)
   if (!deviceId) {
     return Response.json({ error: 'Missing deviceId' }, { status: 400 })
   }
@@ -48,12 +50,18 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  let body: { deviceId?: string; contactId?: string; circle?: string | null }
+  let body: {
+    deviceId?: string
+    contactId?: string
+    circle?: string | null
+    action?: 'circle' | 'touch'
+  }
   try {
     body = (await req.json()) as {
       deviceId?: string
       contactId?: string
       circle?: string | null
+      action?: 'circle' | 'touch'
     }
   } catch {
     return Response.json({ error: 'Invalid body' }, { status: 400 })
@@ -65,7 +73,11 @@ export async function PATCH(req: Request) {
   }
 
   try {
-    await setCircleTag(deviceId, contactId, circle ?? null)
+    if (body.action === 'touch') {
+      await touchUserContact(deviceId, contactId)
+    } else {
+      await setCircleTag(deviceId, contactId, circle ?? null)
+    }
     return Response.json({ ok: true })
   } catch (error) {
     console.error('[v0] Contacts PATCH (circle) failed:', error)

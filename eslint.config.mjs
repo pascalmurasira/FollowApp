@@ -14,8 +14,11 @@ export default defineConfig([
   },
   globalIgnores([
     '.next/**',
+    '.vercel/**',
+    'ios/**',
     'out/**',
     'build/**',
+    'components/landing-intro 2.tsx',
     'next-env.d.ts',
   ]),
 ])

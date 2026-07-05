@@ -129,8 +129,12 @@ export const userContacts = pgTable(
     context: text('context'),
     interests: text('interests'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastContactedAt: timestamp('last_contacted_at', { withTimezone: true }),
   },
-  (t) => [index('user_contacts_device_idx').on(t.deviceId, t.createdAt)],
+  (t) => [
+    index('user_contacts_device_idx').on(t.deviceId, t.createdAt),
+    index('user_contacts_device_last_contacted_idx').on(t.deviceId, t.lastContactedAt),
+  ],
 )
 
 export type UserContactRow = typeof userContacts.$inferSelect
