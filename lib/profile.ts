@@ -5,7 +5,9 @@ export const DEFAULT_PROFILE: Profile = { name: 'You' }
 /** Load this device's profile from Neon. Falls back to the default on error. */
 export async function loadProfile(deviceId: string): Promise<Profile> {
   try {
-    const res = await fetch(`/api/profile?deviceId=${encodeURIComponent(deviceId)}`)
+    const res = await fetch('/api/profile', {
+      headers: { 'X-FollowApp-Device-Id': deviceId },
+    })
     if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`)
     const data = (await res.json()) as Partial<Profile>
     return { ...DEFAULT_PROFILE, ...data }

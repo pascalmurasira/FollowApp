@@ -53,7 +53,7 @@ export default function WelcomeBackPage() {
             onClick={() => router.replace('/')}
             className="min-h-11 rounded-xl bg-primary px-6 font-semibold text-primary-foreground"
           >
-            Go to Nudge
+            Go to FollowApp
           </button>
         </>
       ) : (

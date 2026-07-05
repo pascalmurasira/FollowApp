@@ -59,9 +59,9 @@ export function NudgeFeed({
   const rest = drifting.slice(1)
 
   return (
-    <div className="flex flex-col gap-7 px-4 pt-1">
+    <div className="grid gap-7 px-4 py-4 sm:px-6 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-7">
       {groups.length > 0 && (
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 lg:col-span-12 [&::-webkit-scrollbar]:hidden">
           <FilterChip
             active={groupFilter === null}
             onClick={() => onFilterChange?.(null)}
@@ -81,7 +81,7 @@ export function NudgeFeed({
       )}
 
       {dailyPick ? (
-        <section className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3 lg:col-span-7">
           <SectionLabel>
             Today&apos;s follow-up
             {loading && (
@@ -107,7 +107,7 @@ export function NudgeFeed({
       )}
 
       {rest.length > 0 && (
-        <section className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3 lg:col-span-5">
           <SectionLabel>
             Needs a follow-up
             <span className="ml-auto tnum text-muted-foreground/70">
@@ -149,7 +149,7 @@ function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
+        'shrink-0 rounded-lg border px-3.5 py-1.5 text-sm font-medium transition-colors',
         active
           ? 'border-primary bg-primary text-primary-foreground'
           : 'border-border bg-card text-muted-foreground',
@@ -162,7 +162,7 @@ function FilterChip({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+    <h2 className="flex items-center gap-1.5 px-0.5 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
       {children}
     </h2>
   )

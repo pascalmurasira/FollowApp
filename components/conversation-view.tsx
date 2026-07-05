@@ -22,6 +22,7 @@ import {
   deliver,
   resolveChannel,
   channelLabel,
+  canDeliver,
 } from '@/lib/channels'
 import { InvitePrompt } from '@/components/invite-prompt'
 import { InAppChat } from '@/components/in-app-chat'
@@ -31,13 +32,11 @@ import { cn } from '@/lib/utils'
 export function ConversationView({
   contact,
   voice,
-  isTyping,
   onBack,
   onSend,
 }: {
   contact: Contact
   voice: string
-  isTyping: boolean
   onBack: () => void
   onSend: (text: string) => Promise<void>
 }) {
@@ -50,6 +49,7 @@ export function ConversationView({
   const linkStatus = match?.link?.status ?? null
   const chatLive = linkStatus === 'accepted' && !!match
   const channel = resolveChannel(contact, preferred)
+  const canSend = canDeliver(contact)
   // WhatsApp send wears WhatsApp green so the channel handoff is recognizable.
   const isWhatsApp = channel === 'whatsapp'
   const firstName = contact.name.split(' ')[0]
@@ -83,13 +83,14 @@ export function ConversationView({
       top: scrollRef.current.scrollHeight,
       behavior: 'smooth',
     })
-  }, [contact.messages.length, isTyping])
+  }, [contact.messages.length])
 
   const submit = (text: string) => {
-    if (!text.trim()) return
+    if (!text.trim() || !canSend) return
+    const deliveredVia = deliver(contact, text, preferred)
+    if (!deliveredVia) return
     setDraft('')
     // Compose in Nudge, deliver through the channel they already use.
-    deliver(contact, text, preferred)
     void onSend(text)
     // The sent message is the viral moment — offer to bring this person onto
     // Nudge, but only once per contact so it never feels spammy.
@@ -100,7 +101,7 @@ export function ConversationView({
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-background">
+    <div className="mx-auto flex h-[100dvh] w-full max-w-3xl flex-col bg-background lg:h-[calc(100dvh-3rem)] lg:border-x lg:border-border">
       <header className="glass-appbar z-10 flex items-center gap-2 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2.5 text-appbar-foreground">
         <button
           type="button"
@@ -137,7 +138,9 @@ export function ConversationView({
         className="chat-wallpaper flex-1 space-y-1.5 overflow-y-auto overscroll-y-contain px-3 py-3"
       >
         <div className="mx-auto my-2 w-fit rounded-full bg-foreground/[0.06] px-3 py-1 text-center text-[11px] text-muted-foreground backdrop-blur">
-          {`Sent from your own ${channelLabel(channel)} · replies arrive in ${channelLabel(channel)}, not here`}
+          {canSend
+            ? `Sent from your own ${channelLabel(channel)} · replies arrive in ${channelLabel(channel)}, not here`
+            : 'Add a phone number or email before sending'}
         </div>
 
         {contact.messages.map((message) => {
@@ -171,15 +174,6 @@ export function ConversationView({
           )
         })}
 
-        {isTyping && (
-          <div className="flex justify-start">
-            <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm bg-bubble-in px-4 py-3.5 shadow-sm">
-              <Dot delay="0ms" />
-              <Dot delay="150ms" />
-              <Dot delay="300ms" />
-            </div>
-          </div>
-        )}
       </div>
 
       {match && linkStatus !== 'accepted' && (
@@ -217,7 +211,7 @@ export function ConversationView({
                 <div className="mb-2 flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     <Sparkles className="size-3 text-primary" />
-                    {isTyping ? 'Reading the room' : 'Tap to say it'}
+                    Tap to say it
                   </div>
                   <button
                     type="button"
@@ -247,6 +241,7 @@ export function ConversationView({
                         key={`${suggestion.text}-${i}`}
                         type="button"
                         onClick={() => submit(suggestion.text)}
+                        disabled={!canSend}
                         className="flex h-[72px] w-[82%] shrink-0 snap-start flex-col justify-center rounded-xl border border-border bg-secondary/60 px-4 py-2 text-left transition-transform active:scale-[0.98]"
                       >
                         <span className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
@@ -279,7 +274,7 @@ export function ConversationView({
               />
               <button
                 type="submit"
-                disabled={!draft.trim()}
+                disabled={!draft.trim() || !canSend}
                 aria-label={`Send via ${channelLabel(channel)}`}
                 className={cn(
                   'flex size-11 items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-40',
@@ -404,15 +399,6 @@ function EnrichmentBar({
         })}
       </div>
     </div>
-  )
-}
-
-function Dot({ delay }: { delay: string }) {
-  return (
-    <span
-      className="size-2 animate-bounce rounded-full bg-muted-foreground/60"
-      style={{ animationDelay: delay }}
-    />
   )
 }
 
