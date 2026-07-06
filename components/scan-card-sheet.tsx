@@ -1,7 +1,17 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { X, Camera, ScanLine, Loader2, UserPlus, Smartphone } from 'lucide-react'
+import {
+  X,
+  Camera,
+  ScanLine,
+  Loader2,
+  UserPlus,
+  Smartphone,
+  CheckCircle2,
+  AlertCircle,
+  RotateCcw,
+} from 'lucide-react'
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { Tier } from '@/lib/types'
 import { saveToPhone } from '@/lib/card'
@@ -26,10 +36,25 @@ const EMPTY: ScannedCard = {
   website: '',
 }
 
-const TIER_OPTIONS: { value: Tier; label: string; hint: string }[] = [
-  { value: 'key', label: 'Key', hint: 'every ~3 weeks' },
-  { value: 'network', label: 'Network', hint: 'every ~6 weeks' },
-  { value: 'casual', label: 'Casual', hint: 'every ~3 months' },
+const TIER_OPTIONS: { value: Tier; label: string; hint: string; cta: string }[] = [
+  {
+    value: 'key',
+    label: 'Every 2 weeks',
+    hint: 'high-value contact',
+    cta: 'first follow-up tomorrow',
+  },
+  {
+    value: 'network',
+    label: 'Monthly',
+    hint: 'regular relationship',
+    cta: 'first follow-up tomorrow',
+  },
+  {
+    value: 'casual',
+    label: 'Quarterly',
+    hint: 'light keep-warm',
+    cta: 'first follow-up tomorrow',
+  },
 ]
 
 type Stage = 'capture' | 'reading' | 'review' | 'added'
@@ -71,6 +96,15 @@ async function normalizeDataUrl(dataUrl: string, max = 1600): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.85)
 }
 
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
+function looksLikePhone(value: string): boolean {
+  const digits = value.replace(/\D/g, '')
+  return digits.length >= 8
+}
+
 export function ScanCardSheet({
   open,
   onClose,
@@ -84,6 +118,7 @@ export function ScanCardSheet({
   const [card, setCard] = useState<ScannedCard>(EMPTY)
   const [tier, setTier] = useState<Tier>('network')
   const [note, setNote] = useState('')
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [savedToPhone, setSavedToPhone] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -95,6 +130,7 @@ export function ScanCardSheet({
     setCard(EMPTY)
     setTier('network')
     setNote('')
+    setPreviewImage(null)
     setError(null)
     setSavedToPhone(false)
     if (fileRef.current) fileRef.current.value = ''
@@ -107,6 +143,7 @@ export function ScanCardSheet({
 
   const readCardImage = async (image: string) => {
     setError(null)
+    setPreviewImage(image)
     setStage('reading')
     try {
       const res = await fetch('/api/scan-card', {
@@ -134,7 +171,7 @@ export function ScanCardSheet({
       }
       setCard(scanned)
       // Pre-seed the context note with details that don't have their own field.
-      setNote(scanned.website ? `Scanned from business card. Web: ${scanned.website}` : '')
+      setNote(scanned.website ? `Website: ${scanned.website}` : '')
       if (!scanned.name && !scanned.company) {
         setError("Couldn't read much — check the details below.")
       }
@@ -214,9 +251,16 @@ export function ScanCardSheet({
 
       <div className="relative flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl">
         <header className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-serif text-xl font-medium tracking-tight">
-            {stage === 'review' ? 'Check the details' : 'Scan a business card'}
-          </h2>
+          <div>
+            <h2 className="font-serif text-xl font-medium tracking-tight">
+              {stage === 'review' ? 'Confirm contact' : 'Scan a business card'}
+            </h2>
+            {stage === 'review' && (
+              <p className="mt-0.5 text-[12px] text-muted-foreground">
+                Read from card · check anything uncertain
+              </p>
+            )}
+          </div>
           <button
             type="button"
             onClick={close}
@@ -320,97 +364,118 @@ export function ScanCardSheet({
                 </p>
               )}
 
-              <Field label="Name" required>
-                <input
+              <CapturedCardPreview card={card} image={previewImage} />
+
+              <div className="overflow-hidden rounded-3xl border border-border bg-card/80 shadow-card">
+                <ParsedField
+                  label="Name"
                   value={card.name}
-                  onChange={(e) => update('name', e.target.value)}
-                  placeholder="Maya Chen"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  placeholder="Daniel Okafor"
+                  confidence={card.name.trim() ? 'sure' : 'check'}
+                  onChange={(value) => update('name', value)}
                 />
-              </Field>
-
-              <Field label="Role">
-                <input
-                  value={card.title}
-                  onChange={(e) => update('title', e.target.value)}
-                  placeholder="Design Lead"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                <ParsedField
+                  label="Role · company"
+                  value={[card.title, card.company].filter(Boolean).join(', ')}
+                  placeholder="VP Partnerships, Northbeam"
+                  confidence={card.title.trim() || card.company.trim() ? 'sure' : 'check'}
+                  onChange={(value) => {
+                    const [title, ...companyParts] = value.split(',')
+                    update('title', title?.trim() ?? '')
+                    update('company', companyParts.join(',').trim())
+                  }}
                 />
-              </Field>
-
-              <Field label="Company">
-                <input
-                  value={card.company}
-                  onChange={(e) => update('company', e.target.value)}
-                  placeholder="Linear"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
-                />
-              </Field>
-
-              <Field label="Phone">
-                <input
+                <ParsedField
+                  label="Mobile"
                   value={card.phone}
-                  onChange={(e) => update('phone', e.target.value)}
+                  placeholder="+1 (415) 555-0182"
+                  confidence={looksLikePhone(card.phone) ? 'sure' : 'check'}
                   inputMode="tel"
-                  placeholder="+1 415 555 0142"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  onChange={(value) => update('phone', value)}
                 />
-              </Field>
-
-              <Field label="Email">
-                <input
+                <ParsedField
+                  label="Email"
                   value={card.email}
-                  onChange={(e) => update('email', e.target.value)}
+                  placeholder="d.okafor@northbeam.com"
+                  confidence={looksLikeEmail(card.email) ? 'sure' : 'check'}
                   inputMode="email"
-                  placeholder="maya@linear.app"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  onChange={(value) => update('email', value)}
                 />
-              </Field>
+              </div>
 
-              <Field label="Priority" hint="Sets your follow-up rhythm">
-                <div className="flex gap-2">
-                  {TIER_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setTier(opt.value)}
-                      className={cn(
-                        'flex flex-1 flex-col items-center gap-0.5 rounded-xl border px-2 py-2.5 transition-colors',
-                        tier === opt.value
-                          ? 'border-primary bg-primary/[0.08] text-primary'
-                          : 'border-border bg-card text-muted-foreground',
-                      )}
-                    >
-                      <span className="text-sm font-semibold">{opt.label}</span>
-                      <span className="text-[10px] leading-tight">{opt.hint}</span>
-                    </button>
-                  ))}
+              <section className="rounded-3xl border border-border bg-card/75 p-4 shadow-card">
+                <label className="block">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Where you met
+                  </span>
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={2}
+                    placeholder="SaaS Connect, SF — intro by Grace Lin"
+                    className="mt-2 w-full resize-none rounded-2xl border border-border bg-background/80 px-4 py-3 text-[15px] font-medium leading-relaxed outline-none focus-visible:border-primary"
+                  />
+                </label>
+
+                <div className="mt-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Stay in touch
+                  </p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {TIER_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setTier(opt.value)}
+                        className={cn(
+                          'min-h-11 rounded-2xl border px-2 text-xs font-semibold transition-all active:scale-[0.98]',
+                          tier === opt.value
+                            ? 'border-primary bg-primary text-primary-foreground shadow-card'
+                            : 'border-border bg-background/80 text-muted-foreground',
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </Field>
+              </section>
 
-              <Field label="Where you left off" hint="Helps FollowApp write something real">
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  placeholder="Met at the design conf, talked about her move to Linear…"
-                  className="w-full resize-none rounded-xl border border-border bg-card px-4 py-3 text-base leading-relaxed outline-none focus-visible:border-primary"
-                />
-              </Field>
-
-              <button
-                type="button"
-                onClick={handleNativeCamera}
-                className="self-start text-[13px] font-semibold text-primary"
-              >
-                Retake photo
-              </button>
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handleNativeCamera}
+                  className="flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-primary"
+                >
+                  <RotateCcw className="size-3.5" />
+                  Rescan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!card.name.trim()) return
+                    saveToPhone({
+                      n: card.name,
+                      t: card.title || undefined,
+                      co: card.company || undefined,
+                      p: card.phone || undefined,
+                      e: card.email || undefined,
+                    })
+                    setSavedToPhone(true)
+                  }}
+                  disabled={!card.name.trim()}
+                  className="flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-muted-foreground disabled:opacity-40"
+                >
+                  <Smartphone className="size-3.5" />
+                  {savedToPhone ? 'Opened Contacts' : 'Save to phone'}
+                </button>
+              </div>
             </div>
           )}
         </div>
 
         {stage === 'review' && (
-          <footer className="flex flex-col gap-2 border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <footer className="border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
               onClick={submit}
@@ -418,26 +483,7 @@ export function ScanCardSheet({
               className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-40"
             >
               <UserPlus className="size-4" />
-              Add to FollowApp
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!card.name.trim()) return
-                saveToPhone({
-                  n: card.name,
-                  t: card.title || undefined,
-                  co: card.company || undefined,
-                  p: card.phone || undefined,
-                  e: card.email || undefined,
-                })
-                setSavedToPhone(true)
-              }}
-              disabled={!card.name.trim()}
-              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-4 text-[15px] font-semibold text-foreground transition-colors active:bg-muted disabled:opacity-40"
-            >
-              <Smartphone className="size-4" />
-              {savedToPhone ? 'Opened in Contacts' : 'Also save to phone'}
+              Save · {TIER_OPTIONS.find((opt) => opt.value === tier)?.cta}
             </button>
           </footer>
         )}
@@ -446,27 +492,89 @@ export function ScanCardSheet({
   )
 }
 
-function Field({
+function CapturedCardPreview({
+  card,
+  image,
+}: {
+  card: ScannedCard
+  image: string | null
+}) {
+  const roleLine = [card.title, card.company].filter(Boolean).join(' · ')
+  return (
+    <div className="flex justify-center px-4 py-2">
+      <div className="relative w-full max-w-[17.5rem] rotate-[-2deg] overflow-hidden rounded-2xl border border-border bg-[#f2eee6] p-4 text-left shadow-card-lg">
+        {image && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={image}
+            alt=""
+            className="absolute inset-0 size-full object-cover opacity-[0.16] blur-[1px]"
+          />
+        )}
+        <div className="relative">
+          <p className="font-heading text-base font-semibold leading-tight text-foreground">
+            {card.name || 'Name from card'}
+          </p>
+          <p className="mt-1 text-xs font-medium text-muted-foreground">
+            {roleLine || 'Role · Company'}
+          </p>
+          <div className="mt-4 space-y-0.5 text-xs leading-relaxed text-muted-foreground">
+            <p>{card.phone || '+1 (415) 555-0182'}</p>
+            <p>{card.email || 'email@company.com'}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ParsedField({
   label,
-  hint,
-  required,
-  children,
+  value,
+  placeholder,
+  confidence,
+  inputMode,
+  onChange,
 }: {
   label: string
-  hint?: string
-  required?: boolean
-  children: React.ReactNode
+  value: string
+  placeholder: string
+  confidence: 'sure' | 'check'
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
+  onChange: (value: string) => void
 }) {
+  const needsCheck = confidence === 'check'
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="flex items-baseline gap-2 px-1">
-        <span className="text-sm font-medium text-foreground">{label}</span>
-        {required && <span className="text-xs text-primary">required</span>}
-        {hint && (
-          <span className="ml-auto text-[11px] text-muted-foreground">{hint}</span>
+    <label className="grid grid-cols-[1fr_auto] gap-3 border-b border-border/70 px-4 py-3 last:border-b-0">
+      <span className="min-w-0">
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </span>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode={inputMode}
+          placeholder={placeholder}
+          className="mt-1 h-7 w-full min-w-0 bg-transparent font-heading text-[15px] font-semibold text-foreground outline-none placeholder:text-muted-foreground/45"
+        />
+      </span>
+      <span
+        className={cn(
+          'mt-1 flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-semibold',
+          needsCheck
+            ? 'border border-amber-300 bg-amber-50 text-amber-700'
+            : 'bg-primary/10 text-primary',
+        )}
+      >
+        {needsCheck ? (
+          <>
+            <AlertCircle className="size-3.5" />
+            Check
+          </>
+        ) : (
+          <CheckCircle2 className="size-4" />
         )}
       </span>
-      {children}
     </label>
   )
 }
