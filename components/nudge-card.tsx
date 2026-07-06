@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronRight, Clock, Moon, Check } from 'lucide-react'
+import { Clock, Moon, Check, Pencil } from 'lucide-react'
 import type { Contact } from '@/lib/types'
 import type { Nudge } from '@/hooks/use-nudges'
 import type { SnoozeDuration } from '@/hooks/use-engagement'
 import { ContactAvatar } from '@/components/contact-avatar'
 import { ChannelIcon } from '@/components/channel-icon'
-import { lastTouchShort, healthLevel } from '@/lib/format'
+import { healthLevel } from '@/lib/format'
 import {
   deliver,
   resolveChannel,
@@ -49,6 +49,7 @@ export function NudgeCard({
   // WhatsApp sends wear WhatsApp's own green so the handoff to the app is
   // instantly recognizable; every other Nudge action stays brand blue.
   const isWhatsApp = channel === 'whatsapp'
+  const level = healthLevel(contact.daysSinceContact, contact.tier)
 
   const handleSend = async () => {
     if (!nudge || !canSend) return
@@ -65,69 +66,74 @@ export function NudgeCard({
     onSnooze?.(duration)
   }
 
+  if (!featured) {
+    return (
+      <article className="border-b border-[var(--hairline)] last:border-b-0">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="pressable flex w-full items-center gap-3 px-4 py-3.5 text-left"
+        >
+          <ContactAvatar contact={contact} size="md" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14.5px] font-semibold tracking-[-0.01em] text-[var(--ink-strong)]">
+              {contact.name}
+            </span>
+            <span className="mt-0.5 block truncate text-[12px] text-[var(--ink-secondary)]">
+              {contact.title ?? contact.relationship}
+            </span>
+          </span>
+          <StatusBlock level={level} days={contact.daysSinceContact} />
+        </button>
+      </article>
+    )
+  }
+
   return (
     <article
-      className={cn(
-        'border border-border bg-card transition-shadow hover:shadow-card',
-        featured
-          ? 'rounded-2xl border-primary/20 p-5 shadow-card-lg sm:p-6'
-          : 'rounded-xl p-4',
-      )}
+      className="glass-hero p-[18px]"
     >
       {/* Header */}
       <button
         type="button"
         onClick={onOpen}
-        className="flex w-full items-center gap-3 text-left"
+        className="pressable flex w-full items-center gap-3 rounded-2xl text-left"
       >
-        <ContactAvatar contact={contact} size={featured ? 'lg' : 'md'} />
+        <ContactAvatar contact={contact} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <p
-              className={cn(
-                'truncate font-heading font-semibold leading-tight text-foreground',
-                featured ? 'text-[17px]' : 'text-[15px]',
-              )}
+              className="truncate font-heading text-[17px] font-semibold leading-tight tracking-[-0.018em] text-[var(--ink-strong)]"
             >
               {contact.name}
             </p>
             {contact.tier === 'key' && (
-              <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-primary">
-                Key
+              <span className="shrink-0 rounded-full border border-[var(--hairline)] bg-white/25 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-secondary)]">
+                Key contact
               </span>
             )}
           </div>
-          <p className="truncate text-[13px] leading-tight text-muted-foreground">
-            {pinned ? 'Priority follow-up' : contact.title ?? contact.relationship}
+          <p className="truncate text-[13px] leading-tight text-[var(--ink-secondary)]">
+            {contact.title ?? (pinned ? 'Priority follow-up' : contact.relationship)}
           </p>
         </div>
-        <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground/80">
-          <HealthDot
-            level={healthLevel(contact.daysSinceContact, contact.tier)}
-          />
-          {lastTouchShort(contact.daysSinceContact)}
-        </span>
+        <StatusBlock level={level} days={contact.daysSinceContact} />
       </button>
 
       {/* Opener — the hero. No nested box; it breathes on the card. */}
-      <div className={cn('relative', featured ? 'mt-5' : 'mt-4')}>
+      <div className="relative mt-5">
         {loading || !nudge ? (
           <div className="space-y-2.5 py-1">
-            <div className="h-3 w-[88%] animate-pulse rounded-full bg-muted" />
-            <div className="h-3 w-[64%] animate-pulse rounded-full bg-muted" />
+            <div className="h-3 w-[88%] animate-pulse rounded-full bg-[var(--hairline)]" />
+            <div className="h-3 w-[64%] animate-pulse rounded-full bg-[var(--hairline)]" />
           </div>
         ) : (
           <>
-            <span className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Suggested opener · {nudge.tone}
+            <span className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
+              Draft · {nudge.tone}
             </span>
             <p
-              className={cn(
-                'text-pretty text-foreground',
-                featured
-                  ? 'text-[18px] leading-[1.55] tracking-[-0.012em]'
-                  : 'line-clamp-2 text-[15px] leading-relaxed',
-              )}
+              className="text-pretty text-[15.5px] leading-[1.5] tracking-[-0.012em] text-[var(--ink-body)]"
             >
               {nudge.text}
             </p>
@@ -141,7 +147,7 @@ export function NudgeCard({
           <button
             type="button"
             onClick={() => handleSnooze('later')}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
+            className="glass-button pressable flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[var(--r-button)] text-sm font-medium text-[var(--ink-strong)]"
           >
             <Clock className="size-4" />
             Later today
@@ -149,27 +155,22 @@ export function NudgeCard({
           <button
             type="button"
             onClick={() => handleSnooze('weekend')}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-secondary text-sm font-medium text-foreground transition-colors active:bg-muted"
+            className="glass-button pressable flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[var(--r-button)] text-sm font-medium text-[var(--ink-strong)]"
           >
             <Moon className="size-4" />
             This weekend
           </button>
         </div>
       ) : (
-        <div className={cn('flex items-center gap-2', featured ? 'mt-5' : 'mt-4')}>
+        <div className="mt-5 flex items-center gap-2">
           <button
             type="button"
             onClick={handleSend}
             disabled={loading || !nudge || sending || !canSend}
             className={cn(
-              'flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40',
+              'primary-action pressable flex min-h-[46px] flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold disabled:opacity-40',
               isWhatsApp
-                ? // Hero pick gets the bold, solid WhatsApp green; secondary
-                  // cards get a quiet tonal green so only one button shouts per
-                  // screen while still signaling the WhatsApp channel.
-                  featured
-                  ? 'bg-whatsapp text-whatsapp-foreground shadow-sm'
-                  : 'border border-whatsapp/40 bg-whatsapp/10 text-whatsapp'
+                ? 'bg-whatsapp text-whatsapp-foreground shadow-sm'
                 : 'bg-primary text-primary-foreground shadow-sm',
             )}
           >
@@ -189,7 +190,7 @@ export function NudgeCard({
               type="button"
               onClick={() => setShowSnooze(true)}
               aria-label={`Snooze ${contact.name}`}
-              className="flex size-11 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-secondary active:bg-muted"
+              className="glass-button pressable flex size-[46px] items-center justify-center rounded-[var(--r-button)] text-[var(--ink-secondary)]"
             >
               <Clock className="size-[18px]" />
             </button>
@@ -197,10 +198,10 @@ export function NudgeCard({
           <button
             type="button"
             onClick={onOpen}
-            aria-label="Open conversation"
-            className="flex size-11 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-secondary active:bg-muted"
+            aria-label="Edit opener"
+            className="glass-button pressable flex size-[46px] items-center justify-center rounded-[var(--r-button)] text-[var(--ink-secondary)]"
           >
-            <ChevronRight className="size-[18px]" />
+            <Pencil className="size-[17px]" />
           </button>
         </div>
       )}
@@ -208,30 +209,46 @@ export function NudgeCard({
   )
 }
 
-/** A small status dot showing how the relationship sits against its cadence. */
-function HealthDot({
+function statusCopy(
+  level: 'on-track' | 'due-soon' | 'overdue',
+  days: number,
+): { label: string; sublabel: string } {
+  return {
+    label:
+      level === 'overdue'
+        ? 'Overdue'
+        : level === 'due-soon'
+          ? 'Due soon'
+          : 'On track',
+    sublabel: days <= 0 ? 'today' : `${days} days`,
+  }
+}
+
+function StatusBlock({
   level,
+  days,
 }: {
   level: 'on-track' | 'due-soon' | 'overdue'
+  days: number
 }) {
-  const label =
-    level === 'overdue'
-      ? 'Overdue for a follow-up'
-      : level === 'due-soon'
-        ? 'Due for a follow-up soon'
-        : 'On track'
+  const status = statusCopy(level, days)
   return (
     <span
-      aria-label={label}
-      title={label}
+      aria-label={`${status.label}, ${status.sublabel}`}
+      title={`${status.label}, ${status.sublabel}`}
       className={cn(
-        'size-2 shrink-0 rounded-full',
+        'tnum shrink-0 text-right leading-none',
         level === 'overdue'
-          ? 'bg-health-late'
+          ? 'status-overdue'
           : level === 'due-soon'
-            ? 'bg-health-warn'
-            : 'bg-health-good',
+            ? 'status-due-soon'
+            : 'status-on-track',
       )}
-    />
+    >
+      <span className="block text-[12px] font-semibold">{status.label}</span>
+      <span className="mt-1 block text-[11.5px] font-medium text-[var(--ink-secondary)]">
+        {status.sublabel}
+      </span>
+    </span>
   )
 }

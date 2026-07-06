@@ -59,7 +59,7 @@ export function NudgeFeed({
   const rest = drifting.slice(1)
 
   return (
-    <div className="grid gap-7 px-4 py-4 sm:px-6 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-7">
+    <div className="relative z-[1] grid gap-6 px-4 py-4 sm:px-6 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-7">
       {groups.length > 0 && (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 lg:col-span-12 [&::-webkit-scrollbar]:hidden">
           <FilterChip
@@ -114,7 +114,7 @@ export function NudgeFeed({
               {rest.length}
             </span>
           </SectionLabel>
-          <div className="flex flex-col gap-3">
+          <div className="glass-card overflow-hidden">
             {rest.map((contact) => (
               <NudgeCard
                 key={contact.id}
@@ -124,7 +124,7 @@ export function NudgeFeed({
                 pinned={pinnedIds.includes(contact.id)}
                 onOpen={() => onOpen(contact.id)}
                 onSend={(text) => onSend(contact.id, text)}
-                      onSnooze={(duration) => onSnooze(contact.id, duration)}
+                onSnooze={(duration) => onSnooze(contact.id, duration)}
               />
             ))}
           </div>
@@ -149,10 +149,10 @@ function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'shrink-0 rounded-lg border px-3.5 py-1.5 text-sm font-medium transition-colors',
+        'pressable shrink-0 rounded-[var(--r-chip)] border px-3.5 py-1.5 text-sm font-medium transition-colors',
         active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border bg-card text-muted-foreground',
+          ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)]'
+          : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)] backdrop-blur',
       )}
     >
       {children}
@@ -162,7 +162,7 @@ function FilterChip({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="flex items-center gap-1.5 px-0.5 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+    <h2 className="flex items-center gap-1.5 px-0.5 text-[11.5px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-secondary)]">
       {children}
     </h2>
   )
@@ -170,17 +170,16 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function AllCaughtUp() {
   return (
-    <div className="flex flex-col items-center gap-4 px-6 py-14 text-center">
-      <div className="flex size-12 items-center justify-center rounded-full bg-secondary text-accent">
+    <div className="glass-hero mx-4 flex flex-col items-center gap-4 px-6 py-14 text-center sm:mx-6 lg:col-span-12">
+      <div className="flex size-12 items-center justify-center rounded-full bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
         <Check className="size-6" strokeWidth={2.25} />
       </div>
       <div className="max-w-[18rem]">
         <p className="font-serif text-2xl font-medium leading-tight text-balance">
           You&apos;re all caught up
         </p>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground text-pretty">
-          No follow-ups due right now. Your network&apos;s warm — check back
-          tomorrow.
+        <p className="mt-2 text-sm leading-relaxed text-[var(--ink-secondary)] text-pretty">
+          No follow-ups are due right now. Check back tomorrow.
         </p>
       </div>
     </div>

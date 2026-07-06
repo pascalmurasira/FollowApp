@@ -264,7 +264,7 @@ export function NudgeApp() {
 
   // Avoid an onboarding/app flash before localStorage is read.
   if (phase === 'pending') {
-    return <div className="min-h-[100dvh] bg-background" aria-hidden="true" />
+    return <div className="app-field min-h-[100dvh]" aria-hidden="true" />
   }
 
   if (phase === 'onboarding') {
@@ -278,7 +278,8 @@ export function NudgeApp() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] w-full max-w-6xl flex-col bg-background lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.25rem] lg:border lg:border-border lg:shadow-card-lg">
+    <div className="app-field mx-auto flex min-h-[100dvh] w-full max-w-6xl flex-col lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.6rem] lg:border lg:border-white/40 lg:shadow-card-lg">
+      <span className="field-grain" aria-hidden />
       {activeContact ? (
         <ConversationView
           contact={activeContact}
@@ -288,23 +289,24 @@ export function NudgeApp() {
         />
       ) : (
         <>
-          <header className="glass-appbar sticky top-0 z-10 px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-appbar-foreground lg:static lg:px-8 lg:py-5">
+          <header className="sticky top-0 z-10 px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-[var(--ink-strong)] backdrop-blur-xl lg:static lg:px-8 lg:py-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-lg border border-appbar-foreground/15 bg-appbar-foreground/10">
+                <span className="glass-button flex size-9 items-center justify-center rounded-xl text-[var(--ink-strong)]">
                   <NudgeLogo className="size-[18px]" />
                 </span>
                 <div>
-                  <h1 className="font-heading text-lg font-semibold tracking-tight">
-                    FollowApp
+                  <h1 className="font-heading text-[30px] font-bold leading-none tracking-[-0.03em]">
+                    {tab === 'nudges' ? 'Follow-ups' : tab === 'chats' ? 'Chats' : 'You'}
                   </h1>
-                  <p className="hidden text-xs text-appbar-foreground/55 lg:block">
-                    Relationship command center
+                  <p className="mt-1 hidden text-[13px] text-[var(--ink-secondary)] lg:block">
+                    {contacts.filter((c) => c.daysSinceContact < 30).length} on track ·{' '}
+                    {contacts.filter((c) => c.daysSinceContact >= 30).length} overdue
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <p className="hidden text-xs font-medium text-appbar-foreground/70 sm:block">
+                <p className="hidden text-xs font-medium text-[var(--ink-secondary)] sm:block">
                   {tab === 'nudges'
                     ? `${contacts.length} relationships`
                     : tab === 'chats'
@@ -316,7 +318,7 @@ export function NudgeApp() {
                     type="button"
                     onClick={() => setShowAddContact(true)}
                     aria-label="Add someone"
-                    className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-appbar-foreground/15 bg-appbar-foreground/10 px-3 text-sm font-medium text-appbar-foreground transition-colors hover:bg-appbar-foreground/15 active:bg-appbar-foreground/20"
+                    className="glass-button pressable flex min-h-11 items-center justify-center gap-2 rounded-full px-3 text-sm font-semibold text-[var(--ink-strong)]"
                   >
                     <UserPlus className="size-[18px]" />
                     <span className="hidden sm:inline">Add contact</span>

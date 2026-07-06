@@ -60,29 +60,30 @@ const capabilities = [
 
 export function LandingIntro({ onGetStarted }: LandingIntroProps) {
   return (
-    <div className="min-h-[100dvh] bg-background">
-      <header className="border-b border-border/80 bg-card/90 backdrop-blur">
+    <div className="app-field min-h-[100dvh]">
+      <span className="field-grain" aria-hidden />
+      <header className="relative z-[1] border-b border-[var(--hairline)] bg-white/15 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <span className="primary-action flex size-8 items-center justify-center rounded-lg">
               <NudgeLogo className="size-[17px]" />
             </span>
-            <span className="font-heading text-[17px] font-semibold tracking-tight">
+            <span className="font-heading text-[17px] font-semibold tracking-tight text-[var(--ink-strong)]">
               FollowApp
             </span>
           </div>
 
-          <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
-            <a href="#product" className="transition-colors hover:text-foreground">
+          <nav className="hidden items-center gap-7 text-sm text-[var(--ink-secondary)] md:flex">
+            <a href="#product" className="transition-colors hover:text-[var(--ink-strong)]">
               Product
             </a>
-            <a href="#principles" className="transition-colors hover:text-foreground">
+            <a href="#principles" className="transition-colors hover:text-[var(--ink-strong)]">
               Principles
             </a>
             <button
               type="button"
               onClick={onGetStarted}
-              className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              className="primary-action pressable rounded-lg px-4 py-2 font-medium"
             >
               Get started
             </button>
@@ -90,20 +91,20 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
         </div>
       </header>
 
-      <main>
+      <main className="relative z-[1]">
         <section className="mx-auto grid max-w-6xl items-center gap-14 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.02fr_0.98fr] lg:py-28">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              <BriefcaseBusiness className="size-3.5 text-primary" />
+            <div className="glass-button inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[var(--ink-secondary)]">
+              <BriefcaseBusiness className="size-3.5 text-[var(--ink-strong)]" />
               Relationship intelligence for operators
             </div>
 
-            <h1 className="mt-6 max-w-2xl text-balance font-heading text-[2.75rem] font-semibold leading-[1.02] tracking-[-0.045em] sm:text-[4rem]">
+            <h1 className="mt-6 max-w-2xl text-balance font-heading text-[2.75rem] font-bold leading-[1.02] tracking-[-0.045em] text-[var(--ink-strong)] sm:text-[4rem]">
               Your network is an asset.
-              <span className="block text-primary">Operate it like one.</span>
+              <span className="block text-[var(--ink-secondary)]">Operate it like one.</span>
             </h1>
 
-            <p className="mt-6 max-w-xl text-pretty text-lg leading-8 text-muted-foreground">
+            <p className="mt-6 max-w-xl text-pretty text-lg leading-8 text-[var(--ink-secondary)]">
               FollowApp shows you who needs attention, drafts a thoughtful
               opener in your voice, and lets you send through the channels you
               already use.
@@ -113,30 +114,30 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
               <button
                 type="button"
                 onClick={onGetStarted}
-                className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-card transition-colors hover:bg-primary/90"
+                className="primary-action pressable group inline-flex min-h-12 items-center justify-center gap-2 rounded-[var(--r-button-lg)] px-5 text-sm font-semibold"
               >
                 Open your follow-up list
                 <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
               </button>
               <a
                 href="#product"
-                className="inline-flex min-h-12 items-center justify-center rounded-lg border border-border bg-card px-5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+                className="glass-button pressable inline-flex min-h-12 items-center justify-center rounded-[var(--r-button-lg)] px-5 text-sm font-semibold text-[var(--ink-strong)]"
               >
                 See how it works
               </a>
             </div>
 
-            <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
+            <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm text-[var(--ink-secondary)]">
               <span className="inline-flex items-center gap-2">
-                <Check className="size-4 text-accent" />
+                <Check className="size-4 text-[var(--status-on-track)]" />
                 No account required
               </span>
               <span className="inline-flex items-center gap-2">
-                <Check className="size-4 text-accent" />
+                <Check className="size-4 text-[var(--status-on-track)]" />
                 Nothing auto-sent
               </span>
               <span className="inline-flex items-center gap-2">
-                <Check className="size-4 text-accent" />
+                <Check className="size-4 text-[var(--status-on-track)]" />
                 Local-first by default
               </span>
             </div>
@@ -145,7 +146,7 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
           <ProductPreview />
         </section>
 
-        <section className="border-y border-border bg-card">
+        <section className="border-y border-[var(--hairline)] bg-white/15 backdrop-blur">
           <div className="mx-auto grid max-w-6xl gap-6 px-5 py-7 sm:grid-cols-[1fr_2fr] sm:px-8">
             <p className="text-sm font-semibold text-foreground">
               Built for people whose relationships compound.

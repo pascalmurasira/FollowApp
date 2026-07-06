@@ -101,25 +101,25 @@ export function ConversationView({
   }
 
   return (
-    <div className="mx-auto flex h-[100dvh] w-full max-w-3xl flex-col bg-background lg:h-[calc(100dvh-3rem)] lg:border-x lg:border-border">
-      <header className="glass-appbar z-10 flex items-center gap-2 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2.5 text-appbar-foreground">
+    <div className="relative z-[1] mx-auto flex h-[100dvh] w-full max-w-3xl flex-col lg:h-[calc(100dvh-3rem)] lg:border-x lg:border-white/30">
+      <header className="z-10 flex items-center gap-2 border-b border-[var(--hairline)] px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2.5 text-[var(--ink-strong)] backdrop-blur-xl">
         <button
           type="button"
           onClick={onBack}
           aria-label="Back to list"
-          className="flex size-11 items-center justify-center rounded-full text-appbar-foreground transition-colors active:bg-appbar-foreground/15"
+          className="glass-button pressable flex size-11 items-center justify-center rounded-full text-[var(--ink-strong)]"
         >
           <ChevronLeft className="size-6" />
         </button>
         <ContactAvatar contact={contact} size="sm" />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-heading text-base font-semibold leading-tight">
+          <p className="truncate font-heading text-[15.5px] font-semibold leading-tight tracking-[-0.01em]">
             {contact.name}
           </p>
-          <p className="truncate text-xs text-appbar-foreground/70">
+          <p className="truncate text-xs text-[var(--ink-secondary)]">
             {contact.daysSinceContact === 0
-              ? 'online'
-              : driftLabel(contact.daysSinceContact)}
+              ? 'Cadence: active · last contact today'
+              : `Cadence: ${contact.tier === 'key' ? 'every 3 weeks' : contact.tier === 'casual' ? 'quarterly' : 'monthly'} · ${driftLabel(contact.daysSinceContact)}`}
           </p>
         </div>
         <ChannelSwitcher
@@ -135,9 +135,9 @@ export function ConversationView({
         <>
       <div
         ref={scrollRef}
-        className="chat-wallpaper flex-1 space-y-1.5 overflow-y-auto overscroll-y-contain px-3 py-3"
+        className="flex-1 space-y-2 overflow-y-auto overscroll-y-contain px-3 py-4"
       >
-        <div className="mx-auto my-2 w-fit rounded-full bg-foreground/[0.06] px-3 py-1 text-center text-[11px] text-muted-foreground backdrop-blur">
+        <div className="mx-auto my-2 w-fit rounded-full border border-[var(--hairline)] bg-white/20 px-3 py-1 text-center text-[11px] text-[var(--ink-secondary)] backdrop-blur">
           {canSend
             ? `Sent from your own ${channelLabel(channel)} · replies arrive in ${channelLabel(channel)}, not here`
             : 'Add a phone number or email before sending'}
@@ -152,10 +152,10 @@ export function ConversationView({
             >
               <div
                 className={cn(
-                  'relative max-w-[80%] px-3 py-2 text-[15px] leading-relaxed text-pretty shadow-sm',
+                  'relative max-w-[80%] px-3.5 py-2.5 text-[15px] leading-relaxed text-pretty shadow-sm',
                   mine
-                    ? 'rounded-2xl rounded-br-sm bg-bubble-out text-bubble-out-foreground'
-                    : 'rounded-2xl rounded-bl-sm bg-bubble-in text-bubble-in-foreground',
+                    ? 'rounded-2xl rounded-br-sm bg-[var(--action-bg)] text-[var(--action-fg)]'
+                    : 'glass-card rounded-2xl rounded-bl-sm text-[var(--ink-body)]',
                 )}
               >
                 {message.text}
@@ -185,7 +185,7 @@ export function ConversationView({
         />
       )}
 
-      <div className="border-t border-border bg-card/95 backdrop-blur">
+      <div className="border-t border-[var(--hairline)] bg-white/20 backdrop-blur-xl">
         <>
             {showInvite ? (
               <InvitePrompt
@@ -209,16 +209,16 @@ export function ConversationView({
               {/* AI suggestion bar — the "what to say" engine */}
               <div className="px-4 pt-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    <Sparkles className="size-3 text-primary" />
-                    Tap to say it
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
+                    <Sparkles className="size-3 text-[var(--ink-secondary)]" />
+                    Draft · matches your tone
                   </div>
                   <button
                     type="button"
                     onClick={refresh}
                     disabled={loading}
                     aria-label="Get new suggestions"
-                    className="-my-2 flex min-h-11 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition-colors active:bg-muted disabled:opacity-50"
+                    className="pressable -my-2 flex min-h-11 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-[var(--ink-secondary)] disabled:opacity-50"
                   >
                     <RotateCw className={cn('size-3.5', loading && 'animate-spin')} />
                     New ideas
@@ -231,7 +231,7 @@ export function ConversationView({
                       {[0, 1, 2].map((i) => (
                         <div
                           key={i}
-                          className="h-[72px] w-[82%] shrink-0 snap-start animate-pulse rounded-xl border border-border bg-muted"
+                          className="h-[72px] w-[82%] shrink-0 snap-start animate-pulse rounded-xl border border-[var(--hairline)] bg-white/20"
                         />
                       ))}
                     </>
@@ -242,12 +242,12 @@ export function ConversationView({
                         type="button"
                         onClick={() => submit(suggestion.text)}
                         disabled={!canSend}
-                        className="flex h-[72px] w-[82%] shrink-0 snap-start flex-col justify-center rounded-xl border border-border bg-secondary/60 px-4 py-2 text-left transition-transform active:scale-[0.98]"
+                        className="glass-card pressable flex h-[72px] w-[82%] shrink-0 snap-start flex-col justify-center rounded-xl px-4 py-2 text-left"
                       >
-                        <span className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+                        <span className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
                           {suggestion.tone}
                         </span>
-                        <span className="line-clamp-2 text-sm leading-snug text-foreground">
+                        <span className="line-clamp-2 text-sm leading-snug text-[var(--ink-body)]">
                           {suggestion.text}
                         </span>
                       </button>
@@ -270,14 +270,14 @@ export function ConversationView({
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Or write your own…"
                 aria-label="Message"
-                className="h-11 flex-1 rounded-full border border-border bg-background px-4 text-base outline-none placeholder:text-muted-foreground focus-visible:border-primary"
+                className="glass-card h-11 flex-1 rounded-full px-4 text-base text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-tertiary)] focus-visible:border-[var(--action-bg)]"
               />
               <button
                 type="submit"
                 disabled={!draft.trim() || !canSend}
                 aria-label={`Send via ${channelLabel(channel)}`}
                 className={cn(
-                  'flex size-11 items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-40',
+                  'pressable flex size-11 items-center justify-center rounded-full disabled:opacity-40',
                   isWhatsApp
                     ? 'bg-whatsapp text-whatsapp-foreground'
                     : 'bg-primary text-primary-foreground',

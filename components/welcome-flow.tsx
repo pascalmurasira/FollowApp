@@ -55,17 +55,18 @@ export function WelcomeFlow({
   }
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col bg-background lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.25rem] lg:border lg:border-border lg:shadow-card-lg">
-      <header className="flex items-center justify-between border-b border-border bg-card px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 sm:px-8 lg:py-4">
+    <div className="app-field mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.6rem] lg:border lg:border-white/40 lg:shadow-card-lg">
+      <span className="field-grain" aria-hidden />
+      <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur sm:px-8 lg:py-4">
         <span className="flex items-center gap-2.5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <span className="primary-action flex size-8 items-center justify-center rounded-lg">
             <NudgeLogo className="size-[17px]" />
           </span>
-          <span className="font-heading text-base font-semibold tracking-tight">
+          <span className="font-heading text-base font-semibold tracking-tight text-[var(--ink-strong)]">
             FollowApp
           </span>
         </span>
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-xs font-medium text-[var(--ink-secondary)]">
           Step {step} of 3
         </span>
       </header>
@@ -86,7 +87,7 @@ export function WelcomeFlow({
         ))}
       </div>
 
-      <div className="flex flex-1 flex-col px-6 sm:px-10">
+      <div className="relative z-[1] flex flex-1 flex-col px-6 sm:px-10">
         {step === 1 && (
           <PeopleStep
             contacts={contacts}
@@ -139,12 +140,12 @@ function PrimaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-    className="group relative flex min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-card transition-all duration-200 active:scale-[0.99] disabled:opacity-40 disabled:shadow-none"
+    className="primary-action pressable group relative flex min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-[var(--r-button-lg)] text-sm font-semibold disabled:opacity-40 disabled:shadow-none"
     >
       {sweep && !disabled && (
         <span
           aria-hidden
-          className="animate-sheen pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-primary-foreground/25 blur-md"
+          className="animate-sheen pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-white/25 blur-md"
         />
       )}
       <span className="relative flex items-center gap-2">{children}</span>
@@ -166,10 +167,10 @@ function PeopleStep({
   return (
     <div className="flex flex-1 flex-col">
       <div className="animate-rise pt-6">
-        <h2 className="text-balance font-heading text-[1.85rem] font-semibold leading-tight tracking-tight">
+        <h2 className="text-balance font-heading text-[1.95rem] font-bold leading-tight tracking-[-0.03em] text-[var(--ink-strong)]">
           Who do you keep meaning to text?
         </h2>
-        <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-2 text-pretty text-sm leading-relaxed text-[var(--ink-secondary)]">
           Pick a few. We’ll move them to the top and have an opener ready for
           each — no typing required.
         </p>
@@ -190,22 +191,22 @@ function PeopleStep({
                   onClick={() => onToggle(contact.id)}
                   aria-pressed={isSelected}
                   className={cn(
-                    'relative flex min-h-11 w-full flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all duration-200 active:scale-[0.98]',
+                    'pressable relative flex min-h-11 w-full flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all duration-200',
                     isSelected
-                      ? 'scale-[1.02] border-primary bg-primary/[0.06] shadow-card ring-2 ring-primary/25'
-                      : 'border-border bg-card hover:border-primary/40',
+                      ? 'scale-[1.02] border-[var(--action-bg)] bg-white/35 shadow-card ring-2 ring-[var(--action-bg)]/20'
+                      : 'border-[var(--glass-border)] bg-white/20 backdrop-blur hover:border-[var(--action-bg)]/40',
                   )}
                 >
                   {isSelected && (
-                    <span className="animate-bloom absolute right-2 top-2 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-card">
+                    <span className="animate-bloom primary-action absolute right-2 top-2 flex size-5 items-center justify-center rounded-full shadow-card">
                       <Check className="size-3" strokeWidth={3} />
                     </span>
                   )}
                   <ContactAvatar contact={contact} size="lg" />
-                  <span className="mt-1 text-sm font-medium leading-tight text-foreground">
+                  <span className="mt-1 text-sm font-medium leading-tight text-[var(--ink-strong)]">
                     {contact.name}
                   </span>
-                  <span className="text-xs leading-tight text-muted-foreground">
+                  <span className="text-xs leading-tight text-[var(--ink-secondary)]">
                     {contact.relationship}
                   </span>
                 </button>
@@ -223,7 +224,7 @@ function PeopleStep({
           <ArrowRight className="size-4" />
         </PrimaryButton>
         {selected.length === 0 && (
-          <p className="mt-3 text-center text-xs text-muted-foreground">
+          <p className="mt-3 text-center text-xs text-[var(--ink-secondary)]">
             You can skip the examples and add your own people next.
           </p>
         )}
@@ -244,10 +245,10 @@ function ToneStep({
   return (
     <div className="flex flex-1 flex-col">
       <div className="animate-rise pt-6">
-        <h2 className="text-balance font-heading text-[1.85rem] font-semibold leading-tight tracking-tight">
+        <h2 className="text-balance font-heading text-[1.95rem] font-bold leading-tight tracking-[-0.03em] text-[var(--ink-strong)]">
           How do you sound?
         </h2>
-        <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-2 text-pretty text-sm leading-relaxed text-[var(--ink-secondary)]">
           Tap the vibe that feels most like you. Every suggestion we write will
           match it.
         </p>
@@ -269,26 +270,26 @@ function ToneStep({
                   onClick={() => onSelect(tone.id)}
                   aria-pressed={isSelected}
                   className={cn(
-                    'flex min-h-11 w-full flex-col items-start gap-2 rounded-2xl border p-4 text-left transition-all duration-200 active:scale-[0.97]',
+                    'pressable flex min-h-11 w-full flex-col items-start gap-2 rounded-2xl border p-4 text-left transition-all duration-200',
                     isSelected
-                      ? 'scale-[1.02] border-primary bg-primary/[0.06] shadow-card ring-2 ring-primary/25'
-                      : 'border-border bg-card hover:border-primary/40',
+                      ? 'scale-[1.02] border-[var(--action-bg)] bg-white/35 shadow-card ring-2 ring-[var(--action-bg)]/20'
+                      : 'border-[var(--glass-border)] bg-white/20 backdrop-blur hover:border-[var(--action-bg)]/40',
                   )}
                 >
                   <span
                     className={cn(
                       'flex size-9 items-center justify-center rounded-xl transition-colors duration-200',
                       isSelected
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-muted-foreground',
+                        ? 'bg-[var(--action-bg)] text-[var(--action-fg)]'
+                        : 'bg-white/25 text-[var(--ink-secondary)]',
                     )}
                   >
                     <Icon className="size-5" />
                   </span>
-                  <span className="mt-1 text-sm font-medium leading-tight text-foreground">
+                  <span className="mt-1 text-sm font-medium leading-tight text-[var(--ink-strong)]">
                     {tone.label}
                   </span>
-                  <span className="text-xs leading-tight text-muted-foreground">
+                  <span className="text-xs leading-tight text-[var(--ink-secondary)]">
                     {tone.blurb}
                   </span>
                 </button>
@@ -325,23 +326,23 @@ function ScanStep({
         <div className="relative flex items-center justify-center">
           <span
             aria-hidden
-            className="animate-halo pointer-events-none absolute size-40 rounded-full bg-primary/20 blur-3xl"
+            className="animate-halo pointer-events-none absolute size-40 rounded-full bg-[var(--field-glow-a)] blur-3xl"
           />
-          <div className="animate-bloom relative flex size-[4.5rem] items-center justify-center rounded-[1.5rem] bg-primary text-primary-foreground shadow-card-lg">
+          <div className="animate-bloom primary-action relative flex size-[4.5rem] items-center justify-center rounded-[1.5rem] shadow-card-lg">
             <ScanLine className="size-9" />
           </div>
         </div>
 
-        <h2 className="animate-rise mt-9 text-balance font-serif text-[1.95rem] font-medium leading-tight tracking-tight">
+        <h2 className="animate-rise mt-9 text-balance font-heading text-[1.95rem] font-bold leading-tight tracking-[-0.03em] text-[var(--ink-strong)]">
           Add your first card
         </h2>
-        <p className="animate-rise mt-3 max-w-[20rem] text-pretty leading-relaxed text-muted-foreground">
+        <p className="animate-rise mt-3 max-w-[20rem] text-pretty leading-relaxed text-[var(--ink-secondary)]">
           Got a business card handy? Snap it and FollowApp fills in the details
           for you. You can always do this later.
         </p>
 
         {scannedName && (
-          <div className="animate-bloom mt-7 flex items-center gap-2 rounded-full border border-primary/25 bg-primary/[0.06] px-4 py-2 text-sm font-medium text-primary">
+          <div className="animate-bloom mt-7 flex items-center gap-2 rounded-full border border-[var(--status-on-track)]/25 bg-[var(--status-on-track-tint)] px-4 py-2 text-sm font-medium text-[var(--status-on-track)]">
             <Sparkles className="size-4" />
             Added {scannedName} — nice start.
           </div>
@@ -363,7 +364,7 @@ function ScanStep({
             <button
               type="button"
               onClick={onFinish}
-              className="mt-3 min-h-11 w-full text-center text-sm font-medium text-muted-foreground transition-colors active:text-foreground"
+              className="pressable mt-3 min-h-11 w-full rounded-full text-center text-sm font-medium text-[var(--ink-secondary)]"
             >
               Skip for now
             </button>

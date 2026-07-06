@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Camera, Check, Pencil, Users, Flame } from 'lucide-react'
+import { Camera, Check, Pencil } from 'lucide-react'
 import type { Profile } from '@/lib/types'
 import {
   loadProfile,
@@ -27,10 +27,12 @@ export function ProfileHeader({
   voiceLabel,
   peopleCount,
   streak,
+  sentCount,
 }: {
   voiceLabel: string
   peopleCount: number
   streak: number
+  sentCount: number
 }) {
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE)
   const [editing, setEditing] = useState(false)
@@ -76,17 +78,17 @@ export function ProfileHeader({
   }
 
   return (
-    <section className="flex flex-col items-center gap-3 rounded-2xl bg-card px-5 py-6 shadow-card">
+    <section className="glass-hero flex flex-col items-center gap-3 px-5 py-6">
       {/* Avatar with camera overlay */}
       <div className="relative">
         {profile.photoUrl ? (
           <img
             src={profile.photoUrl || '/placeholder.svg'}
             alt="Your profile"
-            className="size-20 rounded-full object-cover ring-1 ring-inset ring-foreground/[0.06]"
+            className="size-16 rounded-full object-cover ring-1 ring-inset ring-white/40"
           />
         ) : (
-          <div className="flex size-20 items-center justify-center rounded-full bg-secondary font-heading text-2xl font-semibold tracking-tight text-primary ring-1 ring-inset ring-foreground/[0.06]">
+          <div className="flex size-16 items-center justify-center rounded-full bg-[var(--avatar-solid-bg)] font-heading text-xl font-semibold tracking-tight text-[var(--avatar-solid-fg)] ring-1 ring-inset ring-white/40">
             {initials(profile.name)}
           </div>
         )}
@@ -94,7 +96,7 @@ export function ProfileHeader({
           type="button"
           onClick={() => fileRef.current?.click()}
           aria-label="Change profile photo"
-          className="absolute -bottom-1 -right-1 flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm ring-2 ring-card transition-transform active:scale-95"
+          className="primary-action pressable absolute -bottom-1 -right-1 flex size-8 items-center justify-center rounded-full ring-2 ring-white/40"
         >
           <Camera className="size-4" />
         </button>
@@ -116,14 +118,14 @@ export function ProfileHeader({
             autoFocus
             maxLength={40}
             aria-label="Your name"
-            className="h-10 w-44 rounded-full border border-border bg-background px-4 text-center text-base outline-none focus-visible:border-primary"
+            className="glass-card h-10 w-44 rounded-full px-4 text-center text-base outline-none focus-visible:border-[var(--action-bg)]"
             onKeyDown={(e) => e.key === 'Enter' && saveName()}
           />
           <button
             type="button"
             onClick={saveName}
             aria-label="Save name"
-            className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
+            className="primary-action pressable flex size-10 items-center justify-center rounded-full"
           >
             <Check className="size-4" />
           </button>
@@ -135,18 +137,18 @@ export function ProfileHeader({
             setDraftName(profile.name === 'You' ? '' : profile.name)
             setEditing(true)
           }}
-          className="flex items-center gap-1.5 rounded-full px-2 py-1 transition-colors active:bg-muted"
+          className="pressable flex items-center gap-1.5 rounded-full px-2 py-1"
         >
-          <span className="font-serif text-2xl font-medium tracking-tight text-foreground">
+          <span className="font-heading text-[30px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
             {profile.name}
           </span>
           <Pencil className="size-3.5 text-muted-foreground" />
         </button>
       )}
 
-      <p className="-mt-1 text-sm text-muted-foreground">
-        Your voice is{' '}
-        <span className="font-medium text-foreground">{voiceLabel}</span>
+      <p className="-mt-1 text-sm text-[var(--ink-secondary)]">
+        Active {streak || 1} days in a row ·{' '}
+        <span className="font-medium text-[var(--ink-strong)]">{voiceLabel}</span>
       </p>
 
       {error && (
@@ -156,18 +158,21 @@ export function ProfileHeader({
       )}
 
       {/* Stats */}
-      <div className="mt-2 grid w-full grid-cols-2 gap-3">
+      <div className="mt-2 grid w-full grid-cols-3 gap-1 overflow-hidden rounded-[var(--r-card)] border border-[var(--hairline)] bg-white/15">
         <Stat
-          icon={Users}
           value={peopleCount}
-          label="people you keep close"
+          label="people"
           active={peopleCount > 0}
         />
         <Stat
-          icon={Flame}
           value={streak}
           label="day streak"
           active={streak > 0}
+        />
+        <Stat
+          value={sentCount}
+          label="sent"
+          active
         />
       </div>
     </section>
@@ -175,30 +180,25 @@ export function ProfileHeader({
 }
 
 function Stat({
-  icon: Icon,
   value,
   label,
   active,
 }: {
-  icon: typeof Users
   value: number
   label: string
   active: boolean
 }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 rounded-xl bg-secondary/50 px-3 py-3 text-center">
-      <Icon
-        className={cn('size-4', active ? 'text-primary' : 'text-muted-foreground')}
-      />
+    <div className="flex flex-col items-center gap-1 border-r border-[var(--hairline)] px-3 py-3 text-center last:border-r-0">
       <span
         className={cn(
-          'tnum font-heading text-xl font-semibold',
-          active ? 'text-foreground' : 'text-muted-foreground',
+          'tnum font-heading text-[22px] font-bold leading-none',
+          active ? 'text-[var(--ink-strong)]' : 'text-[var(--ink-tertiary)]',
         )}
       >
         {value}
       </span>
-      <span className="text-[11px] leading-tight text-muted-foreground text-pretty">
+      <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] leading-tight text-[var(--ink-tertiary)] text-pretty">
         {label}
       </span>
     </div>

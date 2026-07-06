@@ -137,24 +137,25 @@ export function AddContactSheet({
       />
 
       {/* Sheet */}
-      <div className="relative flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl">
-        <header className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-serif text-xl font-medium tracking-tight">
-            Add someone
+      <div className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+        <span className="field-grain" aria-hidden />
+        <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
+          <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
+            Add contact
           </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-muted"
+            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+        <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           {justAdded && (
-            <div className="mb-4 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/[0.06] px-3 py-2.5 text-[13px] font-medium text-primary">
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-[var(--status-on-track)]/30 bg-[var(--status-on-track-tint)] px-3 py-2.5 text-[13px] font-medium text-[var(--status-on-track)]">
               <Check className="size-4 shrink-0" />
               <span className="text-pretty">
                 {justAdded} added. Add the next person below.
@@ -163,56 +164,103 @@ export function AddContactSheet({
           )}
 
           {onScan && (
-            <button
-              type="button"
-              onClick={onScan}
-              className="mb-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
-            >
-              <ScanLine className="size-4" />
-              Scan a business card
-            </button>
+            <section className="glass-hero mb-4 p-4 text-center">
+              <div className="relative mx-auto flex h-[170px] max-w-[18rem] items-center justify-center overflow-hidden rounded-[14px] bg-[oklch(0.24_0.03_255)] text-white shadow-inner">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,oklch(0_0_0_/_0.42))]" />
+                <div className="absolute left-8 top-8 size-8 border-l-2 border-t-2 border-white/75" />
+                <div className="absolute right-8 top-8 size-8 border-r-2 border-t-2 border-white/75" />
+                <div className="absolute bottom-8 left-8 size-8 border-b-2 border-l-2 border-white/75" />
+                <div className="absolute bottom-8 right-8 size-8 border-b-2 border-r-2 border-white/75" />
+                <div className="absolute h-px w-4/5 animate-[nudge-sheen_2.6s_ease-in-out_infinite] bg-white/55 shadow-[0_0_18px_white]" />
+                <div className="relative h-20 w-36 rotate-[-4deg] rounded-xl bg-white/90 p-3 text-left text-slate-700 shadow-2xl">
+                  <div className="h-2 w-20 rounded-full bg-slate-700/80" />
+                  <div className="mt-3 h-1.5 w-24 rounded-full bg-slate-400" />
+                  <div className="mt-1.5 h-1.5 w-16 rounded-full bg-slate-300" />
+                </div>
+              </div>
+              <p className="mt-3 text-[14px] font-semibold text-[var(--ink-strong)]">
+                Align the card inside the frame
+              </p>
+              <button
+                type="button"
+                onClick={onScan}
+                className="primary-action pressable mt-3 flex min-h-12 w-full items-center justify-center gap-2 px-4 text-[15px] font-semibold"
+              >
+                <ScanLine className="size-4" />
+                Scan business card
+              </button>
+              <p className="mt-2 text-[12px] text-[var(--ink-secondary)]">
+                You review every field before anything is saved.
+              </p>
+            </section>
           )}
 
-          {onScanQr && (
-            <button
-              type="button"
-              onClick={onScanQr}
-              className="mb-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-4 text-[15px] font-semibold text-foreground transition-colors active:bg-muted"
-            >
-              <QrCode className="size-4" />
-              Scan a FollowApp card
-            </button>
-          )}
+          <div className="glass-card mb-4 overflow-hidden">
+            {onScanQr && (
+              <button
+                type="button"
+                onClick={onScanQr}
+                className="pressable flex w-full items-center gap-3 border-b border-[var(--hairline)] px-4 py-3.5 text-left"
+              >
+                <QrCode className="size-5 text-[var(--ink-secondary)]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-[var(--ink-strong)]">
+                    Scan a FollowApp card
+                  </span>
+                  <span className="block text-xs text-[var(--ink-secondary)]">
+                    Add someone from their QR
+                  </span>
+                </span>
+              </button>
+            )}
 
           {onImport && (
             <>
               <button
                 type="button"
                 onClick={onImport}
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-4 text-sm font-semibold text-foreground transition-transform active:scale-[0.98]"
+                className="pressable flex w-full items-center gap-3 border-b border-[var(--hairline)] px-4 py-3.5 text-left"
               >
-                <Users className="size-4" />
-                Import a list (CSV or paste)
+                <Users className="size-5 text-[var(--ink-secondary)]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-[var(--ink-strong)]">
+                    Import from phone contacts
+                  </span>
+                  <span className="block text-xs text-[var(--ink-secondary)]">
+                    Pick who FollowApp should track
+                  </span>
+                </span>
               </button>
-              <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-                <span className="h-px flex-1 bg-border" />
-                or add one
-                <span className="h-px flex-1 bg-border" />
-              </div>
             </>
           )}
+            <button
+              type="button"
+              onClick={() => document.getElementById('manual-contact-name')?.focus()}
+              className="pressable flex w-full items-center gap-3 px-4 py-3.5 text-left"
+            >
+              <UserPlus className="size-5 text-[var(--ink-secondary)]" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-[var(--ink-strong)]">
+                  Enter manually
+                </span>
+                <span className="block text-xs text-[var(--ink-secondary)]">
+                  Name, number, where you met
+                </span>
+              </span>
+            </button>
+          </div>
 
           {pickerSupported && (
             <>
               <button
                 type="button"
                 onClick={pickFromPhone}
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-primary/40 bg-primary/[0.06] px-4 text-sm font-semibold text-primary transition-transform active:scale-[0.98]"
+                className="glass-button pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
               >
                 <Smartphone className="size-4" />
                 Pick from my phone
               </button>
-              <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+              <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
                 <span className="h-px flex-1 bg-border" />
                 or add by hand
                 <span className="h-px flex-1 bg-border" />
@@ -226,7 +274,8 @@ export function AddContactSheet({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Maya Chen"
-                className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                id="manual-contact-name"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
               />
             </Field>
 
@@ -235,7 +284,7 @@ export function AddContactSheet({
                 value={relationship}
                 onChange={(e) => setRelationship(e.target.value)}
                 placeholder="Former manager"
-                className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
               />
             </Field>
 
@@ -244,7 +293,7 @@ export function AddContactSheet({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Design Lead · Linear"
-                className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
               />
             </Field>
 
@@ -256,10 +305,10 @@ export function AddContactSheet({
                     type="button"
                     onClick={() => setTier(opt.value)}
                     className={cn(
-                      'flex flex-1 flex-col items-center gap-0.5 rounded-xl border px-2 py-2.5 transition-colors',
+                      'pressable flex flex-1 flex-col items-center gap-0.5 rounded-[var(--r-chip)] border px-2 py-2.5 transition-colors',
                       tier === opt.value
-                        ? 'border-primary bg-primary/[0.08] text-primary'
-                        : 'border-border bg-card text-muted-foreground',
+                        ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)]'
+                        : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
                     )}
                   >
                     <span className="text-sm font-semibold">{opt.label}</span>
@@ -267,7 +316,7 @@ export function AddContactSheet({
                   </button>
                 ))}
               </div>
-              <p className="mt-1.5 px-1 text-[12px] text-muted-foreground">
+              <p className="mt-1.5 px-1 text-[12px] text-[var(--ink-secondary)]">
                 {`We'll remind you to reach out in ${
                   TIER_OPTIONS.find((o) => o.value === tier)?.reminder ??
                   'about 6 weeks'
@@ -281,7 +330,7 @@ export function AddContactSheet({
                 onChange={(e) => setPhone(e.target.value)}
                 inputMode="tel"
                 placeholder="+1 415 555 0142"
-                className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
               />
             </Field>
 
@@ -291,7 +340,7 @@ export function AddContactSheet({
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
                 placeholder="Met at the design conf in May, talked about her move to Linear…"
-                className="w-full resize-none rounded-xl border border-border bg-card px-4 py-3 text-base leading-relaxed outline-none focus-visible:border-primary"
+                className="w-full resize-none rounded-xl border border-[var(--hairline)] bg-white/25 px-4 py-3 text-base leading-relaxed outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
               />
             </Field>
 
@@ -300,7 +349,7 @@ export function AddContactSheet({
                 value={interests}
                 onChange={(e) => setInterests(e.target.value)}
                 placeholder="design systems, her new role, marathons"
-                className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
               />
             </Field>
 
@@ -317,10 +366,10 @@ export function AddContactSheet({
                           setNewGroup('')
                         }}
                         className={cn(
-                          'rounded-full border px-3 py-1.5 text-sm transition-colors',
+                          'pressable rounded-full border px-3 py-1.5 text-sm transition-colors',
                           group === g && !newGroup
-                            ? 'border-primary bg-primary/[0.08] font-medium text-primary'
-                            : 'border-border bg-card text-muted-foreground',
+                            ? 'border-[var(--action-bg)] bg-[var(--action-bg)] font-medium text-[var(--action-fg)]'
+                            : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
                         )}
                       >
                         {g}
@@ -335,19 +384,19 @@ export function AddContactSheet({
                     if (e.target.value) setGroup('')
                   }}
                   placeholder="Or name a new circle (Family, Work…)"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                 />
               </div>
             </Field>
           </div>
         </div>
 
-        <footer className="flex flex-col gap-2 border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <footer className="relative z-[1] flex flex-col gap-2 border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
           <button
             type="button"
             onClick={() => submit(false)}
             disabled={!name.trim()}
-            className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-40"
+            className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
           >
             <UserPlus className="size-4" />
             Add to FollowApp
@@ -356,7 +405,7 @@ export function AddContactSheet({
             type="button"
             onClick={() => submit(true)}
             disabled={!name.trim()}
-            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-primary transition-colors active:bg-primary/[0.06] disabled:opacity-40"
+            className="pressable flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
           >
             Save & add another
           </button>
@@ -380,10 +429,10 @@ function Field({
   return (
     <label className="flex flex-col gap-1.5">
       <span className="flex items-baseline gap-2 px-1">
-        <span className="text-sm font-medium text-foreground">{label}</span>
-        {required && <span className="text-xs text-primary">required</span>}
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-tertiary)]">{label}</span>
+        {required && <span className="text-xs text-[var(--ink-secondary)]">required</span>}
         {hint && (
-          <span className="ml-auto text-[11px] text-muted-foreground">
+          <span className="ml-auto text-[11px] text-[var(--ink-secondary)]">
             {hint}
           </span>
         )}

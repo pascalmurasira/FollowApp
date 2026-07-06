@@ -44,6 +44,11 @@ export function YouPanel({
   onShowCard: () => void
 }) {
   const peopleCount = contacts.length
+  const sentCount = contacts.reduce(
+    (total, contact) =>
+      total + contact.messages.filter((message) => message.sender === 'me').length,
+    0,
+  )
   const deviceId = getDeviceId()
   const { data, isLoading, mutate } = useSWR<Learnings>(
     deviceId ? ['/api/memory', deviceId] : null,
@@ -75,28 +80,29 @@ export function YouPanel({
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-5 sm:px-8 lg:py-7">
+    <div className="relative z-[1] mx-auto max-w-4xl px-5 py-5 sm:px-8 lg:py-7">
       {/* Profile */}
       <ProfileHeader
         voiceLabel={voiceLabel}
         peopleCount={peopleCount}
         streak={streak}
+        sentCount={sentCount}
       />
 
       {/* Shareable digital business card */}
       <button
         type="button"
         onClick={onShowCard}
-        className="mt-4 flex w-full items-center gap-3 rounded-2xl bg-card p-4 text-left shadow-card transition-colors active:bg-secondary/60"
+        className="glass-card pressable mt-4 flex w-full items-center gap-3 p-4 text-left"
       >
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/[0.08] text-primary">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/25 text-[var(--ink-strong)]">
           <QrCode className="size-5" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block font-heading text-base font-semibold leading-tight">
-            Your card
+          <span className="block font-heading text-base font-semibold leading-tight text-[var(--ink-strong)]">
+            My digital card
           </span>
-          <span className="block text-[12px] text-muted-foreground text-pretty">
+          <span className="block text-[12px] text-[var(--ink-secondary)] text-pretty">
             Show your QR so anyone can save you in a tap
           </span>
         </span>
@@ -104,13 +110,13 @@ export function YouPanel({
       </button>
 
       {/* People management */}
-      <section className="mt-4 rounded-2xl bg-card p-5 shadow-card">
+      <section className="glass-card mt-4 p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-heading text-base font-semibold leading-tight">
+            <h2 className="font-heading text-base font-semibold leading-tight text-[var(--ink-strong)]">
               Your network
             </h2>
-            <p className="text-[12px] text-muted-foreground">
+            <p className="text-[12px] text-[var(--ink-secondary)]">
               {peopleCount} {peopleCount === 1 ? 'connection' : 'connections'} in
               FollowApp
             </p>
@@ -118,14 +124,14 @@ export function YouPanel({
           <button
             type="button"
             onClick={onAddPerson}
-            className="flex min-h-10 items-center gap-1.5 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
+            className="primary-action pressable flex min-h-10 items-center gap-1.5 rounded-full px-4 text-sm font-semibold"
           >
             <UserPlus className="size-4" />
             Add someone
           </button>
         </div>
 
-        <p className="mt-4 mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <p className="mt-4 mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
           Sort into circles
         </p>
         <PeopleCircles
@@ -136,17 +142,17 @@ export function YouPanel({
       </section>
 
       {/* Voice summary */}
-      <section className="mt-4 rounded-2xl bg-card p-5 shadow-card">
+      <section className="glass-card mt-4 p-5">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-full bg-primary/12 text-primary">
+          <span className="flex size-9 items-center justify-center rounded-full bg-white/25 text-[var(--ink-strong)]">
             <Sparkles className="size-[18px]" />
           </span>
           <div>
-            <h2 className="font-heading text-base font-semibold leading-tight">
-              What FollowApp has learned
+            <h2 className="font-heading text-base font-semibold leading-tight text-[var(--ink-strong)]">
+              Writing tone
             </h2>
-            <p className="text-[12px] text-muted-foreground">
-              Tunes your openers to sound like you
+            <p className="text-[12px] text-[var(--ink-secondary)]">
+              {voiceLabel}
             </p>
           </div>
         </div>
@@ -155,15 +161,15 @@ export function YouPanel({
           {isLoading ? (
             <div className="space-y-2" aria-hidden="true">
               {[0, 1].map((i) => (
-                <div key={i} className="h-12 animate-pulse rounded-xl bg-muted" />
+                <div key={i} className="h-12 animate-pulse rounded-xl bg-white/20" />
               ))}
             </div>
           ) : insights.length === 0 ? (
-            <div className="rounded-xl bg-secondary/50 px-4 py-5 text-center">
-              <p className="text-sm text-muted-foreground text-pretty">
+            <div className="rounded-xl border border-[var(--hairline)] bg-white/15 px-4 py-5 text-center">
+              <p className="text-sm text-[var(--ink-secondary)] text-pretty">
                 Nothing learned yet. As you send, skip, and edit openers,
                 FollowApp picks up your style and adapts — all tuned to a{' '}
-                <span className="font-medium text-foreground">{voiceLabel}</span>{' '}
+                <span className="font-medium text-[var(--ink-strong)]">{voiceLabel}</span>{' '}
                 voice for now.
               </p>
             </div>
@@ -172,9 +178,9 @@ export function YouPanel({
               {insights.map((insight, i) => (
                 <li
                   key={i}
-                  className="flex items-start gap-2.5 rounded-xl bg-secondary/50 px-4 py-3 text-sm leading-relaxed text-pretty"
+                  className="flex items-start gap-2.5 rounded-xl border border-[var(--hairline)] bg-white/15 px-4 py-3 text-sm leading-relaxed text-pretty text-[var(--ink-body)]"
                 >
-                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
+                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[var(--ink-tertiary)]" />
                   <span>{insight}</span>
                 </li>
               ))}
@@ -184,14 +190,14 @@ export function YouPanel({
       </section>
 
       {/* Privacy reassurance */}
-      <section className="mt-4 rounded-2xl bg-card p-5 shadow-card">
+      <section className="glass-card mt-4 p-5">
         <div className="flex items-start gap-2.5">
-          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
             <Lock className="size-[18px]" />
           </span>
-          <div className="text-sm leading-relaxed text-pretty text-muted-foreground">
+          <div className="text-sm leading-relaxed text-pretty text-[var(--ink-secondary)]">
             <p>
-              <span className="font-medium text-foreground">
+              <span className="font-medium text-[var(--ink-strong)]">
                 Only your habits, never your contacts.
               </span>{' '}
               FollowApp remembers which tones you pick and how you edit — tied
@@ -226,7 +232,7 @@ export function YouPanel({
                 type="button"
                 onClick={() => setConfirming(false)}
                 disabled={clearing}
-                className="min-h-11 flex-1 rounded-full border border-border bg-card px-4 text-sm font-medium transition-colors active:bg-muted"
+                className="glass-button pressable min-h-11 flex-1 rounded-full px-4 text-sm font-medium"
               >
                 Keep it
               </button>
@@ -237,13 +243,13 @@ export function YouPanel({
             type="button"
             onClick={() => setConfirming(true)}
             disabled={count === 0}
-            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-4 text-sm font-medium text-muted-foreground transition-colors active:bg-muted disabled:opacity-50"
+            className="glass-button pressable flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-medium text-[var(--ink-secondary)] disabled:opacity-50"
           >
             <Trash2 className="size-4" />
             Clear what FollowApp has learned
           </button>
         )}
-        <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+        <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-[var(--ink-secondary)]">
           <ShieldCheck className="size-3.5" />
           Stored anonymously on this device
         </p>

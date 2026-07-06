@@ -4,7 +4,6 @@ import { useRef, useState } from 'react'
 import {
   X,
   Camera,
-  ScanLine,
   Loader2,
   UserPlus,
   Smartphone,
@@ -249,15 +248,16 @@ export function ScanCardSheet({
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
-      <div className="relative flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl">
-        <header className="flex items-center justify-between border-b border-border px-5 py-4">
+      <div className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+        <span className="field-grain" aria-hidden />
+        <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
           <div>
-            <h2 className="font-serif text-xl font-medium tracking-tight">
+            <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
               {stage === 'review' ? 'Confirm contact' : 'Scan a business card'}
             </h2>
             {stage === 'review' && (
-              <p className="mt-0.5 text-[12px] text-muted-foreground">
-                Read from card · check anything uncertain
+              <p className="mt-0.5 text-[12px] text-[var(--ink-secondary)]">
+                Parsed from card · check anything uncertain
               </p>
             )}
           </div>
@@ -265,7 +265,7 @@ export function ScanCardSheet({
             type="button"
             onClick={close}
             aria-label="Close"
-            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-muted"
+            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>
@@ -281,25 +281,39 @@ export function ScanCardSheet({
           className="sr-only"
         />
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-5">
             {stage === 'capture' && (
-            <div className="flex flex-col items-center gap-5 py-6 text-center">
-              <div className="flex size-20 items-center justify-center rounded-2xl bg-primary/[0.08] text-primary">
-                <ScanLine className="size-9" />
+            <div className="flex flex-col items-center gap-5 py-2 text-center">
+              <div className="glass-hero w-full p-4">
+                <div className="relative mx-auto flex h-[170px] max-w-[18rem] items-center justify-center overflow-hidden rounded-[14px] bg-[oklch(0.24_0.03_255)] text-white shadow-inner">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,oklch(0_0_0_/_0.42))]" />
+                  <div className="absolute left-8 top-8 size-8 border-l-2 border-t-2 border-white/75" />
+                  <div className="absolute right-8 top-8 size-8 border-r-2 border-t-2 border-white/75" />
+                  <div className="absolute bottom-8 left-8 size-8 border-b-2 border-l-2 border-white/75" />
+                  <div className="absolute bottom-8 right-8 size-8 border-b-2 border-r-2 border-white/75" />
+                  <div className="absolute h-px w-4/5 animate-[nudge-sheen_2.6s_ease-in-out_infinite] bg-white/55 shadow-[0_0_18px_white]" />
+                  <div className="relative h-20 w-36 rotate-[-4deg] rounded-xl bg-white/90 p-3 text-left text-slate-700 shadow-2xl">
+                    <div className="h-2 w-20 rounded-full bg-slate-700/80" />
+                    <div className="mt-3 h-1.5 w-24 rounded-full bg-slate-400" />
+                    <div className="mt-1.5 h-1.5 w-16 rounded-full bg-slate-300" />
+                  </div>
+                </div>
+                <p className="mt-3 text-[14px] font-semibold text-[var(--ink-strong)]">
+                  Align the card inside the frame
+                </p>
               </div>
               <div className="max-w-[18rem]">
-                <p className="text-pretty text-[15px] font-medium text-foreground">
+                <p className="text-pretty text-[15px] font-semibold text-[var(--ink-strong)]">
                   Point your camera at a business card
                 </p>
-                <p className="mt-1 text-pretty text-[13px] leading-relaxed text-muted-foreground">
-                  FollowApp reads the name, role, company, and contact details for
-                  you — then drafts a first message.
+                <p className="mt-1 text-pretty text-[13px] leading-relaxed text-[var(--ink-secondary)]">
+                  FollowApp extracts the details, then you approve every field before saving.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={handleNativeCamera}
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
+                className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
               >
                 <Camera className="size-4" />
                 Take a photo
@@ -307,7 +321,7 @@ export function ScanCardSheet({
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="min-h-11 w-full text-sm font-semibold text-primary transition-colors active:text-primary/75"
+                className="pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-secondary)]"
               >
                 Choose from photos instead
               </button>
@@ -316,11 +330,11 @@ export function ScanCardSheet({
 
           {stage === 'reading' && (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
-              <Loader2 className="size-7 animate-spin text-primary" />
-              <p className="text-[14px] font-medium text-foreground">
+              <Loader2 className="size-7 animate-spin text-[var(--ink-strong)]" />
+              <p className="text-[14px] font-medium text-[var(--ink-strong)]">
                 Reading the card…
               </p>
-              <p className="text-[12px] text-muted-foreground">
+              <p className="text-[12px] text-[var(--ink-secondary)]">
               Pulling out the details
               </p>
             </div>
@@ -328,28 +342,28 @@ export function ScanCardSheet({
 
           {stage === 'added' && (
             <div className="flex flex-col items-center gap-4 py-14 text-center">
-              <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/[0.08] text-primary">
+              <div className="flex size-16 items-center justify-center rounded-2xl bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
                 <UserPlus className="size-7" />
               </div>
               <div>
-                <p className="text-lg font-semibold text-foreground">
+                <p className="text-lg font-semibold text-[var(--ink-strong)]">
                   {card.name.trim()} is in FollowApp
                 </p>
-                <p className="mt-1 text-pretty text-sm text-muted-foreground">
+                <p className="mt-1 text-pretty text-sm text-[var(--ink-secondary)]">
                   We’ll use the card details to draft a warmer first follow-up.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={close}
-                className="mt-2 flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground"
+                className="primary-action pressable mt-2 flex min-h-12 w-full items-center justify-center rounded-full px-4 text-[15px] font-semibold"
               >
                 Done
               </button>
               <button
                 type="button"
                 onClick={reset}
-                className="min-h-11 text-sm font-semibold text-primary"
+                className="pressable min-h-11 rounded-full px-4 text-sm font-semibold text-[var(--ink-secondary)]"
               >
                 Scan another card
               </button>
@@ -359,14 +373,14 @@ export function ScanCardSheet({
           {stage === 'review' && (
             <div className="flex flex-col gap-4">
               {error && (
-                <p className="rounded-xl border border-border bg-secondary/50 px-3 py-2.5 text-[13px] text-muted-foreground text-pretty">
+                <p className="rounded-xl border border-[var(--hairline)] bg-white/20 px-3 py-2.5 text-[13px] text-[var(--ink-secondary)] text-pretty">
                   {error}
                 </p>
               )}
 
               <CapturedCardPreview card={card} image={previewImage} />
 
-              <div className="overflow-hidden rounded-3xl border border-border bg-card/80 shadow-card">
+              <div className="glass-card overflow-hidden rounded-3xl">
                 <ParsedField
                   label="Name"
                   value={card.name}
@@ -403,9 +417,9 @@ export function ScanCardSheet({
                 />
               </div>
 
-              <section className="rounded-3xl border border-border bg-card/75 p-4 shadow-card">
+              <section className="glass-card rounded-3xl p-4">
                 <label className="block">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
                     Where you met
                   </span>
                   <textarea
@@ -413,12 +427,12 @@ export function ScanCardSheet({
                     onChange={(e) => setNote(e.target.value)}
                     rows={2}
                     placeholder="SaaS Connect, SF — intro by Grace Lin"
-                    className="mt-2 w-full resize-none rounded-2xl border border-border bg-background/80 px-4 py-3 text-[15px] font-medium leading-relaxed outline-none focus-visible:border-primary"
+                    className="mt-2 w-full resize-none rounded-2xl border border-[var(--hairline)] bg-white/25 px-4 py-3 text-[15px] font-medium leading-relaxed outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                   />
                 </label>
 
                 <div className="mt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
                     Stay in touch
                   </p>
                   <div className="mt-2 grid grid-cols-3 gap-2">
@@ -428,10 +442,10 @@ export function ScanCardSheet({
                         type="button"
                         onClick={() => setTier(opt.value)}
                         className={cn(
-                          'min-h-11 rounded-2xl border px-2 text-xs font-semibold transition-all active:scale-[0.98]',
+                          'pressable min-h-11 rounded-2xl border px-2 text-xs font-semibold transition-all',
                           tier === opt.value
-                            ? 'border-primary bg-primary text-primary-foreground shadow-card'
-                            : 'border-border bg-background/80 text-muted-foreground',
+                            ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)] shadow-card'
+                            : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
                         )}
                       >
                         {opt.label}
@@ -445,7 +459,7 @@ export function ScanCardSheet({
                 <button
                   type="button"
                   onClick={handleNativeCamera}
-                  className="flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-primary"
+                  className="pressable flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)]"
                 >
                   <RotateCcw className="size-3.5" />
                   Rescan
@@ -464,7 +478,7 @@ export function ScanCardSheet({
                     setSavedToPhone(true)
                   }}
                   disabled={!card.name.trim()}
-                  className="flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-muted-foreground disabled:opacity-40"
+                  className="pressable flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
                 >
                   <Smartphone className="size-3.5" />
                   {savedToPhone ? 'Opened Contacts' : 'Save to phone'}
@@ -475,12 +489,12 @@ export function ScanCardSheet({
         </div>
 
         {stage === 'review' && (
-          <footer className="border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <footer className="relative z-[1] border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
             <button
               type="button"
               onClick={submit}
               disabled={!card.name.trim()}
-              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-40"
+              className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
             >
               <UserPlus className="size-4" />
               Save · {TIER_OPTIONS.find((opt) => opt.value === tier)?.cta}
@@ -502,7 +516,7 @@ function CapturedCardPreview({
   const roleLine = [card.title, card.company].filter(Boolean).join(' · ')
   return (
     <div className="flex justify-center px-4 py-2">
-      <div className="relative w-full max-w-[17.5rem] rotate-[-2deg] overflow-hidden rounded-2xl border border-border bg-[#f2eee6] p-4 text-left shadow-card-lg">
+      <div className="relative w-full max-w-[17.5rem] rotate-[-1.5deg] overflow-hidden rounded-2xl border border-white/70 bg-[linear-gradient(135deg,#f7f1e8,#e7ddd1)] p-4 text-left shadow-[0_18px_36px_-20px_oklch(0.2_0.03_255_/_0.55)]">
         {image && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -512,13 +526,13 @@ function CapturedCardPreview({
           />
         )}
         <div className="relative">
-          <p className="font-heading text-base font-semibold leading-tight text-foreground">
+          <p className="font-heading text-base font-semibold leading-tight text-slate-800">
             {card.name || 'Name from card'}
           </p>
-          <p className="mt-1 text-xs font-medium text-muted-foreground">
+          <p className="mt-1 text-xs font-medium text-slate-600">
             {roleLine || 'Role · Company'}
           </p>
-          <div className="mt-4 space-y-0.5 text-xs leading-relaxed text-muted-foreground">
+          <div className="mt-4 space-y-0.5 text-xs leading-relaxed text-slate-600">
             <p>{card.phone || '+1 (415) 555-0182'}</p>
             <p>{card.email || 'email@company.com'}</p>
           </div>
@@ -545,9 +559,9 @@ function ParsedField({
 }) {
   const needsCheck = confidence === 'check'
   return (
-    <label className="grid grid-cols-[1fr_auto] gap-3 border-b border-border/70 px-4 py-3 last:border-b-0">
+    <label className="grid grid-cols-[1fr_auto] gap-3 border-b border-[var(--hairline)] px-4 py-3 last:border-b-0">
       <span className="min-w-0">
-        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
           {label}
         </span>
         <input
@@ -555,16 +569,17 @@ function ParsedField({
           onChange={(e) => onChange(e.target.value)}
           inputMode={inputMode}
           placeholder={placeholder}
-          className="mt-1 h-7 w-full min-w-0 bg-transparent font-heading text-[15px] font-semibold text-foreground outline-none placeholder:text-muted-foreground/45"
+          className="mt-1 h-7 w-full min-w-0 bg-transparent font-heading text-[15px] font-semibold text-[var(--ink-strong)] outline-none placeholder:text-[var(--ink-tertiary)]/45"
         />
       </span>
       <span
         className={cn(
           'mt-1 flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-semibold',
           needsCheck
-            ? 'border border-amber-300 bg-amber-50 text-amber-700'
-            : 'bg-primary/10 text-primary',
+            ? 'border bg-[var(--status-check-tint)] text-[var(--status-due-soon)]'
+            : 'bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]',
         )}
+        style={needsCheck ? { borderColor: 'var(--status-check-border)' } : undefined}
       >
         {needsCheck ? (
           <>

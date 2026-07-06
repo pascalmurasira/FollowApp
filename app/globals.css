@@ -181,17 +181,87 @@
   --sidebar-ring: oklch(0.62 0.16 264);
 }
 
+/* FollowApp — approved serious liquid glass design tokens. These sit after the
+   shadcn-compatible theme tokens so the product UI can use both Tailwind color
+   utilities and the handoff's more precise CSS variables. */
+:root {
+  --field-bg: linear-gradient(175deg, oklch(0.965 0.008 250), oklch(0.935 0.012 252));
+  --field-glow-a: oklch(0.88 0.035 250 / 0.8);
+  --field-glow-b: oklch(0.9 0.025 210 / 0.6);
+
+  --ink-strong: oklch(0.2 0.03 255);
+  --ink-body: oklch(0.24 0.03 255);
+  --ink-secondary: oklch(0.44 0.02 252);
+  --ink-tertiary: oklch(0.5 0.02 252);
+
+  --glass-border: oklch(1 0 0 / 0.6);
+  --glass-bg: linear-gradient(165deg, oklch(1 0 0 / 0.5), oklch(1 0 0 / 0.26));
+  --glass-bg-flat: oklch(1 0 0 / 0.3);
+  --glass-highlight: inset 0 1px 0 oklch(1 0 0 / 0.85);
+  --glass-shadow: 0 16px 40px -18px oklch(0.28 0.04 252 / 0.4);
+  --glass-blur: blur(26px) saturate(150%);
+  --glass-blur-flat: blur(22px) saturate(140%);
+  --hairline: oklch(0.3 0.03 252 / 0.08);
+
+  --action-bg: oklch(0.28 0.05 255);
+  --action-fg: oklch(0.97 0.004 252);
+  --action-shadow: 0 10px 24px -12px oklch(0.28 0.05 255 / 0.7);
+
+  --avatar-solid-bg: oklch(0.32 0.04 252);
+  --avatar-solid-fg: oklch(0.96 0.005 252);
+  --avatar-ghost-bg: oklch(0.94 0.01 252);
+  --avatar-ghost-border: oklch(0.86 0.015 252);
+  --avatar-ghost-fg: oklch(0.35 0.03 252);
+
+  --status-overdue: oklch(0.52 0.12 30);
+  --status-due-soon: oklch(0.55 0.09 75);
+  --status-on-track: oklch(0.5 0.1 155);
+  --status-on-track-tint: oklch(0.5 0.1 155 / 0.13);
+  --status-check-tint: oklch(0.76 0.13 75 / 0.14);
+  --status-check-border: oklch(0.55 0.1 75 / 0.4);
+
+  --r-card-hero: 20px;
+  --r-card: 18px;
+  --r-button: 12px;
+  --r-button-lg: 14px;
+  --r-chip: 9px;
+  --r-nav: 999px;
+}
+
+.dark {
+  --field-bg: linear-gradient(175deg, oklch(0.19 0.025 258), oklch(0.15 0.02 260));
+  --field-glow-a: oklch(0.32 0.06 255 / 0.7);
+  --field-glow-b: oklch(0.28 0.05 220 / 0.55);
+  --ink-strong: oklch(0.95 0.008 252);
+  --ink-body: oklch(0.92 0.008 252);
+  --ink-secondary: oklch(0.68 0.02 252);
+  --ink-tertiary: oklch(0.6 0.02 252);
+  --glass-border: oklch(1 0 0 / 0.16);
+  --glass-bg: linear-gradient(165deg, oklch(1 0 0 / 0.12), oklch(1 0 0 / 0.04));
+  --glass-bg-flat: oklch(1 0 0 / 0.05);
+  --glass-highlight: inset 0 1px 0 oklch(1 0 0 / 0.25);
+  --glass-shadow: 0 20px 50px -22px oklch(0 0 0 / 0.7);
+  --hairline: oklch(1 0 0 / 0.08);
+  --action-bg: oklch(0.95 0.008 252);
+  --action-fg: oklch(0.22 0.03 255);
+  --action-shadow: 0 10px 26px -12px oklch(0.9 0.01 252 / 0.4);
+  --avatar-solid-bg: oklch(0.9 0.01 252);
+  --avatar-solid-fg: oklch(0.25 0.03 255);
+  --avatar-ghost-bg: oklch(1 0 0 / 0.1);
+  --avatar-ghost-border: oklch(1 0 0 / 0.12);
+  --avatar-ghost-fg: oklch(0.88 0.01 252);
+  --status-overdue: oklch(0.7 0.14 30);
+  --status-due-soon: oklch(0.78 0.11 78);
+  --status-on-track: oklch(0.72 0.11 155);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
-    background-image: linear-gradient(
-      180deg,
-      oklch(0.985 0.003 255),
-      oklch(0.965 0.007 255)
-    );
+    background: var(--field-bg);
     background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -251,6 +321,130 @@
   font-variant-numeric: tabular-nums;
 }
 
+.app-field {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--field-bg);
+  color: var(--ink-body);
+}
+
+.app-field::before,
+.app-field::after {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(8px);
+}
+
+.app-field::before {
+  left: -80px;
+  top: -60px;
+  width: 420px;
+  height: 300px;
+  background: radial-gradient(circle at center, var(--field-glow-a), transparent 68%);
+  animation: field-drift-a 26s ease-in-out infinite alternate;
+}
+
+.app-field::after {
+  right: -90px;
+  bottom: -70px;
+  width: 340px;
+  height: 260px;
+  background: radial-gradient(circle at center, var(--field-glow-b), transparent 70%);
+  animation: field-drift-b 30s ease-in-out -8s infinite alternate;
+}
+
+.field-grain {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+.dark .field-grain {
+  opacity: 0.3;
+}
+
+.glass-hero,
+.glass-card,
+.glass-button {
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+
+.glass-hero {
+  border-radius: var(--r-card-hero);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.glass-card,
+.glass-button {
+  border-radius: var(--r-card);
+  background: var(--glass-bg-flat);
+  -webkit-backdrop-filter: var(--glass-blur-flat);
+  backdrop-filter: var(--glass-blur-flat);
+}
+
+.pressable {
+  min-height: 44px;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pressable:active {
+  transform: scale(0.97);
+}
+
+.primary-action {
+  border-radius: var(--r-button-lg);
+  background: var(--action-bg);
+  color: var(--action-fg);
+  box-shadow: var(--action-shadow);
+}
+
+.status-overdue {
+  color: var(--status-overdue);
+}
+
+.status-due-soon {
+  color: var(--status-due-soon);
+}
+
+.status-on-track {
+  color: var(--status-on-track);
+}
+
+@keyframes field-drift-a {
+  from {
+    transform: translate3d(-6px, -4px, 0) scale(0.97);
+  }
+  to {
+    transform: translate3d(14px, 10px, 0) scale(1.06);
+  }
+}
+
+@keyframes field-drift-b {
+  from {
+    transform: translate3d(12px, 10px, 0) scale(1.04);
+  }
+  to {
+    transform: translate3d(-14px, -12px, 0) scale(0.98);
+  }
+}
+
 /* Subtle messenger-style chat wallpaper — faint warm dot texture over paper. */
 .chat-wallpaper {
   background-color: var(--chat-bg);
@@ -281,18 +475,18 @@
 ---------------------------------------------------------------------------- */
 .glass,
 .glass-strong {
-  background-color: var(--glass-bg);
+  background: var(--glass-bg-flat);
   -webkit-backdrop-filter: blur(16px) saturate(120%);
   backdrop-filter: blur(16px) saturate(120%);
   /* Specular top edge + soft lift — the "glass catches light" cue, baked into
      box-shadow so the effect needs no extra element and never disturbs the
      surface's own positioning (fixed/sticky/static all work). */
   box-shadow:
-    inset 0 1px 0 0 var(--glass-highlight),
-    0 8px 30px -12px var(--glass-shadow);
+    var(--glass-highlight),
+    var(--glass-shadow);
 }
 .glass-strong {
-  background-color: var(--glass-bg-strong);
+  background: var(--glass-bg);
   -webkit-backdrop-filter: blur(28px) saturate(190%);
   backdrop-filter: blur(28px) saturate(190%);
 }
@@ -386,7 +580,9 @@
   .animate-rise,
   .animate-bloom,
   .animate-halo,
-  .animate-sheen {
+  .animate-sheen,
+  .app-field::before,
+  .app-field::after {
     animation: none !important;
   }
 }
