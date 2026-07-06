@@ -48,6 +48,7 @@ import { primeEnrichment } from '@/hooks/use-enrichment'
 
 let idCounter = 0
 const nextId = () => `local-${idCounter++}`
+const TAB_ORDER: Tab[] = ['nudges', 'chats', 'you']
 
 /** Move the user's chosen contacts to the front, keeping the rest in order. */
 function prioritize(list: Contact[], selectedIds: string[]): Contact[] {
@@ -62,6 +63,9 @@ export function NudgeApp() {
   const signedIn = !!session?.user
   const [contacts, setContacts] = useState<Contact[]>(CONTACTS)
   const [tab, setTab] = useState<Tab>('nudges')
+  const [tabDirection, setTabDirection] = useState<'forward' | 'backward'>(
+    'forward',
+  )
   const [activeId, setActiveId] = useState<string | null>(null)
   const [voice, setVoice] = useState<string>(CURRENT_USER.voice)
   const [toneLabel, setToneLabel] = useState<string>('low-key & chill')
@@ -262,6 +266,18 @@ export function NudgeApp() {
     [recordReachOut, signedIn],
   )
 
+  const changeTab = useCallback((next: Tab) => {
+    setTab((current) => {
+      if (current === next) return current
+      setTabDirection(
+        TAB_ORDER.indexOf(next) > TAB_ORDER.indexOf(current)
+          ? 'forward'
+          : 'backward',
+      )
+      return next
+    })
+  }, [])
+
   // Avoid an onboarding/app flash before localStorage is read.
   if (phase === 'pending') {
     return <div className="app-field min-h-[100dvh]" aria-hidden="true" />
@@ -329,38 +345,40 @@ export function NudgeApp() {
           </header>
 
           <main className="order-2 flex-1 overflow-y-auto overscroll-y-contain pb-24 lg:pb-8">
-            {tab === 'nudges' ? (
-              <NudgeFeed
-                contacts={contacts}
-                voice={voice}
-                pinnedIds={pinnedIds}
-                snoozedIds={snoozedIds}
-                groups={groups}
-                groupFilter={groupFilter}
-                onFilterChange={setGroupFilter}
-                onOpen={(id) => setActiveId(id)}
-                onSend={sendMessage}
-                onSnooze={snooze}
-              />
-            ) : tab === 'chats' ? (
-              <div className="flex flex-col">
-                <ChatRequests />
-                <ChatList contacts={contacts} onOpen={(id) => setActiveId(id)} />
-              </div>
-            ) : (
-              <YouPanel
-                voiceLabel={toneLabel}
-                contacts={contacts}
-                streak={streak}
-                groups={groups}
-                onAddPerson={() => setShowAddContact(true)}
-                onSetGroup={setContactGroup}
-                onShowCard={() => setShowCard(true)}
-              />
-            )}
+            <div key={tab} className="tab-page" data-direction={tabDirection}>
+              {tab === 'nudges' ? (
+                <NudgeFeed
+                  contacts={contacts}
+                  voice={voice}
+                  pinnedIds={pinnedIds}
+                  snoozedIds={snoozedIds}
+                  groups={groups}
+                  groupFilter={groupFilter}
+                  onFilterChange={setGroupFilter}
+                  onOpen={(id) => setActiveId(id)}
+                  onSend={sendMessage}
+                  onSnooze={snooze}
+                />
+              ) : tab === 'chats' ? (
+                <div className="flex flex-col">
+                  <ChatRequests />
+                  <ChatList contacts={contacts} onOpen={(id) => setActiveId(id)} />
+                </div>
+              ) : (
+                <YouPanel
+                  voiceLabel={toneLabel}
+                  contacts={contacts}
+                  streak={streak}
+                  groups={groups}
+                  onAddPerson={() => setShowAddContact(true)}
+                  onSetGroup={setContactGroup}
+                  onShowCard={() => setShowCard(true)}
+                />
+              )}
+            </div>
           </main>
 
-          <BottomNav tab={tab} onChange={setTab} />
+          <BottomNav tab={tab} onChange={changeTab} />
         </>
       )}
 

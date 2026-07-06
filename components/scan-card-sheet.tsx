@@ -10,9 +10,13 @@ import {
   CheckCircle2,
   AlertCircle,
   RotateCcw,
+  Plus,
+  Check,
+  CalendarDays,
+  Search,
 } from 'lucide-react'
 import type { NewContactInput } from '@/lib/contacts-store'
-import type { Tier } from '@/lib/types'
+import type { EnrichmentHook, Tier } from '@/lib/types'
 import { saveToPhone } from '@/lib/card'
 import { captureImageDataUrl, tapFeedback } from '@/lib/native'
 import { cn } from '@/lib/utils'
@@ -25,6 +29,15 @@ interface ScannedCard {
   email: string
   website: string
 }
+
+interface ContextNote {
+  id: string
+  text: string
+  source: string
+  accepted: boolean
+}
+
+type ContextStatus = 'idle' | 'loading' | 'done' | 'empty' | 'error'
 
 const EMPTY: ScannedCard = {
   name: '',
@@ -57,6 +70,26 @@ const TIER_OPTIONS: { value: Tier; label: string; hint: string; cta: string }[] 
 ]
 
 type Stage = 'capture' | 'reading' | 'review' | 'added'
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function formatDateShort(date: Date): string {
+  return date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function formatFollowUpPhrase(date: Date): string {
+  const tomorrow = addDays(new Date(), 1)
+  if (date.toDateString() === tomorrow.toDateString()) return 'tomorrow'
+  return formatDateShort(date)
+}
 
 /**
  * Downscale a captured photo to a JPEG data URL no wider/taller than `max`,
@@ -117,9 +150,14 @@ export function ScanCardSheet({
   const [card, setCard] = useState<ScannedCard>(EMPTY)
   const [tier, setTier] = useState<Tier>('network')
   const [note, setNote] = useState('')
-  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [savedToPhone, setSavedToPhone] = useState(false)
+  const [contextStatus, setContextStatus] = useState<ContextStatus>('idle')
+  const [contextNotes, setContextNotes] = useState<ContextNote[]>([])
+  const [followUpDate, setFollowUpDate] = useState<Date>(() =>
+    addDays(new Date(), 1),
+  )
+  const [showDateRoller, setShowDateRoller] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   if (!open) return null
@@ -129,9 +167,12 @@ export function ScanCardSheet({
     setCard(EMPTY)
     setTier('network')
     setNote('')
-    setPreviewImage(null)
     setError(null)
     setSavedToPhone(false)
+    setContextStatus('idle')
+    setContextNotes([])
+    setFollowUpDate(addDays(new Date(), 1))
+    setShowDateRoller(false)
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -140,9 +181,59 @@ export function ScanCardSheet({
     onClose()
   }
 
+  const findContext = async (scanned: ScannedCard) => {
+    if (!scanned.name.trim()) {
+      setContextStatus('empty')
+      return
+    }
+
+    setContextStatus('loading')
+    setContextNotes([])
+    try {
+      const res = await fetch('/api/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: scanned.name,
+          title: [scanned.title, scanned.company].filter(Boolean).join(' · '),
+          company: scanned.company,
+          relationship: scanned.company
+            ? `Met through ${scanned.company}`
+            : 'New connection from a business card',
+        }),
+      })
+      const data = (await res.json()) as {
+        hooks?: EnrichmentHook[]
+        status?: 'ok' | 'unavailable'
+      }
+
+      const hooks = data.status === 'ok' ? data.hooks ?? [] : []
+      const notes: ContextNote[] = hooks.map((hook, index) => ({
+        id: `${hook.kind}-${index}`,
+        text: hook.text,
+        source: hook.source ?? 'public source',
+        accepted: false,
+      }))
+
+      if (scanned.website) {
+        notes.push({
+          id: 'card-website',
+          text: `Website on card: ${scanned.website}`,
+          source: 'business card',
+          accepted: false,
+        })
+      }
+
+      setContextNotes(notes)
+      setContextStatus(notes.length > 0 ? 'done' : 'empty')
+    } catch (err) {
+      console.error('[v0] Context lookup failed:', err)
+      setContextStatus('error')
+    }
+  }
+
   const readCardImage = async (image: string) => {
     setError(null)
-    setPreviewImage(image)
     setStage('reading')
     try {
       const res = await fetch('/api/scan-card', {
@@ -157,6 +248,7 @@ export function ScanCardSheet({
         setError("Couldn't read that one — add the details by hand.")
         setCard(EMPTY)
         setStage('review')
+        setContextStatus('empty')
         return
       }
 
@@ -169,17 +261,18 @@ export function ScanCardSheet({
         website: data.website ?? '',
       }
       setCard(scanned)
-      // Pre-seed the context note with details that don't have their own field.
-      setNote(scanned.website ? `Website: ${scanned.website}` : '')
+      setNote('')
       if (!scanned.name && !scanned.company) {
         setError("Couldn't read much — check the details below.")
       }
       setStage('review')
+      void findContext(scanned)
     } catch (err) {
       console.error('[v0] Card capture failed:', err)
       setError("Something went wrong reading the photo — add the details by hand.")
       setCard(EMPTY)
       setStage('review')
+      setContextStatus('empty')
     }
   }
 
@@ -219,6 +312,14 @@ export function ScanCardSheet({
   const update = (key: keyof ScannedCard, value: string) =>
     setCard((prev) => ({ ...prev, [key]: value }))
 
+  const toggleContext = (id: string) => {
+    setContextNotes((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, accepted: !item.accepted } : item,
+      ),
+    )
+  }
+
   const submit = () => {
     if (!card.name.trim()) return
     const titleAndCompany = [card.title, card.company].filter(Boolean).join(' · ')
@@ -226,6 +327,12 @@ export function ScanCardSheet({
       card.company.trim() || card.title.trim()
         ? `Met ${card.company ? `at ${card.company}` : 'through work'}`
         : 'New connection'
+    const acceptedNotes = contextNotes.filter((item) => item.accepted)
+    const contextParts = [
+      note.trim(),
+      ...acceptedNotes.map((item) => `${item.text} (${item.source})`),
+      `First follow-up: ${formatDateShort(followUpDate)}`,
+    ].filter(Boolean)
     onAdd({
       name: card.name,
       relationship,
@@ -233,7 +340,7 @@ export function ScanCardSheet({
       tier,
       phone: card.phone || undefined,
       email: card.email || undefined,
-      context: note || undefined,
+      context: contextParts.join('\n') || undefined,
       interests: [],
     })
     setStage('added')
@@ -378,59 +485,20 @@ export function ScanCardSheet({
                 </p>
               )}
 
-              <CapturedCardPreview card={card} image={previewImage} />
+              <ParsedSummary
+                card={card}
+                onUpdate={update}
+              />
 
-              <div className="glass-card overflow-hidden rounded-3xl">
-                <ParsedField
-                  label="Name"
-                  value={card.name}
-                  placeholder="Daniel Okafor"
-                  confidence={card.name.trim() ? 'sure' : 'check'}
-                  onChange={(value) => update('name', value)}
-                />
-                <ParsedField
-                  label="Role · company"
-                  value={[card.title, card.company].filter(Boolean).join(', ')}
-                  placeholder="VP Partnerships, Northbeam"
-                  confidence={card.title.trim() || card.company.trim() ? 'sure' : 'check'}
-                  onChange={(value) => {
-                    const [title, ...companyParts] = value.split(',')
-                    update('title', title?.trim() ?? '')
-                    update('company', companyParts.join(',').trim())
-                  }}
-                />
-                <ParsedField
-                  label="Mobile"
-                  value={card.phone}
-                  placeholder="+1 (415) 555-0182"
-                  confidence={looksLikePhone(card.phone) ? 'sure' : 'check'}
-                  inputMode="tel"
-                  onChange={(value) => update('phone', value)}
-                />
-                <ParsedField
-                  label="Email"
-                  value={card.email}
-                  placeholder="d.okafor@northbeam.com"
-                  confidence={looksLikeEmail(card.email) ? 'sure' : 'check'}
-                  inputMode="email"
-                  onChange={(value) => update('email', value)}
-                />
-              </div>
+              <ContextNotesCard
+                status={contextStatus}
+                notes={contextNotes}
+                manualNote={note}
+                onManualNoteChange={setNote}
+                onToggle={toggleContext}
+              />
 
               <section className="glass-card rounded-3xl p-4">
-                <label className="block">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
-                    Where you met
-                  </span>
-                  <textarea
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={2}
-                    placeholder="SaaS Connect, SF — intro by Grace Lin"
-                    className="mt-2 w-full resize-none rounded-2xl border border-[var(--hairline)] bg-white/25 px-4 py-3 text-[15px] font-medium leading-relaxed outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
-                  />
-                </label>
-
                 <div className="mt-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
                     Stay in touch
@@ -496,100 +564,381 @@ export function ScanCardSheet({
               disabled={!card.name.trim()}
               className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
             >
-              <UserPlus className="size-4" />
-              Save · {TIER_OPTIONS.find((opt) => opt.value === tier)?.cta}
+              <Check className="size-4" />
+              <span>
+                Save with {contextNotes.filter((item) => item.accepted).length}{' '}
+                context{' '}
+                {contextNotes.filter((item) => item.accepted).length === 1
+                  ? 'note'
+                  : 'notes'}{' '}
+                · follow up{' '}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="underline decoration-white/50 underline-offset-2"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setShowDateRoller(true)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setShowDateRoller(true)
+                    }
+                  }}
+                >
+                  {formatFollowUpPhrase(followUpDate)}
+                </span>
+              </span>
             </button>
           </footer>
         )}
-      </div>
-    </div>
-  )
-}
 
-function CapturedCardPreview({
-  card,
-  image,
-}: {
-  card: ScannedCard
-  image: string | null
-}) {
-  const roleLine = [card.title, card.company].filter(Boolean).join(' · ')
-  return (
-    <div className="flex justify-center px-4 py-2">
-      <div className="relative w-full max-w-[17.5rem] rotate-[-1.5deg] overflow-hidden rounded-2xl border border-white/70 bg-[linear-gradient(135deg,#f7f1e8,#e7ddd1)] p-4 text-left shadow-[0_18px_36px_-20px_oklch(0.2_0.03_255_/_0.55)]">
-        {image && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={image}
-            alt=""
-            className="absolute inset-0 size-full object-cover opacity-[0.16] blur-[1px]"
+        {showDateRoller && (
+          <FollowUpDateRoller
+            value={followUpDate}
+            tier={tier}
+            onSelect={setFollowUpDate}
+            onClose={() => setShowDateRoller(false)}
           />
         )}
-        <div className="relative">
-          <p className="font-heading text-base font-semibold leading-tight text-slate-800">
-            {card.name || 'Name from card'}
-          </p>
-          <p className="mt-1 text-xs font-medium text-slate-600">
-            {roleLine || 'Role · Company'}
-          </p>
-          <div className="mt-4 space-y-0.5 text-xs leading-relaxed text-slate-600">
-            <p>{card.phone || '+1 (415) 555-0182'}</p>
-            <p>{card.email || 'email@company.com'}</p>
-          </div>
-        </div>
       </div>
     </div>
   )
 }
 
-function ParsedField({
+function ParsedSummary({
+  card,
+  onUpdate,
+}: {
+  card: ScannedCard
+  onUpdate: (key: keyof ScannedCard, value: string) => void
+}) {
+  const nameRole = [
+    card.name,
+    [card.title, card.company].filter(Boolean).join(', '),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const contactLine = [card.phone, card.email].filter(Boolean).join(' · ')
+  const nameRoleSure = card.name.trim() && (card.title.trim() || card.company.trim())
+  const contactSure =
+    (!card.phone.trim() || looksLikePhone(card.phone)) &&
+    (!card.email.trim() || looksLikeEmail(card.email)) &&
+    (card.phone.trim() || card.email.trim())
+
+  return (
+    <section className="glass-hero overflow-hidden rounded-3xl px-4 py-0">
+      <EditableSummaryRow
+        label="Name · Role"
+        value={nameRole}
+        placeholder="Daniel Okafor · VP Partnerships, Northbeam"
+        sure={!!nameRoleSure}
+        onChange={(value) => {
+          const [name, roleCompany = ''] = value.split(' · ')
+          const [title, ...companyParts] = roleCompany.split(',')
+          onUpdate('name', name?.trim() ?? '')
+          onUpdate('title', title?.trim() ?? '')
+          onUpdate('company', companyParts.join(',').trim())
+        }}
+      />
+      <EditableSummaryRow
+        label="Mobile · Email"
+        value={contactLine}
+        placeholder="+1 (415) 555-0182 · d.okafor@northbeam.com"
+        sure={!!contactSure}
+        onChange={(value) => {
+          const parts = value.split(' · ')
+          const phone = parts.find((part) => /[+\d().\-\s]{7,}/.test(part)) ?? ''
+          const email = parts.find((part) => part.includes('@')) ?? ''
+          onUpdate('phone', phone.trim())
+          onUpdate('email', email.trim())
+        }}
+      />
+    </section>
+  )
+}
+
+function EditableSummaryRow({
   label,
   value,
   placeholder,
-  confidence,
-  inputMode,
+  sure,
   onChange,
 }: {
   label: string
   value: string
   placeholder: string
-  confidence: 'sure' | 'check'
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
+  sure: boolean
   onChange: (value: string) => void
 }) {
-  const needsCheck = confidence === 'check'
   return (
-    <label className="grid grid-cols-[1fr_auto] gap-3 border-b border-[var(--hairline)] px-4 py-3 last:border-b-0">
+    <label className="grid grid-cols-[1fr_auto] gap-3 border-b border-[var(--hairline)] py-3 last:border-b-0">
       <span className="min-w-0">
-        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
+        <span className="block text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-tertiary)]">
           {label}
         </span>
         <input
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          inputMode={inputMode}
+          onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
-          className="mt-1 h-7 w-full min-w-0 bg-transparent font-heading text-[15px] font-semibold text-[var(--ink-strong)] outline-none placeholder:text-[var(--ink-tertiary)]/45"
+          className="mt-1 h-7 w-full min-w-0 bg-transparent font-heading text-[15px] font-semibold tracking-[-0.012em] text-[var(--ink-strong)] outline-none placeholder:text-[var(--ink-tertiary)]/45"
         />
       </span>
-      <span
-        className={cn(
-          'mt-1 flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-semibold',
-          needsCheck
-            ? 'border bg-[var(--status-check-tint)] text-[var(--status-due-soon)]'
-            : 'bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]',
-        )}
-        style={needsCheck ? { borderColor: 'var(--status-check-border)' } : undefined}
-      >
-        {needsCheck ? (
-          <>
-            <AlertCircle className="size-3.5" />
-            Check
-          </>
-        ) : (
-          <CheckCircle2 className="size-4" />
-        )}
-      </span>
+      <ConfidenceBadge sure={sure} />
     </label>
+  )
+}
+
+function ConfidenceBadge({ sure }: { sure: boolean }) {
+  if (sure) {
+    return (
+      <span className="mt-1 flex size-[26px] shrink-0 items-center justify-center rounded-full bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
+        <CheckCircle2 className="size-4" />
+      </span>
+    )
+  }
+
+  return (
+    <span className="mt-1 flex h-8 shrink-0 items-center gap-1 rounded-lg border bg-[var(--status-check-tint)] px-2.5 text-[11.5px] font-semibold text-[var(--status-due-soon)]" style={{ borderColor: 'var(--status-check-border)' }}>
+      <AlertCircle className="size-3.5" />
+      Check
+    </span>
+  )
+}
+
+function ContextNotesCard({
+  status,
+  notes,
+  manualNote,
+  onManualNoteChange,
+  onToggle,
+}: {
+  status: ContextStatus
+  notes: ContextNote[]
+  manualNote: string
+  onManualNoteChange: (value: string) => void
+  onToggle: (id: string) => void
+}) {
+  const showManual = status === 'empty' || status === 'error'
+  return (
+    <section className="glass-card rounded-3xl p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-tertiary)]">
+          Found context · tap to save with contact
+        </p>
+        {status === 'loading' && (
+          <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--ink-tertiary)]">
+            <span className="size-1.5 animate-pulse rounded-full bg-[var(--ink-tertiary)]" />
+            searching
+          </span>
+        )}
+      </div>
+
+      {status === 'loading' && (
+        <div className="mt-3 space-y-2">
+          <div className="min-h-11 animate-pulse rounded-[11px] border border-dashed border-[var(--hairline)] bg-white/20" />
+          <div className="min-h-11 animate-pulse rounded-[11px] border border-dashed border-[var(--hairline)] bg-white/15 [animation-delay:-0.45s]" />
+          <p className="text-[11.5px] leading-relaxed text-[var(--ink-secondary)]">
+            Public sources only. You can keep reviewing the card while this runs.
+          </p>
+        </div>
+      )}
+
+      {status === 'done' && notes.length > 0 && (
+        <div className="mt-3 flex flex-col gap-2">
+          {notes.map((note) => (
+            <ContextChip key={note.id} note={note} onToggle={onToggle} />
+          ))}
+          <p className="text-[11.5px] leading-relaxed text-[var(--ink-secondary)]">
+            Only selected notes are saved with this contact.
+          </p>
+        </div>
+      )}
+
+      {showManual && (
+        <div className="mt-3">
+          <div className="flex items-start gap-2 rounded-2xl border border-[var(--hairline)] bg-white/20 px-3 py-3 text-[13px] leading-relaxed text-[var(--ink-secondary)]">
+            <Search className="mt-0.5 size-4 shrink-0" />
+            <span>
+              {status === 'error'
+                ? "Context lookup isn't available right now. Your own note is enough."
+                : 'No public context found — small companies often have none. Your memory is the best source right now.'}
+            </span>
+          </div>
+          <label className="mt-3 block">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-tertiary)]">
+              What will you want to remember
+            </span>
+            <textarea
+              value={manualNote}
+              onChange={(event) => onManualNoteChange(event.target.value)}
+              rows={3}
+              placeholder="Makes small-batch preserves, wants a retail intro…"
+              className="mt-2 w-full resize-none rounded-[11px] border border-[oklch(0.28_0.05_255_/_0.35)] bg-white/35 px-3 py-3 text-[14.5px] leading-relaxed text-[var(--ink-body)] outline-none focus-visible:border-[var(--action-bg)]"
+            />
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {['Where we met', 'Who introduced us', 'What I promised'].map(
+              (prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() =>
+                    onManualNoteChange(
+                      manualNote
+                        ? `${manualNote}\n${prompt}: `
+                        : `${prompt}: `,
+                    )
+                  }
+                  className="glass-button pressable min-h-[34px] rounded-[var(--r-chip)] px-3 text-xs font-medium text-[var(--ink-secondary)]"
+                >
+                  + {prompt}
+                </button>
+              ),
+            )}
+          </div>
+          <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--ink-secondary)]">
+            Whatever you write here shapes the first draft — one line is plenty.
+          </p>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ContextChip({
+  note,
+  onToggle,
+}: {
+  note: ContextNote
+  onToggle: (id: string) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(note.id)}
+      aria-pressed={note.accepted}
+      className={cn(
+        'pressable flex min-h-11 items-center gap-2.5 rounded-[11px] border px-3 py-2.5 text-left text-[13.5px] font-medium leading-snug',
+        note.accepted
+          ? 'border-[oklch(0.28_0.05_255_/_0.5)] bg-[oklch(0.28_0.05_255_/_0.12)] text-[var(--ink-strong)]'
+          : 'border-[oklch(0.28_0.05_255_/_0.25)] bg-[oklch(0.28_0.05_255_/_0.06)] text-[var(--ink-body)]',
+      )}
+    >
+      {note.accepted ? (
+        <Check className="size-4 shrink-0" />
+      ) : (
+        <Plus className="size-4 shrink-0" />
+      )}
+      <span className="flex-1">
+        {note.text}{' '}
+        <span className="text-[var(--ink-tertiary)]">· {note.source}</span>
+      </span>
+    </button>
+  )
+}
+
+function FollowUpDateRoller({
+  value,
+  tier,
+  onSelect,
+  onClose,
+}: {
+  value: Date
+  tier: Tier
+  onSelect: (date: Date) => void
+  onClose: () => void
+}) {
+  const options = [
+    { label: 'Today', date: new Date(), hint: 'tonight is tight' },
+    { label: 'Tomorrow', date: addDays(new Date(), 1), hint: 'suggested' },
+    { label: 'Thursday', date: addDays(new Date(), 3), hint: '2 others due · fine' },
+    { label: 'Next Mon', date: addDays(new Date(), 7), hint: 'after the weekend' },
+    { label: 'In 2 weeks', date: addDays(new Date(), 14), hint: 'momentum fades' },
+  ]
+  const cadence =
+    tier === 'key'
+      ? 'then every 2 weeks from this date'
+      : tier === 'casual'
+        ? 'then quarterly from this date'
+        : 'then monthly from this date'
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-end">
+      <button
+        type="button"
+        aria-label="Close date picker"
+        onClick={onClose}
+        className="absolute inset-0 bg-[oklch(0.2_0.03_255_/_0.25)] backdrop-blur-[2px]"
+      />
+      <section className="relative z-[1] w-full rounded-t-[24px] border border-b-0 border-white/65 bg-[linear-gradient(170deg,oklch(1_0_0_/_0.72),oklch(1_0_0_/_0.5))] px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-20px_50px_-20px_oklch(0.2_0.03_255_/_0.4)] backdrop-blur-[30px] animate-rise">
+        <div className="mx-auto h-1 w-9 rounded-full bg-[oklch(0.5_0.02_252_/_0.2)]" />
+        <div className="mt-4 flex items-baseline justify-between gap-3">
+          <h3 className="font-heading text-lg font-bold tracking-[-0.02em] text-[var(--ink-strong)]">
+            First follow-up
+          </h3>
+          <p className="text-right text-xs text-[var(--ink-secondary)]">
+            {cadence}
+          </p>
+        </div>
+
+        <div className="relative mt-4 h-[250px] overflow-hidden">
+          <div className="absolute left-0 right-0 top-[100px] h-[50px] rounded-[13px] border border-[oklch(0.28_0.05_255_/_0.25)] bg-[oklch(0.28_0.05_255_/_0.08)]" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-[70px] bg-gradient-to-b from-white/70 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-[70px] bg-gradient-to-t from-white/70 to-transparent" />
+          <div className="flex flex-col">
+            {options.map((option, index) => {
+              const selected = option.date.toDateString() === value.toDateString()
+              const distance = Math.abs(index - 2)
+              return (
+                <button
+                  key={`${option.label}-${option.date.toDateString()}`}
+                  type="button"
+                  onClick={() => onSelect(option.date)}
+                  className={cn(
+                    'grid h-[50px] grid-cols-[92px_1fr_auto] items-center gap-3 px-3 text-left transition-transform',
+                    selected
+                      ? 'scale-100 opacity-100'
+                      : distance > 1
+                        ? 'scale-[0.92] opacity-35'
+                        : 'scale-[0.96] opacity-60',
+                  )}
+                >
+                  <span className="font-heading text-[15px] font-semibold tracking-[-0.014em] text-[var(--ink-strong)]">
+                    {option.label}
+                  </span>
+                  <span className="tnum text-[15px] text-[var(--ink-secondary)]">
+                    {formatDateShort(option.date).replace(/^[A-Za-z]+,?\s?/, '')}
+                  </span>
+                  <span
+                    className={cn(
+                      'text-right text-[11.5px] font-medium',
+                      option.hint === 'suggested'
+                        ? 'text-[var(--status-on-track)]'
+                        : option.hint === 'momentum fades'
+                          ? 'text-[var(--status-due-soon)]'
+                          : 'text-[var(--ink-secondary)]',
+                    )}
+                  >
+                    {option.hint}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="primary-action pressable mt-3 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[var(--r-button-lg)] text-[15px] font-semibold"
+        >
+          <CalendarDays className="size-4" />
+          Set · first follow-up {formatDateShort(value)}
+        </button>
+      </section>
+    </div>
   )
 }
