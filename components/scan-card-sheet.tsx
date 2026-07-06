@@ -15,6 +15,7 @@ import {
   CalendarDays,
   Search,
 } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { EnrichmentHook, Tier } from '@/lib/types'
 import { saveToPhone } from '@/lib/card'
@@ -278,6 +279,15 @@ export function ScanCardSheet({
 
   const handleNativeCamera = async () => {
     setError(null)
+    const native = Capacitor.isNativePlatform()
+    if (!native) {
+      // Browser/iOS Safari requires the file picker to be opened directly from
+      // the user's tap. If we await the native-camera checks first, the browser
+      // can treat it as no longer user-initiated and silently block it.
+      fileRef.current?.click()
+      return
+    }
+
     await tapFeedback()
     try {
       const image = await captureImageDataUrl()
