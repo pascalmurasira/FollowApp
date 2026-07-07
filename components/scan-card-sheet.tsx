@@ -452,7 +452,7 @@ export function ScanCardSheet({
                 Reading the card…
               </p>
               <p className="text-[12px] text-[var(--ink-secondary)]">
-              Pulling out the details
+                Pulling out the details. This can take a moment.
               </p>
             </div>
           )}

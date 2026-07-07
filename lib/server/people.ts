@@ -11,6 +11,17 @@ import type { Contact, Profile } from '@/lib/types'
  */
 
 const DEFAULT_NAME = 'You'
+const TEXT_LIMITS = {
+  id: 160,
+  name: 120,
+  relationship: 180,
+  title: 180,
+  phone: 80,
+  email: 254,
+  avatarHue: 24,
+  context: 2_000,
+  interest: 80,
+}
 
 // ---- Profile ----
 
@@ -80,6 +91,46 @@ function daysSince(date: Date | string | null | undefined): number {
   return Math.max(0, Math.floor(ms / 86_400_000))
 }
 
+function cap(value: string | null | undefined, max: number): string | undefined {
+  const cleaned = value?.trim()
+  if (!cleaned) return undefined
+  return cleaned.slice(0, max)
+}
+
+function safeDays(days: number | undefined): number {
+  if (!Number.isFinite(days)) return 0
+  return Math.min(3650, Math.max(0, Math.floor(days ?? 0)))
+}
+
+function sanitizeContact(contact: Contact): Contact {
+  const tier = (['key', 'network', 'casual'] as const).includes(
+    contact.tier as 'key' | 'network' | 'casual',
+  )
+    ? contact.tier
+    : 'network'
+  const avatarHue = HUES.includes(contact.avatarHue) ? contact.avatarHue : 'coral'
+  return {
+    ...contact,
+    id: cap(contact.id, TEXT_LIMITS.id) ?? `contact-${Date.now()}`,
+    name: cap(contact.name, TEXT_LIMITS.name) ?? 'New contact',
+    relationship:
+      cap(contact.relationship, TEXT_LIMITS.relationship) ??
+      'A connection worth keeping',
+    title: cap(contact.title, TEXT_LIMITS.title),
+    tier,
+    phone: cap(contact.phone, TEXT_LIMITS.phone),
+    email: cap(contact.email, TEXT_LIMITS.email)?.toLowerCase(),
+    avatarHue,
+    daysSinceContact: safeDays(contact.daysSinceContact),
+    context: cap(contact.context, TEXT_LIMITS.context) ?? '',
+    interests: (contact.interests ?? [])
+      .map((interest) => cap(interest, TEXT_LIMITS.interest))
+      .filter((interest): interest is string => Boolean(interest))
+      .slice(0, 20),
+    messages: [],
+  }
+}
+
 function rowToContact(row: typeof userContacts.$inferSelect): Contact {
   let interests: string[] = []
   if (row.interests) {
@@ -125,19 +176,20 @@ export async function getUserContacts(deviceId: string): Promise<Contact[]> {
 
 export async function addUserContact(deviceId: string, contact: Contact): Promise<void> {
   await ensureContactSchema()
+  const safe = sanitizeContact(contact)
   await db.insert(userContacts).values({
-    id: contact.id,
+    id: safe.id,
     deviceId,
-    name: contact.name,
-    relationship: contact.relationship,
-    title: contact.title ?? null,
-    tier: contact.tier ?? 'network',
-    phone: contact.phone ?? null,
-    email: contact.email ?? null,
-    avatarHue: contact.avatarHue,
-    context: contact.context,
-    interests: JSON.stringify(contact.interests ?? []),
-    lastContactedAt: new Date(Date.now() - contact.daysSinceContact * 86_400_000),
+    name: safe.name,
+    relationship: safe.relationship,
+    title: safe.title ?? null,
+    tier: safe.tier ?? 'network',
+    phone: safe.phone ?? null,
+    email: safe.email ?? null,
+    avatarHue: safe.avatarHue,
+    context: safe.context,
+    interests: JSON.stringify(safe.interests ?? []),
+    lastContactedAt: new Date(Date.now() - safe.daysSinceContact * 86_400_000),
   })
 }
 
@@ -148,7 +200,7 @@ export async function addUserContacts(
 ): Promise<number> {
   if (contacts.length === 0) return 0
   await ensureContactSchema()
-  const values = contacts.map((contact) => ({
+  const values = contacts.map(sanitizeContact).map((contact) => ({
     id: contact.id,
     deviceId,
     name: contact.name,

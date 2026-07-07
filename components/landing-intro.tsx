@@ -138,7 +138,7 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
               </span>
               <span className="inline-flex items-center gap-2">
                 <Check className="size-4 text-[var(--status-on-track)]" />
-                Local-first by default
+                Private by default
               </span>
             </div>
           </div>

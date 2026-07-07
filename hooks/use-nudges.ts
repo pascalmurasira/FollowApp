@@ -12,10 +12,10 @@ export interface Nudge {
 
 type NudgeMap = Record<string, Nudge>
 
-function buildFallbackMap(contacts: Contact[]): NudgeMap {
+function buildFallbackMap(contacts: Contact[], voice: string): NudgeMap {
   const map: NudgeMap = {}
   for (const c of contacts) {
-    map[c.id] = { ...fallbackNudge(c), fromFallback: true }
+    map[c.id] = { ...fallbackNudge(c, voice), fromFallback: true }
   }
   return map
 }
@@ -39,7 +39,7 @@ export function useNudges(contacts: Contact[], voice: string) {
     setNudges((prev) => {
       const seeded = { ...prev }
       for (const c of contacts) {
-        if (!seeded[c.id]) seeded[c.id] = { ...fallbackNudge(c), fromFallback: true }
+        if (!seeded[c.id]) seeded[c.id] = { ...fallbackNudge(c, voice), fromFallback: true }
       }
       return seeded
     })
@@ -72,17 +72,17 @@ export function useNudges(contacts: Contact[], voice: string) {
         }
         // Fill any the model skipped with a local fallback.
         for (const c of contacts) {
-          if (!map[c.id]) map[c.id] = { ...fallbackNudge(c), fromFallback: true }
+          if (!map[c.id]) map[c.id] = { ...fallbackNudge(c, voice), fromFallback: true }
         }
         setNudges(map)
         setUsedFallback(false)
       } else {
-        setNudges(buildFallbackMap(contacts))
+        setNudges(buildFallbackMap(contacts, voice))
         setUsedFallback(true)
       }
     } catch (err) {
       console.error('Nudge generation failed, using fallback:', err)
-      setNudges(buildFallbackMap(contacts))
+      setNudges(buildFallbackMap(contacts, voice))
       setUsedFallback(true)
     } finally {
       setLoading(false)

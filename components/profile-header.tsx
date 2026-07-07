@@ -147,7 +147,10 @@ export function ProfileHeader({
       )}
 
       <p className="-mt-1 text-sm text-[var(--ink-secondary)]">
-        Active {streak || 1} days in a row ·{' '}
+        {streak === 1
+          ? 'Active 1 day in a row'
+          : `Active ${streak} days in a row`}{' '}
+        ·{' '}
         <span className="font-medium text-[var(--ink-strong)]">{voiceLabel}</span>
       </p>
 

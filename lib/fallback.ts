@@ -10,59 +10,87 @@ function pick<T>(options: T[], seed: string): T {
   return options[Math.abs(hash) % options.length]
 }
 
-export function fallbackNudge(contact: Contact): { tone: string; text: string } {
+function fallbackTone(voice: string): 'warm' | 'direct' | 'playful' | 'low-key' {
+  const lower = voice.toLowerCase()
+  if (/(direct|concise|respectful|formal|professional)/.test(lower)) return 'direct'
+  if (/(funny|playful|light|casual)/.test(lower)) return 'playful'
+  if (/(chill|low-key|low key|calm)/.test(lower)) return 'low-key'
+  return 'warm'
+}
+
+export function fallbackNudge(
+  contact: Contact,
+  voice = '',
+): { tone: string; text: string } {
   const firstName = contact.name.split(' ')[0]
   const interest = contact.interests[0]
   const days = contact.daysSinceContact
   const seed = contact.id + firstName
+  const tone = fallbackTone(voice)
 
   if (days >= 30) {
-    const longGap = [
-      {
-        tone: 'reconnect',
-        text: `Hey ${firstName}, you crossed my mind today and I realized it's been ages. No agenda — how have you been?`,
-      },
-      {
-        tone: 'honest',
-        text: `Okay ${firstName}, I've been meaning to message you for embarrassingly long. Consider this me finally fixing that. How's life?`,
-      },
-      {
-        tone: 'warm',
-        text: `${firstName}! It's been way too long. I keep thinking we're overdue for a proper catch-up — how are things?`,
-      },
-    ]
-    return pick(longGap, seed)
+    const longGap: Record<typeof tone, string[]> = {
+      warm: [
+        `${firstName}! It's been way too long. I keep thinking we're overdue for a proper catch-up — how are things?`,
+        `Hey ${firstName}, you crossed my mind today and I realized it's been ages. No agenda — how have you been?`,
+      ],
+      direct: [
+        `Hi ${firstName}, it's been a while. I'd like to catch up and hear how things are going on your side.`,
+        `${firstName}, I've been meaning to reconnect. Are you free for a quick catch-up soon?`,
+      ],
+      playful: [
+        `Okay ${firstName}, I have been extremely bad at sending this message. How are you?`,
+        `${firstName}, this is my official “too long, let's fix that” message. What's new?`,
+      ],
+      'low-key': [
+        `Hey ${firstName}, you popped into my head today. Hope you've been well — how's life?`,
+        `${firstName}, no big agenda here. Just wanted to say hi and see how you're doing.`,
+      ],
+    }
+    return { tone, text: pick(longGap[tone], seed) }
   }
 
   if (interest) {
-    const withInterest = [
-      {
-        tone: 'easy',
-        text: `Hey ${firstName}! Something reminded me of you and ${interest} earlier — how's that been going lately?`,
-      },
-      {
-        tone: 'curious',
-        text: `Random ${firstName} question: are you still deep into ${interest}? Thought of you and figured I'd just ask.`,
-      },
-      {
-        tone: 'playful',
-        text: `${firstName}, I need a ${interest} update from you. It's been too quiet on that front. How are you?`,
-      },
-    ]
-    return pick(withInterest, seed)
+    const withInterest: Record<typeof tone, string[]> = {
+      warm: [
+        `Hey ${firstName}! Something reminded me of you and ${interest} earlier — how's that been going lately?`,
+        `${firstName}, I thought of you when ${interest} came up today. Would love to hear how you're doing.`,
+      ],
+      direct: [
+        `Hi ${firstName}, I thought of you when ${interest} came up. How has that been going?`,
+        `${firstName}, quick check-in — are you still working on ${interest}?`,
+      ],
+      playful: [
+        `${firstName}, I need a ${interest} update from you. It's been too quiet on that front. How are you?`,
+        `Random ${firstName} question: are you still deep in ${interest}, or have we entered a new era?`,
+      ],
+      'low-key': [
+        `Hey ${firstName}, ${interest} made me think of you today. Hope things are good on your end.`,
+        `${firstName}, saw something about ${interest} and thought I'd check in. How are you?`,
+      ],
+    }
+    return { tone, text: pick(withInterest[tone], seed) }
   }
 
-  const generic = [
-    {
-      tone: 'casual',
-      text: `Hey ${firstName}, no reason in particular — just wanted to check in and see how you're doing.`,
-    },
-    {
-      tone: 'low-key',
-      text: `${firstName}! You popped into my head, so here's a hello. How's everything going?`,
-    },
-  ]
-  return pick(generic, seed)
+  const generic: Record<typeof tone, string[]> = {
+    warm: [
+      `Hey ${firstName}, no reason in particular — just wanted to check in and see how you're doing.`,
+      `${firstName}! You popped into my head, so here's a hello. How's everything going?`,
+    ],
+    direct: [
+      `Hi ${firstName}, just checking in. How are things going?`,
+      `${firstName}, I wanted to reconnect and see how you're doing.`,
+    ],
+    playful: [
+      `${firstName}, surprise hello. What's new in your world?`,
+      `Hey ${firstName}, your periodic check-in has arrived. How's everything?`,
+    ],
+    'low-key': [
+      `Hey ${firstName}, just wanted to say hi. Hope things are good.`,
+      `${firstName}, you came to mind today. How's everything going?`,
+    ],
+  }
+  return { tone, text: pick(generic[tone], seed) }
 }
 
 // In-conversation reply suggestions for when the model is unavailable.

@@ -224,10 +224,10 @@ export function AddContactSheet({
                 <Users className="size-5 text-[var(--ink-secondary)]" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-[var(--ink-strong)]">
-                    Import from phone contacts
+                    Import a list
                   </span>
                   <span className="block text-xs text-[var(--ink-secondary)]">
-                    Pick who FollowApp should track
+                    Paste or upload contacts to track
                   </span>
                 </span>
               </button>

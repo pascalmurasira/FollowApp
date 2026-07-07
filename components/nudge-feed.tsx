@@ -6,7 +6,7 @@ import type { Contact } from '@/lib/types'
 import type { SnoozeDuration } from '@/hooks/use-engagement'
 import { NudgeCard } from '@/components/nudge-card'
 import { useNudges } from '@/hooks/use-nudges'
-import { cadenceForTier } from '@/lib/format'
+import { cadenceForTier, healthLevel } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export function NudgeFeed({
@@ -42,7 +42,11 @@ export function NudgeFeed({
     const overdueRatio = (c: Contact) =>
       c.daysSinceContact / cadenceForTier(c.tier)
     return contacts
-      .filter((c) => c.daysSinceContact >= 5 && !snoozedSet.has(c.id))
+      .filter(
+        (c) =>
+          healthLevel(c.daysSinceContact, c.tier) !== 'on-track' &&
+          !snoozedSet.has(c.id),
+      )
       .filter((c) => !groupFilter || (c.groups ?? []).includes(groupFilter))
       .sort((a, b) => {
         const aPinned = pinnedSet.has(a.id)

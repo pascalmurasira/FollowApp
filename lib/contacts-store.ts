@@ -1,4 +1,5 @@
 import type { Contact, Tier } from '@/lib/types'
+import { cadenceForTier } from '@/lib/format'
 
 const HUES: Contact['avatarHue'][] = ['coral', 'teal', 'amber', 'rose', 'sage']
 
@@ -83,8 +84,9 @@ export function createContact(input: NewContactInput, seed = Date.now()): Contac
     phone: input.phone?.trim() || undefined,
     email: input.email?.trim().toLowerCase() || undefined,
     avatarHue: pickHue(seed),
-    // Start as gently overdue so they surface in the feed with a cold-open.
-    daysSinceContact: 7,
+    // New contacts should show up for a first follow-up instead of vanishing as
+    // "on track" before the user has ever reached out through FollowApp.
+    daysSinceContact: cadenceForTier(input.tier ?? 'network'),
     context:
       input.context?.trim() ||
       `You added ${name.split(' ')[0]} to FollowApp to stay in better touch.`,
@@ -175,15 +177,16 @@ function upsertContacts(existing: Contact[], incoming: Contact[]): Contact[] {
 }
 
 /**
- * Load contacts from this browser first. Signed-in users also merge in their
- * server copy; anonymous users never transmit their network.
+ * Load contacts from this browser first, then merge in the device-scoped server
+ * copy. No account is required: the server copy is keyed by this browser's
+ * anonymous device id so contacts survive reloads and browser storage hiccups.
  */
 export async function fetchPeople(
   deviceId: string,
-  syncRemote = false,
+  _syncRemote = false,
 ): Promise<PeopleResponse> {
+  void _syncRemote
   const local = readLocalPeople()
-  if (!syncRemote) return local
   try {
     const res = await fetch('/api/contacts', {
       headers: { 'X-FollowApp-Device-Id': deviceId },
@@ -205,10 +208,10 @@ export async function fetchPeople(
 export async function apiTouchContact(
   deviceId: string,
   contactId: string,
-  syncRemote = false,
+  _syncRemote = false,
 ): Promise<void> {
+  void _syncRemote
   touchLocalContact(contactId)
-  if (!syncRemote) return
   try {
     const res = await fetch('/api/contacts', {
       method: 'PATCH',
@@ -221,18 +224,18 @@ export async function apiTouchContact(
   }
 }
 
-/** Persist a contact locally, and remotely only after sign-in. */
+/** Persist a contact locally and to the anonymous device-scoped server copy. */
 export async function apiAddContact(
   deviceId: string,
   contact: Contact,
-  syncRemote = false,
+  _syncRemote = false,
 ): Promise<void> {
+  void _syncRemote
   const local = readLocalPeople()
   writeLocalPeople({
     ...local,
     contacts: upsertContacts(local.contacts, [contact]),
   })
-  if (!syncRemote) return
   try {
     const res = await fetch('/api/contacts', {
       method: 'POST',
@@ -249,14 +252,14 @@ export async function apiAddContact(
 export async function apiImportContacts(
   deviceId: string,
   contacts: Contact[],
-  syncRemote = false,
+  _syncRemote = false,
 ): Promise<number> {
+  void _syncRemote
   const local = readLocalPeople()
   writeLocalPeople({
     ...local,
     contacts: upsertContacts(local.contacts, contacts),
   })
-  if (!syncRemote) return contacts.length
   try {
     const res = await fetch('/api/contacts/import', {
       method: 'POST',
@@ -277,14 +280,14 @@ export async function apiSetCircle(
   deviceId: string,
   contactId: string,
   circle: string | null,
-  syncRemote = false,
+  _syncRemote = false,
 ): Promise<void> {
+  void _syncRemote
   const local = readLocalPeople()
   const circles = { ...local.circles }
   if (circle) circles[contactId] = [circle]
   else delete circles[contactId]
   writeLocalPeople({ ...local, circles })
-  if (!syncRemote) return
   try {
     const res = await fetch('/api/contacts', {
       method: 'PATCH',

@@ -15,6 +15,7 @@ import type { Contact } from '@/lib/types'
 import { getDeviceId } from '@/lib/device-id'
 import { ProfileHeader } from '@/components/profile-header'
 import { PeopleCircles } from '@/components/people-circles'
+import { DEMO_CONTACT_IDS } from '@/lib/mock-data'
 
 interface Learnings {
   count: number
@@ -46,7 +47,12 @@ export function YouPanel({
   const peopleCount = contacts.length
   const sentCount = contacts.reduce(
     (total, contact) =>
-      total + contact.messages.filter((message) => message.sender === 'me').length,
+      total +
+      contact.messages.filter(
+        (message) =>
+          message.sender === 'me' &&
+          (message.id.startsWith('local-') || !DEMO_CONTACT_IDS.has(contact.id)),
+      ).length,
     0,
   )
   const deviceId = getDeviceId()
@@ -198,10 +204,11 @@ export function YouPanel({
           <div className="text-sm leading-relaxed text-pretty text-[var(--ink-secondary)]">
             <p>
               <span className="font-medium text-[var(--ink-strong)]">
-                Only your habits, never your contacts.
+                Private by default, controlled by you.
               </span>{' '}
-              FollowApp remembers which tones you pick and how you edit — tied
-              to this device alone, never sold or shared. Clear it anytime.
+              FollowApp stores your contacts and writing preferences for this
+              device so your network survives reloads. Messages are never sent
+              without your review, and you can clear what it has learned anytime.
             </p>
           </div>
         </div>
@@ -251,7 +258,7 @@ export function YouPanel({
         )}
         <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-[var(--ink-secondary)]">
           <ShieldCheck className="size-3.5" />
-          Stored anonymously on this device
+          Stored under this device&apos;s private FollowApp key
         </p>
       </section>
     </div>

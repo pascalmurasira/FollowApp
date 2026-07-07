@@ -16,6 +16,7 @@ import {
   sentConfirmLabel,
 } from '@/lib/channels'
 import { getChannelPref } from '@/hooks/use-channel-pref'
+import { DEMO_CONTACT_IDS } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 
 export function NudgeCard({
@@ -50,6 +51,7 @@ export function NudgeCard({
   // instantly recognizable; every other Nudge action stays brand blue.
   const isWhatsApp = channel === 'whatsapp'
   const level = healthLevel(contact.daysSinceContact, contact.tier)
+  const isExample = DEMO_CONTACT_IDS.has(contact.id)
 
   const handleSend = async () => {
     if (!nudge || !canSend) return
@@ -78,6 +80,11 @@ export function NudgeCard({
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[14.5px] font-semibold tracking-[-0.01em] text-[var(--ink-strong)]">
               {contact.name}
+              {isExample && (
+                <span className="ml-1.5 align-middle text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-tertiary)]">
+                  Example
+                </span>
+              )}
             </span>
             <span className="mt-0.5 block truncate text-[12px] text-[var(--ink-secondary)]">
               {contact.title ?? contact.relationship}
@@ -110,6 +117,11 @@ export function NudgeCard({
             {contact.tier === 'key' && (
               <span className="shrink-0 rounded-full border border-[var(--hairline)] bg-white/25 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-secondary)]">
                 Key contact
+              </span>
+            )}
+            {isExample && (
+              <span className="shrink-0 rounded-full border border-[var(--hairline)] bg-white/25 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-secondary)]">
+                Example
               </span>
             )}
           </div>
