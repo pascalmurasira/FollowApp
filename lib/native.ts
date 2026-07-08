@@ -47,6 +47,37 @@ export async function openExternalUrl(url: string): Promise<void> {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+export type NativePermissionState =
+  | 'granted'
+  | 'limited'
+  | 'denied'
+  | 'prompt'
+  | 'prompt-with-rationale'
+
+export async function cameraPermissionState(): Promise<NativePermissionState> {
+  if (!(await isNativeRuntime())) return 'granted'
+  const { Camera } = await import('@capacitor/camera')
+  const status = await Camera.checkPermissions()
+  return status.camera
+}
+
+export async function requestCameraPermission(): Promise<NativePermissionState> {
+  if (!(await isNativeRuntime())) return 'granted'
+  const { Camera } = await import('@capacitor/camera')
+  const status = await Camera.requestPermissions({ permissions: ['camera'] })
+  return status.camera
+}
+
+export async function openAppSettings(): Promise<void> {
+  if (!(await isNativeRuntime())) return
+  try {
+    const { Browser } = await import('@capacitor/browser')
+    await Browser.open({ url: 'app-settings:' })
+  } catch {
+    window.location.href = 'app-settings:'
+  }
+}
+
 export async function captureImageDataUrl(): Promise<string | null> {
   if (!(await isNativeRuntime())) return null
 

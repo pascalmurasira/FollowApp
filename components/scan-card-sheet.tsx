@@ -14,12 +14,21 @@ import {
   Check,
   CalendarDays,
   Search,
+  ShieldCheck,
+  Settings,
 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { EnrichmentHook, Tier } from '@/lib/types'
 import { saveToPhone } from '@/lib/card'
-import { captureImageDataUrl, chooseImageDataUrl, tapFeedback } from '@/lib/native'
+import {
+  cameraPermissionState,
+  captureImageDataUrl,
+  chooseImageDataUrl,
+  openAppSettings,
+  requestCameraPermission,
+  tapFeedback,
+} from '@/lib/native'
 import { cn } from '@/lib/utils'
 
 interface ScannedCard {
@@ -39,6 +48,7 @@ interface ContextNote {
 }
 
 type ContextStatus = 'idle' | 'loading' | 'done' | 'empty' | 'error'
+type CameraPermissionHelp = null | 'intro' | 'blocked' | 'unavailable'
 
 const EMPTY: ScannedCard = {
   name: '',
@@ -155,6 +165,7 @@ export function ScanCardSheet({
   const [savedToPhone, setSavedToPhone] = useState(false)
   const [contextStatus, setContextStatus] = useState<ContextStatus>('idle')
   const [contextNotes, setContextNotes] = useState<ContextNote[]>([])
+  const [cameraHelp, setCameraHelp] = useState<CameraPermissionHelp>(null)
   const [followUpDate, setFollowUpDate] = useState<Date>(() =>
     addDays(new Date(), 1),
   )
@@ -172,6 +183,7 @@ export function ScanCardSheet({
     setSavedToPhone(false)
     setContextStatus('idle')
     setContextNotes([])
+    setCameraHelp(null)
     setFollowUpDate(addDays(new Date(), 1))
     setShowDateRoller(false)
     if (fileRef.current) fileRef.current.value = ''
@@ -279,6 +291,7 @@ export function ScanCardSheet({
 
   const handleNativeCamera = async () => {
     setError(null)
+    setCameraHelp(null)
     const native = Capacitor.isNativePlatform()
     if (!native) {
       // Browser/iOS Safari requires the file picker to be opened directly from
@@ -290,6 +303,21 @@ export function ScanCardSheet({
 
     await tapFeedback()
     try {
+      const currentPermission = await cameraPermissionState()
+      if (currentPermission !== 'granted' && currentPermission !== 'limited') {
+        if (currentPermission === 'denied') {
+          setCameraHelp('blocked')
+          return
+        }
+        setCameraHelp('intro')
+        const requestedPermission = await requestCameraPermission()
+        if (requestedPermission !== 'granted' && requestedPermission !== 'limited') {
+          setCameraHelp('blocked')
+          return
+        }
+        setCameraHelp(null)
+      }
+
       const image = await captureImageDataUrl()
       if (!image) {
         fileRef.current?.click()
@@ -305,9 +333,7 @@ export function ScanCardSheet({
         message.includes('user cancelled')
       if (!cancelled) {
         console.error('[v0] Native card capture failed:', err)
-        setError(
-          'Camera did not open. Check camera permission for FollowApp, or choose a photo instead.',
-        )
+        setCameraHelp('unavailable')
         setStage('capture')
       }
     }
@@ -315,6 +341,7 @@ export function ScanCardSheet({
 
   const handleChoosePhoto = async () => {
     setError(null)
+    setCameraHelp(null)
     const native = Capacitor.isNativePlatform()
     if (!native) {
       fileRef.current?.click()
@@ -342,6 +369,11 @@ export function ScanCardSheet({
         setStage('capture')
       }
     }
+  }
+
+  const handleOpenSettings = async () => {
+    await tapFeedback()
+    await openAppSettings()
   }
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -462,9 +494,19 @@ export function ScanCardSheet({
                   FollowApp extracts the details, then you approve every field before saving.
                 </p>
               </div>
-              {error && (
+              {cameraHelp ? (
+                <CameraPermissionCard
+                  kind={cameraHelp}
+                  onOpenSettings={handleOpenSettings}
+                  onChoosePhoto={handleChoosePhoto}
+                />
+              ) : error ? (
                 <p className="w-full rounded-xl border border-[var(--hairline)] bg-white/30 px-3 py-2.5 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
                   {error}
+                </p>
+              ) : (
+                <p className="w-full rounded-2xl border border-[var(--hairline)] bg-white/20 px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
+                  Camera is only used when you tap scan. Nothing is saved until you approve it.
                 </p>
               )}
               <button
@@ -655,6 +697,68 @@ export function ScanCardSheet({
         )}
       </div>
     </div>
+  )
+}
+
+function CameraPermissionCard({
+  kind,
+  onOpenSettings,
+  onChoosePhoto,
+}: {
+  kind: Exclude<CameraPermissionHelp, null>
+  onOpenSettings: () => void
+  onChoosePhoto: () => void
+}) {
+  const blocked = kind === 'blocked'
+  const unavailable = kind === 'unavailable'
+  return (
+    <section className="w-full rounded-3xl border border-[var(--hairline)] bg-white/35 p-4 text-left shadow-[0_16px_40px_-28px_oklch(0.2_0.03_255_/_0.5)] backdrop-blur">
+      <div className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
+          {blocked || unavailable ? (
+            <Settings className="size-5" />
+          ) : (
+            <ShieldCheck className="size-5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-heading text-[16px] font-semibold leading-tight text-[var(--ink-strong)]">
+            {blocked
+              ? 'One quick permission unlock'
+              : unavailable
+                ? 'Camera needs a little nudge'
+                : 'Camera stays in your hands'}
+          </p>
+          <p className="mt-1 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
+            {blocked
+              ? 'iOS is blocking camera access for FollowApp. Turn it on once, come back, and scanning will feel instant.'
+              : unavailable
+                ? 'Your phone did not open the camera this time. You can enable it in Settings or use a saved card photo.'
+                : 'We only open the camera when you tap scan. FollowApp reads the card, then you approve every field before saving.'}
+          </p>
+        </div>
+      </div>
+
+      {(blocked || unavailable) && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold"
+          >
+            <Settings className="size-4" />
+            Open Settings
+          </button>
+          <button
+            type="button"
+            onClick={onChoosePhoto}
+            className="glass-button pressable flex min-h-11 items-center justify-center rounded-[var(--r-button)] px-4 text-sm font-semibold text-[var(--ink-strong)]"
+          >
+            Use a photo instead
+          </button>
+        </div>
+      )}
+    </section>
   )
 }
 
