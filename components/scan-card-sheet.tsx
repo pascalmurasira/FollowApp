@@ -19,7 +19,7 @@ import { Capacitor } from '@capacitor/core'
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { EnrichmentHook, Tier } from '@/lib/types'
 import { saveToPhone } from '@/lib/card'
-import { captureImageDataUrl, tapFeedback } from '@/lib/native'
+import { captureImageDataUrl, chooseImageDataUrl, tapFeedback } from '@/lib/native'
 import { cn } from '@/lib/utils'
 
 interface ScannedCard {
@@ -298,12 +298,47 @@ export function ScanCardSheet({
       await readCardImage(await normalizeDataUrl(image))
     } catch (err) {
       const error = err as { message?: string }
+      const message = error?.message?.toLowerCase() ?? ''
       const cancelled =
-        error?.message?.toLowerCase().includes('cancel') ||
-        error?.message?.toLowerCase().includes('user denied')
+        message.includes('cancel') ||
+        message.includes('user denied') ||
+        message.includes('user cancelled')
       if (!cancelled) {
         console.error('[v0] Native card capture failed:', err)
-        setError('Camera was not available — choose a photo or enter the details by hand.')
+        setError(
+          'Camera did not open. Check camera permission for FollowApp, or choose a photo instead.',
+        )
+        setStage('capture')
+      }
+    }
+  }
+
+  const handleChoosePhoto = async () => {
+    setError(null)
+    const native = Capacitor.isNativePlatform()
+    if (!native) {
+      fileRef.current?.click()
+      return
+    }
+
+    await tapFeedback()
+    try {
+      const image = await chooseImageDataUrl()
+      if (!image) {
+        fileRef.current?.click()
+        return
+      }
+      await readCardImage(await normalizeDataUrl(image))
+    } catch (err) {
+      const error = err as { message?: string }
+      const message = error?.message?.toLowerCase() ?? ''
+      const cancelled =
+        message.includes('cancel') ||
+        message.includes('user denied') ||
+        message.includes('user cancelled')
+      if (!cancelled) {
+        console.error('[v0] Native photo choose failed:', err)
+        setError('Could not open Photos. You can still enter the details by hand.')
         setStage('capture')
       }
     }
@@ -427,6 +462,11 @@ export function ScanCardSheet({
                   FollowApp extracts the details, then you approve every field before saving.
                 </p>
               </div>
+              {error && (
+                <p className="w-full rounded-xl border border-[var(--hairline)] bg-white/30 px-3 py-2.5 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
+                  {error}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={handleNativeCamera}
@@ -437,7 +477,7 @@ export function ScanCardSheet({
               </button>
               <button
                 type="button"
-                onClick={() => fileRef.current?.click()}
+                onClick={handleChoosePhoto}
                 className="pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-secondary)]"
               >
                 Choose from photos instead
