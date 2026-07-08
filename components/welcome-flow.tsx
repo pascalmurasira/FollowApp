@@ -140,7 +140,7 @@ function PrimaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-    className="primary-action pressable group relative flex min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-[var(--r-button-lg)] text-sm font-semibold disabled:opacity-40 disabled:shadow-none"
+      className="primary-action pressable group relative flex min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-[var(--r-button-lg)] text-sm font-semibold disabled:opacity-40 disabled:shadow-none"
     >
       {sweep && !disabled && (
         <span
@@ -191,10 +191,10 @@ function PeopleStep({
                   onClick={() => onToggle(contact.id)}
                   aria-pressed={isSelected}
                   className={cn(
-                    'pressable relative flex min-h-11 w-full flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all duration-200',
+                    'glass-card pressable relative flex min-h-11 w-full flex-col items-center gap-2 rounded-xl p-4 text-center transition-all duration-200',
                     isSelected
-                      ? 'scale-[1.02] border-[var(--action-bg)] bg-white/35 shadow-card ring-2 ring-[var(--action-bg)]/20'
-                      : 'border-[var(--glass-border)] bg-white/20 backdrop-blur hover:border-[var(--action-bg)]/40',
+                      ? 'scale-[1.02] border-[var(--action-bg)] bg-white/40 shadow-card ring-2 ring-[var(--action-bg)]/20'
+                      : 'hover:border-[var(--action-bg)]/40',
                   )}
                 >
                   {isSelected && (
@@ -219,8 +219,8 @@ function PeopleStep({
       <div className="pb-8 pt-6">
         <PrimaryButton onClick={onNext}>
           {selected.length === 0
-            ? 'Continue'
-            : `Continue with ${selected.length}`}
+            ? 'Skip examples and choose tone'
+            : `Next: choose tone for ${selected.length}`}
           <ArrowRight className="size-4" />
         </PrimaryButton>
         {selected.length === 0 && (
@@ -270,10 +270,10 @@ function ToneStep({
                   onClick={() => onSelect(tone.id)}
                   aria-pressed={isSelected}
                   className={cn(
-                    'pressable flex min-h-11 w-full flex-col items-start gap-2 rounded-2xl border p-4 text-left transition-all duration-200',
+                    'glass-card pressable flex min-h-11 w-full flex-col items-start gap-2 rounded-2xl p-4 text-left transition-all duration-200',
                     isSelected
                       ? 'scale-[1.02] border-[var(--action-bg)] bg-white/35 shadow-card ring-2 ring-[var(--action-bg)]/20'
-                      : 'border-[var(--glass-border)] bg-white/20 backdrop-blur hover:border-[var(--action-bg)]/40',
+                      : 'hover:border-[var(--action-bg)]/40',
                   )}
                 >
                   <span
@@ -301,7 +301,7 @@ function ToneStep({
 
       <div className="pb-8 pt-6">
         <PrimaryButton onClick={onNext} disabled={!toneId} sweep={!!toneId}>
-          Continue
+          Next: add your first contact
           <ArrowRight className="size-4" />
         </PrimaryButton>
       </div>
@@ -366,7 +366,7 @@ function ScanStep({
               onClick={onFinish}
               className="pressable mt-3 min-h-11 w-full rounded-full text-center text-sm font-medium text-[var(--ink-secondary)]"
             >
-              Skip for now
+              Skip — take me to my follow-ups
             </button>
           </>
         )}

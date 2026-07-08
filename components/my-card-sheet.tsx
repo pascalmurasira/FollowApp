@@ -120,22 +120,23 @@ export function MyCardSheet({
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
-      <div className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl">
-        <header className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-serif text-xl font-medium tracking-tight">
+      <div className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+        <span className="field-grain" aria-hidden />
+        <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
+          <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
             {editing ? 'Edit your card' : 'Your card'}
           </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-muted"
+            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-5">
           {editing ? (
             <div className="flex flex-col gap-4">
               <Field label="Name">
@@ -143,7 +144,7 @@ export function MyCardSheet({
                   value={draft.name === 'You' ? '' : draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="Your name"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                 />
               </Field>
               <Field label="Role">
@@ -151,7 +152,7 @@ export function MyCardSheet({
                   value={draft.title ?? ''}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                   placeholder="Design Lead"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                 />
               </Field>
               <Field label="Company">
@@ -159,7 +160,7 @@ export function MyCardSheet({
                   value={draft.company ?? ''}
                   onChange={(e) => setDraft({ ...draft, company: e.target.value })}
                   placeholder="Linear"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                 />
               </Field>
               <Field label="Phone">
@@ -168,7 +169,7 @@ export function MyCardSheet({
                   onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
                   inputMode="tel"
                   placeholder="+1 415 555 0142"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                 />
               </Field>
               <Field label="Email">
@@ -177,14 +178,14 @@ export function MyCardSheet({
                   onChange={(e) => setDraft({ ...draft, email: e.target.value })}
                   inputMode="email"
                   placeholder="you@company.com"
-                  className="h-11 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                 />
               </Field>
             </div>
           ) : (
             <div className="flex flex-col items-center">
               {/* The business card */}
-              <div className="w-full rounded-3xl bg-primary p-6 text-primary-foreground shadow-lg">
+              <div className="primary-action w-full rounded-3xl p-6">
                 <div className="flex items-center gap-4">
                   {profile.photoUrl ? (
                     <img
@@ -198,7 +199,7 @@ export function MyCardSheet({
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="truncate font-serif text-2xl font-medium leading-tight">
+                    <p className="truncate font-heading text-2xl font-semibold leading-tight">
                       {profile.name}
                     </p>
                     {roleLine && (
@@ -217,7 +218,7 @@ export function MyCardSheet({
                 )}
 
                 {/* QR */}
-                <div className="mt-5 flex flex-col items-center gap-2 rounded-2xl bg-card p-4">
+                <div className="glass-card mt-5 flex flex-col items-center gap-2 rounded-2xl bg-white/80 p-4">
                   {qr ? (
                     <img
                       src={qr || '/placeholder.svg'}
@@ -246,13 +247,13 @@ export function MyCardSheet({
           )}
         </div>
 
-        <footer className="flex gap-2 border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <footer className="relative z-[1] flex gap-2 border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
           {editing ? (
             <button
               type="button"
               onClick={persist}
               disabled={saving}
-              className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-60"
+              className="primary-action pressable flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-60"
             >
               {saving ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
               {saving ? 'Saving…' : 'Save card'}
@@ -265,7 +266,7 @@ export function MyCardSheet({
                   setDraft(profile)
                   setEditing(true)
                 }}
-                className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full border border-border bg-card px-4 text-[15px] font-semibold text-foreground transition-colors active:bg-muted"
+                className="glass-button pressable flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold text-[var(--ink-strong)]"
               >
                 <Pencil className="size-4" />
                 Edit
@@ -273,7 +274,7 @@ export function MyCardSheet({
               <button
                 type="button"
                 onClick={share}
-                className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
+                className="primary-action pressable flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
               >
                 <Share2 className="size-4" />
                 {shared ? 'Link copied' : 'Share'}

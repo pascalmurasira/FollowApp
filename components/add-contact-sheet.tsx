@@ -187,7 +187,7 @@ export function AddContactSheet({
                 className="primary-action pressable mt-3 flex min-h-12 w-full items-center justify-center gap-2 px-4 text-[15px] font-semibold"
               >
                 <ScanLine className="size-4" />
-                Scan business card
+                Scan card with camera
               </button>
               <p className="mt-2 text-[12px] text-[var(--ink-secondary)]">
                 You review every field before anything is saved.
@@ -399,13 +399,13 @@ export function AddContactSheet({
             className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
           >
             <UserPlus className="size-4" />
-            Add to FollowApp
+            Save contact to FollowApp
           </button>
           <button
             type="button"
             onClick={() => submit(true)}
             disabled={!name.trim()}
-            className="pressable flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
+            className="glass-button pressable flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)] disabled:opacity-40"
           >
             Save & add another
           </button>

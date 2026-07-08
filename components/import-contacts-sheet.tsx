@@ -127,26 +127,27 @@ export function ImportContactsSheet({
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
-      <div className="relative flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl">
-        <header className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-serif text-xl font-medium tracking-tight">
+      <div className="app-field relative flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+        <span className="field-grain" aria-hidden />
+        <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
+          <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
             {parsed ? 'Review import' : 'Import contacts'}
           </h2>
           <button
             type="button"
             onClick={close}
             aria-label="Close"
-            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-muted"
+            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+        <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           {!parsed ? (
             <>
               {/* Mode tabs */}
-              <div className="mb-4 flex gap-2 rounded-full bg-muted p-1">
+              <div className="glass-card mb-4 flex gap-2 rounded-full p-1">
                 <TabButton
                   active={mode === 'upload'}
                   onClick={() => setMode('upload')}
@@ -166,7 +167,7 @@ export function ImportContactsSheet({
                   <button
                     type="button"
                     onClick={() => fileRef.current?.click()}
-                    className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card px-4 py-10 text-center transition-colors active:bg-muted"
+                    className="glass-card pressable flex flex-col items-center justify-center gap-2 rounded-2xl border-dashed px-4 py-10 text-center"
                   >
                     <FileText className="size-7 text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">
@@ -202,13 +203,13 @@ export function ImportContactsSheet({
                     placeholder={
                       'One per line, e.g.\nMaya Chen, Design Lead at Linear, maya@linear.app\nSam Park - PM, Vercel'
                     }
-                    className="w-full resize-none rounded-xl border border-border bg-card px-4 py-3 text-base leading-relaxed outline-none focus-visible:border-primary"
+                    className="w-full resize-none rounded-xl border border-[var(--hairline)] bg-white/25 px-4 py-3 text-base leading-relaxed outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                   />
                   <button
                     type="button"
                     onClick={handlePaste}
                     disabled={!pasteText.trim()}
-                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-40"
+                    className="primary-action pressable flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold disabled:opacity-40"
                   >
                     Review {pasteText.trim() ? '' : 'contacts'}
                   </button>
@@ -252,7 +253,7 @@ export function ImportContactsSheet({
                       type="button"
                       onClick={() => setTier(opt.value)}
                       className={cn(
-                        'flex-1 rounded-xl border px-2 py-2 text-sm font-semibold transition-colors',
+                        'pressable flex-1 rounded-xl border px-2 py-2 text-sm font-semibold transition-colors',
                         tier === opt.value
                           ? 'border-primary bg-primary/[0.08] text-primary'
                           : 'border-border bg-card text-muted-foreground',
@@ -277,7 +278,7 @@ export function ImportContactsSheet({
                         setIncluded((prev) => ({ ...prev, [i]: !prev[i] }))
                       }
                       className={cn(
-                        'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                        'pressable flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
                         included[i]
                           ? 'border-primary/40 bg-primary/[0.04]'
                           : 'border-border bg-card opacity-55',
@@ -312,12 +313,12 @@ export function ImportContactsSheet({
         </div>
 
         {parsed && (
-          <footer className="border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <footer className="relative z-[1] border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
             <button
               type="button"
               onClick={confirm}
               disabled={includedCount === 0 || saving}
-              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-40"
+              className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
             >
               {saving
                 ? 'Importing…'
@@ -346,10 +347,10 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors',
+        'pressable flex flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors',
         active
-          ? 'bg-background text-foreground shadow-sm'
-          : 'text-muted-foreground',
+          ? 'primary-action'
+          : 'text-[var(--ink-secondary)]',
       )}
     >
       {icon}

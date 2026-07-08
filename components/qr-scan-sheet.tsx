@@ -203,16 +203,17 @@ export function QrScanSheet({
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
-      <div className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl">
-        <header className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-serif text-xl font-medium tracking-tight">
+      <div className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+        <span className="field-grain" aria-hidden />
+        <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
+          <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
             {stage === 'result' ? 'Save this contact' : 'Scan a FollowApp card'}
           </h2>
           <button
             type="button"
             onClick={close}
             aria-label="Close"
-            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-muted"
+            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>
@@ -227,10 +228,10 @@ export function QrScanSheet({
           className="sr-only"
         />
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-5">
           {stage === 'scanning' && (
             <div className="flex flex-col items-center gap-4">
-              <div className="relative aspect-square w-full max-w-xs overflow-hidden rounded-2xl bg-foreground/5">
+              <div className="glass-hero relative aspect-square w-full max-w-xs overflow-hidden rounded-2xl">
                 <video
                   ref={videoRef}
                   playsInline
@@ -255,7 +256,7 @@ export function QrScanSheet({
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-1.5 text-[13px] font-semibold text-primary"
+                className="glass-button pressable flex min-h-11 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-strong)]"
               >
                 <ImageIcon className="size-4" />
                 Scan from a photo instead
@@ -265,7 +266,7 @@ export function QrScanSheet({
 
           {stage === 'denied' && (
             <div className="flex flex-col items-center gap-4 py-8 text-center">
-              <div className="flex size-16 items-center justify-center rounded-2xl bg-secondary text-muted-foreground">
+              <div className="glass-card flex size-16 items-center justify-center rounded-2xl text-[var(--ink-secondary)]">
                 <CameraOff className="size-7" />
               </div>
               <p className="max-w-[18rem] text-pretty text-[14px] leading-relaxed text-muted-foreground">
@@ -275,7 +276,7 @@ export function QrScanSheet({
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 text-[14px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
+                className="primary-action pressable flex min-h-11 items-center gap-2 rounded-full px-5 text-[14px] font-semibold"
               >
                 <ImageIcon className="size-4" />
                 Choose a photo
@@ -285,8 +286,8 @@ export function QrScanSheet({
 
           {stage === 'result' && card && (
             <div className="flex flex-col gap-5">
-              <div className="rounded-2xl border border-border bg-card p-5 text-center shadow-sm">
-                <p className="font-serif text-2xl font-medium tracking-tight text-foreground">
+              <div className="glass-card rounded-2xl p-5 text-center">
+                <p className="font-heading text-2xl font-semibold tracking-tight text-[var(--ink-strong)]">
                   {card.n}
                 </p>
                 {roleLine && (
@@ -311,7 +312,7 @@ export function QrScanSheet({
                       type="button"
                       onClick={() => setTier(opt.value)}
                       className={cn(
-                        'flex flex-1 flex-col items-center gap-0.5 rounded-xl border px-2 py-2.5 transition-colors',
+                        'pressable flex flex-1 flex-col items-center gap-0.5 rounded-xl border px-2 py-2.5 transition-colors',
                         tier === opt.value
                           ? 'border-primary bg-primary/[0.08] text-primary'
                           : 'border-border bg-card text-muted-foreground',
@@ -328,14 +329,14 @@ export function QrScanSheet({
         </div>
 
         {stage === 'result' && card && (
-          <footer className="flex flex-col gap-2 border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <footer className="relative z-[1] flex flex-col gap-2 border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
             <button
               type="button"
               onClick={addToFollowApp}
-              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
+              className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
             >
               <UserPlus className="size-4" />
-              Add to FollowApp
+              Save contact to FollowApp
             </button>
             <button
               type="button"
@@ -343,7 +344,7 @@ export function QrScanSheet({
                 saveToPhone(card)
                 setSavedToPhone(true)
               }}
-              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-4 text-[15px] font-semibold text-foreground transition-colors active:bg-muted"
+              className="glass-button pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold text-[var(--ink-strong)]"
             >
               <Smartphone className="size-4" />
               {savedToPhone ? 'Opened in Contacts' : 'Also save to phone'}

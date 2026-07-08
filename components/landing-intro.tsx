@@ -85,7 +85,7 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
               onClick={onGetStarted}
               className="primary-action pressable rounded-lg px-4 py-2 font-medium"
             >
-              Get started
+              Start setup
             </button>
           </nav>
         </div>
@@ -182,7 +182,7 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
             {capabilities.map(({ icon: Icon, label, body }, index) => (
               <article
                 key={label}
-                className="rounded-xl border border-border bg-card p-6"
+                className="glass-card rounded-xl p-6"
               >
                 <div className="flex items-center justify-between">
                   <span className="flex size-10 items-center justify-center rounded-lg bg-secondary text-primary">
@@ -240,7 +240,7 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
         </section>
 
         <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
-          <div className="grid items-center gap-8 rounded-2xl border border-border bg-card p-7 shadow-card-lg sm:p-10 lg:grid-cols-[1fr_auto]">
+          <div className="glass-hero grid items-center gap-8 rounded-2xl p-7 sm:p-10 lg:grid-cols-[1fr_auto]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
                 Start in under a minute
@@ -252,9 +252,9 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
             <button
               type="button"
               onClick={onGetStarted}
-              className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+              className="primary-action pressable group inline-flex min-h-12 items-center justify-center gap-2 rounded-[var(--r-button-lg)] px-5 text-sm font-semibold"
             >
-              Build my follow-up list
+              Start setup — build my list
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
             </button>
           </div>
@@ -268,7 +268,7 @@ function ProductPreview() {
   return (
     <div className="relative mx-auto w-full max-w-[34rem]">
       <div className="absolute -inset-5 -z-10 rounded-[2rem] bg-primary/[0.05]" />
-      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card-lg">
+      <div className="glass-hero overflow-hidden rounded-2xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
             <p className="text-xs font-medium text-muted-foreground">Thursday, 2 July</p>
@@ -302,7 +302,7 @@ function ProductPreview() {
           ))}
         </div>
 
-        <div className="m-4 rounded-xl border border-primary/15 bg-primary/[0.035] p-4">
+        <div className="glass-card m-4 rounded-xl p-4">
           <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
             <span>Suggested opener</span>
             <span>Warm · concise</span>
@@ -312,10 +312,10 @@ function ProductPreview() {
             you’re most excited to build with the team this year.
           </p>
           <div className="mt-4 flex gap-2">
-            <span className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold">
+            <span className="glass-button rounded-lg px-3 py-2 text-xs font-semibold">
               Edit
             </span>
-            <span className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">
+            <span className="primary-action rounded-lg px-3 py-2 text-xs font-semibold">
               Review &amp; send
             </span>
           </div>
@@ -335,7 +335,7 @@ function Principle({
   body: string
 }) {
   return (
-    <article className="bg-appbar p-5 sm:p-6">
+    <article className="bg-appbar/70 p-5 backdrop-blur-xl sm:p-6">
       <Icon className="size-5 text-appbar-foreground/65" />
       <h3 className="mt-5 font-heading text-base font-semibold">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-appbar-foreground/60">{body}</p>

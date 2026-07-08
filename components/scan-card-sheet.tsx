@@ -511,14 +511,14 @@ export function ScanCardSheet({
                 className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
               >
                 <Camera className="size-4" />
-                Take a photo
+                Open camera and scan
               </button>
               <button
                 type="button"
                 onClick={handleChoosePhoto}
-                className="pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-secondary)]"
+                className="glass-button pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-strong)]"
               >
-                Choose from photos instead
+                Use a photo from library
               </button>
             </div>
           )}
@@ -553,12 +553,12 @@ export function ScanCardSheet({
                 onClick={close}
                 className="primary-action pressable mt-2 flex min-h-12 w-full items-center justify-center rounded-full px-4 text-[15px] font-semibold"
               >
-                Done
+                Done — view follow-ups
               </button>
               <button
                 type="button"
                 onClick={reset}
-                className="pressable min-h-11 rounded-full px-4 text-sm font-semibold text-[var(--ink-secondary)]"
+                className="glass-button pressable min-h-11 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
               >
                 Scan another card
               </button>
@@ -708,7 +708,7 @@ function CameraPermissionCard({
   const blocked = kind === 'blocked'
   const unavailable = kind === 'unavailable'
   return (
-    <section className="w-full rounded-3xl border border-[var(--hairline)] bg-white/35 p-4 text-left shadow-[0_16px_40px_-28px_oklch(0.2_0.03_255_/_0.5)] backdrop-blur">
+    <section className="glass-card w-full rounded-3xl p-4 text-left">
       <div className="flex items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
           {blocked || unavailable ? (
@@ -743,7 +743,7 @@ function CameraPermissionCard({
             className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold"
           >
             <Settings className="size-4" />
-            Open Settings
+            Turn on camera in Settings
           </button>
           <button
             type="button"
