@@ -305,10 +305,6 @@ export function ScanCardSheet({
     try {
       const currentPermission = await cameraPermissionState()
       if (currentPermission !== 'granted' && currentPermission !== 'limited') {
-        if (currentPermission === 'denied') {
-          setCameraHelp('blocked')
-          return
-        }
         setCameraHelp('intro')
         const requestedPermission = await requestCameraPermission()
         if (requestedPermission !== 'granted' && requestedPermission !== 'limited') {
@@ -731,7 +727,7 @@ function CameraPermissionCard({
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
             {blocked
-              ? 'iOS is blocking camera access for FollowApp. Turn it on once, come back, and scanning will feel instant.'
+              ? 'iOS still has camera access off for FollowApp. Turn it on once, come back, and scanning will feel instant.'
               : unavailable
                 ? 'Your phone did not open the camera this time. You can enable it in Settings or use a saved card photo.'
                 : 'We only open the camera when you tap scan. FollowApp reads the card, then you approve every field before saving.'}
