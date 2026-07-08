@@ -22,14 +22,14 @@ export function CardActions({ card }: { card: CardData }) {
           saveToPhone(card)
           setSaved(true)
         }}
-        className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
+        className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold"
       >
         <Smartphone className="size-4" />
         {saved ? 'Opened in Contacts' : 'Save to my contacts'}
       </button>
       <Link
         href="/"
-        className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[14px] font-medium text-muted-foreground"
+        className="glass-button pressable flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full text-[14px] font-medium text-[var(--ink-secondary)]"
       >
         Stay close with FollowApp
         <ArrowRight className="size-4" />

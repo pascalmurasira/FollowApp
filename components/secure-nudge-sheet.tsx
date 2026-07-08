@@ -121,7 +121,7 @@ export function SecureNudgeSheet({
                     if (e.key === 'Enter') send()
                   }}
                   placeholder="you@example.com"
-                  className="h-12 w-full rounded-xl border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+                  className="glass-card h-12 w-full rounded-xl px-4 text-base outline-none focus-visible:border-[var(--action-bg)]"
                 />
               </label>
 
@@ -135,7 +135,7 @@ export function SecureNudgeSheet({
                 type="button"
                 onClick={send}
                 disabled={!valid || status === 'sending'}
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-40"
+                className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
               >
                 <ShieldCheck className="size-4" />
                 {status === 'sending' ? 'Sending…' : 'Email me a link'}

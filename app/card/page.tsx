@@ -48,14 +48,15 @@ export default async function CardPage({
   const roleLine = [card.t, card.co].filter(Boolean).join(' · ')
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-12">
-      <div className="rounded-3xl bg-primary p-7 text-primary-foreground shadow-lg">
+    <main className="app-field mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-12">
+      <span className="field-grain" aria-hidden />
+      <div className="primary-action rounded-3xl p-7">
         <div className="flex items-center gap-4">
-          <div className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15 font-serif text-2xl font-medium">
+          <div className="glass-button flex size-16 shrink-0 items-center justify-center rounded-full bg-white/15 font-heading text-2xl font-semibold">
             {initials(card.n)}
           </div>
           <div className="min-w-0">
-            <p className="truncate font-serif text-3xl font-medium leading-tight">
+            <p className="truncate font-heading text-3xl font-semibold leading-tight">
               {card.n}
             </p>
             {roleLine && (

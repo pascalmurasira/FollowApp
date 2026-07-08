@@ -33,8 +33,8 @@ export function InvitePrompt({
 
   return (
     <div className="px-4 pt-3">
-      <div className="relative flex items-center gap-3 rounded-2xl bg-card p-3 shadow-card">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
+      <div className="glass-card relative flex items-center gap-3 rounded-2xl p-3">
+        <span className="glass-button flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--ink-strong)]">
           {state === 'copied' ? (
             <Link2 className="size-[18px]" />
           ) : done ? (
@@ -63,7 +63,7 @@ export function InvitePrompt({
           <button
             type="button"
             onClick={handleInvite}
-            className="shrink-0 rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground transition-transform active:scale-95"
+            className="primary-action pressable shrink-0 rounded-full px-4 py-2 text-[13px] font-semibold"
           >
             Share
           </button>

@@ -29,7 +29,7 @@ export function ChatRequests({
   }
 
   return (
-    <section className="border-b border-border bg-secondary/30 px-4 py-3">
+    <section className="border-b border-[var(--hairline)] bg-white/20 px-4 py-3 backdrop-blur-xl">
       <h2 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         <MessageCircle className="size-3 text-primary" />
         {incoming.length === 1
@@ -40,7 +40,7 @@ export function ChatRequests({
         {incoming.map((link) => (
           <li
             key={link.id}
-            className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
+            className="glass-card flex items-center gap-3 rounded-xl px-3 py-2.5"
           >
             <div className="min-w-0 flex-1">
               <p className="truncate text-[15px] font-medium text-foreground">
@@ -55,7 +55,7 @@ export function ChatRequests({
                 type="button"
                 onClick={() => respond(link.id, false)}
                 aria-label={`Decline ${link.otherName}`}
-                className="flex size-9 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors active:bg-muted"
+                className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
               >
                 <X className="size-4" />
               </button>
@@ -63,7 +63,7 @@ export function ChatRequests({
                 type="button"
                 onClick={() => accept(link.id)}
                 aria-label={`Accept ${link.otherName}`}
-                className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
+                className="primary-action pressable flex size-9 items-center justify-center rounded-full"
               >
                 <Check className="size-4" />
               </button>

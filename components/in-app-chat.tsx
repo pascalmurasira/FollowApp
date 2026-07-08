@@ -72,10 +72,10 @@ export function InAppChat({
               >
                 <div
                   className={cn(
-                    'max-w-[80%] rounded-2xl px-3.5 py-2 text-[15px] leading-snug',
+                    'max-w-[80%] rounded-2xl px-3.5 py-2 text-[15px] leading-snug shadow-[0_14px_30px_-20px_oklch(0.22_0.04_255_/_0.55)]',
                     m.mine
-                      ? 'rounded-br-md bg-primary text-primary-foreground'
-                      : 'rounded-bl-md bg-secondary text-secondary-foreground',
+                      ? 'primary-action rounded-br-md'
+                      : 'glass-card rounded-bl-md text-[var(--ink-body)]',
                   )}
                 >
                   {m.body}
@@ -92,19 +92,19 @@ export function InAppChat({
 
       <form
         onSubmit={submit}
-        className="flex items-center gap-2 border-t border-border px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        className="flex items-center gap-2 border-t border-[var(--hairline)] bg-white/15 px-3 py-3 backdrop-blur-xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       >
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={`Message ${firstName}…`}
-          className="h-11 flex-1 rounded-full border border-border bg-card px-4 text-base outline-none focus-visible:border-primary"
+          className="glass-card h-11 flex-1 rounded-full px-4 text-base outline-none focus-visible:border-[var(--action-bg)]"
         />
         <button
           type="submit"
           disabled={!draft.trim() || sending}
           aria-label="Send"
-          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95 disabled:opacity-40"
+          className="primary-action pressable flex size-11 shrink-0 items-center justify-center rounded-full disabled:opacity-40"
         >
           {sending ? (
             <Loader2 className="size-5 animate-spin" />

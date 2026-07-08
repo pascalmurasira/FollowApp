@@ -435,7 +435,7 @@ function ChatLinkBanner({
   // note it; the actionable case from this view is sending a new request.
   if (status === 'pending') {
     return (
-      <div className="flex items-center gap-2 border-t border-border bg-primary/[0.06] px-4 py-2.5 text-[13px] text-foreground">
+      <div className="glass-card mx-3 mb-3 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px] text-[var(--ink-strong)]">
         <MessageCircle className="size-4 shrink-0 text-primary" />
         <span className="text-pretty">
           {direction === 'incoming'
@@ -448,7 +448,7 @@ function ChatLinkBanner({
 
   if (status === 'declined') {
     return (
-      <div className="flex items-center gap-2 border-t border-border bg-card px-4 py-2.5 text-[13px] text-muted-foreground">
+      <div className="glass-card mx-3 mb-3 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px] text-[var(--ink-secondary)]">
         <MessageCircle className="size-4 shrink-0" />
         <span className="text-pretty">{`Your chat request wasn't accepted — keep reaching out your usual way.`}</span>
       </div>
@@ -461,7 +461,7 @@ function ChatLinkBanner({
       type="button"
       onClick={send}
       disabled={busy}
-      className="flex w-full items-center justify-center gap-2 border-t border-border bg-primary/[0.08] px-4 py-3 text-[14px] font-semibold text-primary transition-colors active:bg-primary/[0.14] disabled:opacity-60"
+      className="primary-action pressable mx-3 mb-3 flex min-h-12 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
     >
       <MessageCircle className="size-4" />
       {busy ? 'Sending request…' : `${firstName} is on FollowApp — chat in-app`}
