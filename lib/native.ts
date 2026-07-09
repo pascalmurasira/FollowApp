@@ -82,9 +82,21 @@ export async function requestCameraPermission(): Promise<NativePermissionState> 
 
 export async function openAppSettings(): Promise<void> {
   if (!(await isNativeRuntime())) return
+  try {
+    const { registerPlugin } = await import('@capacitor/core')
+    const FollowAppNative = registerPlugin<{
+      openSettings(): Promise<void>
+    }>('FollowAppNative')
+    await FollowAppNative.openSettings()
+    return
+  } catch (error) {
+    console.warn('[v0] Native settings bridge unavailable, using URL fallback:', error)
+  }
+
   // iOS only reveals a Camera toggle after camera access has actually been
-  // requested/denied. This opens the app-specific settings page; callers should
-  // only use it for a confirmed denied/restricted permission state.
+  // requested/denied. This fallback opens the app-specific settings page;
+  // callers should only use it for a confirmed denied/restricted permission
+  // state.
   window.location.href = 'app-settings:'
   try {
     const { Browser } = await import('@capacitor/browser')
