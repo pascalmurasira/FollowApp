@@ -83,11 +83,7 @@ export async function requestCameraPermission(): Promise<NativePermissionState> 
 export async function openAppSettings(): Promise<void> {
   if (!(await isNativeRuntime())) return
   try {
-    const { registerPlugin } = await import('@capacitor/core')
-    const FollowAppNative = registerPlugin<{
-      openSettings(): Promise<void>
-    }>('FollowAppNative')
-    await FollowAppNative.openSettings()
+    await (await followAppNativePlugin()).openSettings()
     return
   } catch (error) {
     console.warn('[v0] Native settings bridge unavailable, using URL fallback:', error)
@@ -113,6 +109,16 @@ export async function openAppSettings(): Promise<void> {
 
 export async function captureImageDataUrl(): Promise<string | null> {
   if (!(await isNativeRuntime())) return null
+
+  try {
+    const photo = await (await followAppNativePlugin()).takeBusinessCardPhoto()
+    if (photo.dataUrl) return photo.dataUrl
+  } catch (error) {
+    if (isNativeUserCancelError(error) || isNativePermissionDeniedError(error)) {
+      throw error
+    }
+    console.warn('[v0] FollowApp native camera failed, trying Capacitor Camera:', error)
+  }
 
   const {
     Camera,
@@ -155,6 +161,17 @@ export async function captureImageDataUrl(): Promise<string | null> {
   })
 
   return mediaResultToDataUrl(photo.thumbnail, photo.uri)
+}
+
+async function followAppNativePlugin(): Promise<{
+  openSettings(): Promise<void>
+  takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
+}> {
+  const { registerPlugin } = await import('@capacitor/core')
+  return registerPlugin<{
+    openSettings(): Promise<void>
+    takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
+  }>('FollowAppNative')
 }
 
 export async function chooseImageDataUrl(): Promise<string | null> {

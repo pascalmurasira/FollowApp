@@ -22,13 +22,11 @@ import type { NewContactInput } from '@/lib/contacts-store'
 import type { EnrichmentHook, Tier } from '@/lib/types'
 import { saveToPhone } from '@/lib/card'
 import {
-  cameraPermissionState,
   captureImageDataUrl,
   chooseImageDataUrl,
   isNativePermissionDeniedError,
   isNativeUserCancelError,
   openAppSettings,
-  requestCameraPermission,
   tapFeedback,
 } from '@/lib/native'
 import { todayDateInputValue } from '@/lib/contact-dates'
@@ -51,7 +49,7 @@ interface ContextNote {
 }
 
 type ContextStatus = 'idle' | 'loading' | 'done' | 'empty' | 'error'
-type CameraPermissionHelp = null | 'intro' | 'blocked' | 'unavailable'
+type CameraPermissionHelp = null | 'blocked' | 'unavailable'
 
 const EMPTY: ScannedCard = {
   name: '',
@@ -310,21 +308,6 @@ export function ScanCardSheet({
 
     await tapFeedback()
     try {
-      const currentPermission = await cameraPermissionState()
-      if (currentPermission === 'denied') {
-        setCameraHelp('blocked')
-        return
-      }
-      if (currentPermission !== 'granted' && currentPermission !== 'limited') {
-        setCameraHelp('intro')
-        const requestedPermission = await requestCameraPermission()
-        if (requestedPermission !== 'granted' && requestedPermission !== 'limited') {
-          setCameraHelp('blocked')
-          return
-        }
-        setCameraHelp(null)
-      }
-
       const image = await captureImageDataUrl()
       if (!image) {
         fileRef.current?.click()
@@ -792,43 +775,37 @@ function CameraPermissionCard({
           <p className="font-heading text-[16px] font-semibold leading-tight text-[var(--ink-strong)]">
             {blocked
               ? 'Camera is off'
-              : unavailable
-                ? 'Camera did not open'
-                : 'Camera permission'}
+              : 'Camera did not open'}
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
             {blocked
               ? 'Turn it on once, or choose a saved card photo.'
-              : unavailable
-                ? 'Try again, or choose a saved card photo.'
-                : 'We’ll read the card. You approve before saving.'}
+              : 'Try again, or choose a saved card photo.'}
           </p>
         </div>
       </div>
 
-      {(blocked || unavailable) && (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={blocked ? onOpenSettings : onRetryCamera}
-            className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold"
-          >
-            {blocked ? (
-              <Settings className="size-4" />
-            ) : (
-              <Camera className="size-4" />
-            )}
-            {blocked ? 'Turn on camera' : 'Try camera again'}
-          </button>
-          <button
-            type="button"
-            onClick={onChoosePhoto}
-            className="glass-button pressable flex min-h-11 items-center justify-center rounded-[var(--r-button)] px-4 text-sm font-semibold text-[var(--ink-strong)]"
-          >
-            Choose photo
-          </button>
-        </div>
-      )}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={blocked ? onOpenSettings : onRetryCamera}
+          className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold"
+        >
+          {blocked ? (
+            <Settings className="size-4" />
+          ) : (
+            <Camera className="size-4" />
+          )}
+          {blocked ? 'Turn on camera' : 'Try camera again'}
+        </button>
+        <button
+          type="button"
+          onClick={onChoosePhoto}
+          className="glass-button pressable flex min-h-11 items-center justify-center rounded-[var(--r-button)] px-4 text-sm font-semibold text-[var(--ink-strong)]"
+        >
+          Choose photo
+        </button>
+      </div>
     </section>
   )
 }
