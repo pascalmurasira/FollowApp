@@ -54,6 +54,18 @@ export type NativePermissionState =
   | 'prompt'
   | 'prompt-with-rationale'
 
+export function isNativeUserCancelError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /cancel(?:led|ed|)?/i.test(message)
+}
+
+export function isNativePermissionDeniedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /(denied|not authorized|not authorised|permission|privacy|restricted|access)/i.test(
+    message,
+  )
+}
+
 export async function cameraPermissionState(): Promise<NativePermissionState> {
   if (!(await isNativeRuntime())) return 'granted'
   const { Camera } = await import('@capacitor/camera')
@@ -70,11 +82,20 @@ export async function requestCameraPermission(): Promise<NativePermissionState> 
 
 export async function openAppSettings(): Promise<void> {
   if (!(await isNativeRuntime())) return
+  // iOS only reveals a Camera toggle after camera access has actually been
+  // requested/denied. This opens the app-specific settings page; callers should
+  // only use it for a confirmed denied/restricted permission state.
+  window.location.href = 'app-settings:'
   try {
     const { Browser } = await import('@capacitor/browser')
-    await Browser.open({ url: 'app-settings:' })
+    window.setTimeout(() => {
+      void Browser.open({ url: 'app-settings:' }).catch(() => {
+        // The location change above is the primary path. If both fail, the
+        // user still has the photo/manual fallbacks in the scan sheet.
+      })
+    }, 250)
   } catch {
-    window.location.href = 'app-settings:'
+    // no-op
   }
 }
 
@@ -90,37 +111,38 @@ export async function captureImageDataUrl(): Promise<string | null> {
   } = await import('@capacitor/camera')
 
   try {
-    const photo = await Camera.takePhoto({
+    const photo = await Camera.getPhoto({
       quality: 82,
-      targetWidth: 1600,
-      targetHeight: 1600,
+      width: 1600,
+      height: 1600,
+      allowEditing: false,
       correctOrientation: true,
-      encodingType: EncodingType.JPEG,
-      cameraDirection: CameraDirection.Rear,
-      editable: 'no',
-      presentationStyle: 'fullscreen',
-      saveToGallery: false,
+      resultType: CameraResultType.DataUrl,
+      source: CameraSource.Camera,
+      promptLabelHeader: 'Scan business card',
+      promptLabelPhoto: 'Take photo',
     })
-    return mediaResultToDataUrl(photo.thumbnail, photo.uri)
+    return photo.dataUrl ?? null
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (/cancel/i.test(message)) throw error
-    console.warn('[v0] Native takePhoto failed, trying legacy getPhoto:', error)
+    if (isNativeUserCancelError(error) || isNativePermissionDeniedError(error)) {
+      throw error
+    }
+    console.warn('[v0] Native getPhoto failed, trying takePhoto:', error)
   }
 
-  const photo = await Camera.getPhoto({
+  const photo = await Camera.takePhoto({
     quality: 82,
-    width: 1600,
-    height: 1600,
-    allowEditing: false,
+    targetWidth: 1600,
+    targetHeight: 1600,
     correctOrientation: true,
-    resultType: CameraResultType.DataUrl,
-    source: CameraSource.Camera,
-    promptLabelHeader: 'Scan business card',
-    promptLabelPhoto: 'Take photo',
+    encodingType: EncodingType.JPEG,
+    cameraDirection: CameraDirection.Rear,
+    editable: 'no',
+    presentationStyle: 'fullscreen',
+    saveToGallery: false,
   })
 
-  return photo.dataUrl ?? null
+  return mediaResultToDataUrl(photo.thumbnail, photo.uri)
 }
 
 export async function chooseImageDataUrl(): Promise<string | null> {

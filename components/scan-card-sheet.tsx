@@ -25,6 +25,8 @@ import {
   cameraPermissionState,
   captureImageDataUrl,
   chooseImageDataUrl,
+  isNativePermissionDeniedError,
+  isNativeUserCancelError,
   openAppSettings,
   requestCameraPermission,
   tapFeedback,
@@ -309,6 +311,10 @@ export function ScanCardSheet({
     await tapFeedback()
     try {
       const currentPermission = await cameraPermissionState()
+      if (currentPermission === 'denied') {
+        setCameraHelp('blocked')
+        return
+      }
       if (currentPermission !== 'granted' && currentPermission !== 'limited') {
         setCameraHelp('intro')
         const requestedPermission = await requestCameraPermission()
@@ -326,13 +332,10 @@ export function ScanCardSheet({
       }
       await readCardImage(await normalizeDataUrl(image))
     } catch (err) {
-      const error = err as { message?: string }
-      const message = error?.message?.toLowerCase() ?? ''
-      const cancelled =
-        message.includes('cancel') ||
-        message.includes('user denied') ||
-        message.includes('user cancelled')
-      if (!cancelled) {
+      if (isNativePermissionDeniedError(err)) {
+        setCameraHelp('blocked')
+        setStage('capture')
+      } else if (!isNativeUserCancelError(err)) {
         console.error('[v0] Native card capture failed:', err)
         setCameraHelp('unavailable')
         setStage('capture')
@@ -506,6 +509,7 @@ export function ScanCardSheet({
               {cameraHelp ? (
                 <CameraPermissionCard
                   kind={cameraHelp}
+                  onRetryCamera={handleNativeCamera}
                   onOpenSettings={handleOpenSettings}
                   onChoosePhoto={handleChoosePhoto}
                 />
@@ -761,10 +765,12 @@ export function ScanCardSheet({
 
 function CameraPermissionCard({
   kind,
+  onRetryCamera,
   onOpenSettings,
   onChoosePhoto,
 }: {
   kind: Exclude<CameraPermissionHelp, null>
+  onRetryCamera: () => void
   onOpenSettings: () => void
   onChoosePhoto: () => void
 }) {
@@ -774,8 +780,10 @@ function CameraPermissionCard({
     <section className="glass-card w-full rounded-3xl p-4 text-left">
       <div className="flex items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
-          {blocked || unavailable ? (
+          {blocked ? (
             <Settings className="size-5" />
+          ) : unavailable ? (
+            <Camera className="size-5" />
           ) : (
             <ShieldCheck className="size-5" />
           )}
@@ -792,7 +800,7 @@ function CameraPermissionCard({
             {blocked
               ? 'Turn it on once, or choose a saved card photo.'
               : unavailable
-                ? 'You can enable it in Settings, or choose a saved card photo.'
+                ? 'Try again, or choose a saved card photo.'
                 : 'We’ll read the card. You approve before saving.'}
           </p>
         </div>
@@ -802,11 +810,15 @@ function CameraPermissionCard({
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={blocked ? onOpenSettings : onRetryCamera}
             className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold"
           >
-            <Settings className="size-4" />
-            Turn on camera
+            {blocked ? (
+              <Settings className="size-4" />
+            ) : (
+              <Camera className="size-4" />
+            )}
+            {blocked ? 'Turn on camera' : 'Try camera again'}
           </button>
           <button
             type="button"
