@@ -444,10 +444,10 @@
   transform: translateZ(1px);
 }
 
-.glass-hero > *,
-.glass-card > *,
-.glass-button > *,
-.primary-action > * {
+.glass-hero > :not(.absolute):not(.fixed):not(.sticky),
+.glass-card > :not(.absolute):not(.fixed):not(.sticky),
+.glass-button > :not(.absolute):not(.fixed):not(.sticky),
+.primary-action > :not(.absolute):not(.fixed):not(.sticky) {
   position: relative;
   z-index: 1;
 }
@@ -623,6 +623,8 @@
 }
 
 .tab-active-pill {
+  position: absolute;
+  z-index: 0;
   transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
