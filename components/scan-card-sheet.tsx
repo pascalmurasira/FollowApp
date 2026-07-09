@@ -168,6 +168,7 @@ export function ScanCardSheet({
   const [contextStatus, setContextStatus] = useState<ContextStatus>('idle')
   const [contextNotes, setContextNotes] = useState<ContextNote[]>([])
   const [cameraHelp, setCameraHelp] = useState<CameraPermissionHelp>(null)
+  const [isOpeningCamera, setIsOpeningCamera] = useState(false)
   const [showScanDetails, setShowScanDetails] = useState(false)
   const [followUpDate, setFollowUpDate] = useState<Date>(() =>
     addDays(new Date(), 1),
@@ -188,6 +189,7 @@ export function ScanCardSheet({
     setContextStatus('idle')
     setContextNotes([])
     setCameraHelp(null)
+    setIsOpeningCamera(false)
     setShowScanDetails(false)
     setFollowUpDate(addDays(new Date(), 1))
     setShowDateRoller(false)
@@ -306,7 +308,8 @@ export function ScanCardSheet({
       return
     }
 
-    await tapFeedback()
+    setIsOpeningCamera(true)
+    void tapFeedback()
     try {
       const image = await captureImageDataUrl()
       if (!image) {
@@ -320,9 +323,12 @@ export function ScanCardSheet({
         setStage('capture')
       } else if (!isNativeUserCancelError(err)) {
         console.error('[v0] Native card capture failed:', err)
+        setError('Camera did not open. Try again, or choose a photo instead.')
         setCameraHelp('unavailable')
         setStage('capture')
       }
+    } finally {
+      setIsOpeningCamera(false)
     }
   }
 
@@ -507,10 +513,16 @@ export function ScanCardSheet({
                   <button
                     type="button"
                     onClick={handleNativeCamera}
+                    disabled={isOpeningCamera}
+                    aria-busy={isOpeningCamera}
                     className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
                   >
-                    <Camera className="size-4" />
-                    Open camera
+                    {isOpeningCamera ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Camera className="size-4" />
+                    )}
+                    {isOpeningCamera ? 'Opening camera…' : 'Open camera'}
                   </button>
                   <button
                     type="button"

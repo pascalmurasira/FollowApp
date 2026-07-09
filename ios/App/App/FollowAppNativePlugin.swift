@@ -8,6 +8,7 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
     public let jsName = "FollowAppNative"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cameraStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "takeBusinessCardPhoto", returnType: CAPPluginReturnPromise)
     ]
 
@@ -54,13 +55,37 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
         }
     }
 
+    @objc func cameraStatus(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let permission: String
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized:
+                permission = "granted"
+            case .notDetermined:
+                permission = "prompt"
+            case .denied:
+                permission = "denied"
+            case .restricted:
+                permission = "restricted"
+            @unknown default:
+                permission = "unknown"
+            }
+
+            call.resolve([
+                "available": UIImagePickerController.isSourceTypeAvailable(.camera),
+                "permission": permission
+            ])
+        }
+    }
+
     private func presentCamera(_ call: CAPPluginCall) {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             call.reject("Camera is unavailable on this device.", "CAMERA_UNAVAILABLE")
             return
         }
 
-        guard let viewController = bridge?.viewController else {
+        guard let viewController = bridge?.viewController,
+              let presenter = topViewController(from: viewController) else {
             call.reject("Camera could not be opened.", "CAMERA_UNAVAILABLE")
             return
         }
@@ -81,7 +106,23 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
         picker.modalPresentationStyle = .fullScreen
 
         photoCall = call
-        viewController.present(picker, animated: true)
+        presenter.present(picker, animated: true)
+    }
+
+    private func topViewController(from root: UIViewController?) -> UIViewController? {
+        if let navigationController = root as? UINavigationController {
+            return topViewController(from: navigationController.visibleViewController)
+        }
+
+        if let tabBarController = root as? UITabBarController {
+            return topViewController(from: tabBarController.selectedViewController)
+        }
+
+        if let presented = root?.presentedViewController, !presented.isBeingDismissed {
+            return topViewController(from: presented)
+        }
+
+        return root
     }
 
     public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

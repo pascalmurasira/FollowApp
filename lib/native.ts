@@ -111,7 +111,18 @@ export async function captureImageDataUrl(): Promise<string | null> {
   if (!(await isNativeRuntime())) return null
 
   try {
-    const photo = await (await followAppNativePlugin()).takeBusinessCardPhoto()
+    const native = await followAppNativePlugin()
+    const status = await withTimeout(
+      native.cameraStatus(),
+      1800,
+      'FollowApp native camera status',
+    )
+    if (!status.available) throw new Error('Camera is unavailable on this device.')
+    if (status.permission === 'denied' || status.permission === 'restricted') {
+      throw new Error('Camera permission denied.')
+    }
+
+    const photo = await native.takeBusinessCardPhoto()
     if (photo.dataUrl) return photo.dataUrl
   } catch (error) {
     if (isNativeUserCancelError(error) || isNativePermissionDeniedError(error)) {
@@ -165,13 +176,44 @@ export async function captureImageDataUrl(): Promise<string | null> {
 
 async function followAppNativePlugin(): Promise<{
   openSettings(): Promise<void>
+  cameraStatus(): Promise<{
+    available?: boolean
+    permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
+  }>
   takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
 }> {
   const { registerPlugin } = await import('@capacitor/core')
   return registerPlugin<{
     openSettings(): Promise<void>
+    cameraStatus(): Promise<{
+      available?: boolean
+      permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
+    }>
     takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
   }>('FollowAppNative')
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(
+      () => reject(new Error(`${label} timed out.`)),
+      timeoutMs,
+    )
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout)
+        resolve(value)
+      },
+      (error) => {
+        window.clearTimeout(timeout)
+        reject(error)
+      },
+    )
+  })
 }
 
 export async function chooseImageDataUrl(): Promise<string | null> {
