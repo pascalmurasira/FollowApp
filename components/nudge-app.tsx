@@ -32,9 +32,12 @@ import {
   apiImportContacts,
   apiSetCircle,
   apiTouchContact,
+  apiUpdateContact,
+  applyContactUpdate,
   createContact,
   allGroupNames,
   type GroupTags,
+  type ContactUpdateInput,
   type NewContactInput,
 } from '@/lib/contacts-store'
 import {
@@ -221,6 +224,23 @@ export function NudgeApp() {
     [signedIn],
   )
 
+  const updateContact = useCallback(
+    (contactId: string, updates: ContactUpdateInput) => {
+      setContacts((prev) =>
+        prev.map((contact) =>
+          contact.id === contactId
+            ? applyContactUpdate(contact, updates)
+            : contact,
+        ),
+      )
+      const deviceId = getDeviceId()
+      if (deviceId && !DEMO_CONTACT_IDS.has(contactId)) {
+        void apiUpdateContact(deviceId, contactId, updates, signedIn)
+      }
+    },
+    [signedIn],
+  )
+
   // Every group name currently in use, for the add sheet and feed filter.
   const groups = useMemo(() => allGroupNames(groupTags), [groupTags])
 
@@ -372,6 +392,7 @@ export function NudgeApp() {
                   groups={groups}
                   onAddPerson={() => setShowAddContact(true)}
                   onSetGroup={setContactGroup}
+                  onUpdateContact={updateContact}
                   onShowCard={() => setShowCard(true)}
                 />
               )}

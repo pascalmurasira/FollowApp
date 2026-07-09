@@ -3,10 +3,8 @@ import 'server-only'
 /**
  * Sends the magic-link sign-in email.
  *
- * - ALWAYS logs the link to the server console, so the flow is testable in the
- *   v0 preview right now without any email provider configured.
- * - ALSO sends a real email through Resend when RESEND_API_KEY is set, so it's
- *   production-ready the moment a key + verified domain are added.
+ * Sends a real email through Resend when RESEND_API_KEY is set. Magic-link
+ * URLs are sensitive credentials, so they are never logged in production.
  */
 export async function sendMagicLinkEmail({
   email,
@@ -15,11 +13,21 @@ export async function sendMagicLinkEmail({
   email: string
   url: string
 }) {
-  // Always log — invaluable for local/preview testing and debugging.
-  console.log(`[v0] Magic link for ${email}: ${url}`)
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    process.env.FOLLOWAPP_LOG_MAGIC_LINKS === 'true'
+  ) {
+    console.info(`[v0] Dev magic link for ${email}: ${url}`)
+  }
 
   const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) return
+  if (!apiKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('RESEND_API_KEY must be set to send FollowApp magic links.')
+    }
+    console.info('[v0] RESEND_API_KEY is not set; magic-link email was not sent.')
+    return
+  }
 
   const from = process.env.RESEND_FROM ?? 'FollowApp <onboarding@resend.dev>'
 
@@ -39,10 +47,10 @@ export async function sendMagicLinkEmail({
     })
     if (!res.ok) {
       const detail = await res.text()
-      console.log(`[v0] Resend send failed (${res.status}): ${detail}`)
+      console.error(`[v0] Resend send failed (${res.status}): ${detail}`)
     }
   } catch (err) {
-    console.log('[v0] Resend send threw:', (err as Error).message)
+    console.error('[v0] Resend send threw:', (err as Error).message)
   }
 }
 

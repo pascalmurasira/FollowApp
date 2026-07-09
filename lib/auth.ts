@@ -18,6 +18,7 @@ function resolveBaseURL() {
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL)
     return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  if (process.env.NODE_ENV === 'production') return 'https://followapp.chat'
   return process.env.V0_RUNTIME_URL ?? 'http://localhost:3000'
 }
 
@@ -30,6 +31,7 @@ if (process.env.NODE_ENV === 'production' && (!authSecret || authSecret.length <
 
 const trustedOrigins = [
   baseURL,
+  'https://followapp.chat',
   process.env.V0_RUNTIME_URL,
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
   process.env.VERCEL_PROJECT_PRODUCTION_URL

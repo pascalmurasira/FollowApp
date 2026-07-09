@@ -29,6 +29,7 @@ import {
   requestCameraPermission,
   tapFeedback,
 } from '@/lib/native'
+import { todayDateInputValue } from '@/lib/contact-dates'
 import { cn } from '@/lib/utils'
 
 interface ScannedCard {
@@ -160,6 +161,7 @@ export function ScanCardSheet({
   const [stage, setStage] = useState<Stage>('capture')
   const [card, setCard] = useState<ScannedCard>(EMPTY)
   const [tier, setTier] = useState<Tier>('network')
+  const [lastContactedAt, setLastContactedAt] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [savedToPhone, setSavedToPhone] = useState(false)
@@ -178,6 +180,7 @@ export function ScanCardSheet({
     setStage('capture')
     setCard(EMPTY)
     setTier('network')
+    setLastContactedAt('')
     setNote('')
     setError(null)
     setSavedToPhone(false)
@@ -411,6 +414,7 @@ export function ScanCardSheet({
       relationship,
       title: titleAndCompany || undefined,
       tier,
+      lastContactedAt: lastContactedAt || null,
       phone: card.phone || undefined,
       email: card.email || undefined,
       context: contextParts.join('\n') || undefined,
@@ -445,7 +449,7 @@ export function ScanCardSheet({
             type="button"
             onClick={close}
             aria-label="Close"
-            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
+            className="glass-button pressable flex size-11 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>
@@ -587,6 +591,26 @@ export function ScanCardSheet({
               />
 
               <section className="glass-card rounded-3xl p-4">
+                <label className="block">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
+                    Last spoke or met
+                  </span>
+                  <div className="relative mt-2">
+                    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+                    <input
+                      type="date"
+                      value={lastContactedAt}
+                      max={todayDateInputValue()}
+                      onChange={(event) => setLastContactedAt(event.target.value)}
+                      className="h-11 w-full rounded-2xl border border-[var(--hairline)] bg-white/25 pl-10 pr-4 text-base text-[var(--ink-body)] outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+                    />
+                  </div>
+                  <span className="mt-1.5 block text-[12px] leading-relaxed text-[var(--ink-secondary)]">
+                    Leave blank if this is a brand-new contact. They will show
+                    as due now.
+                  </span>
+                </label>
+
                 <div className="mt-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
                     Stay in touch
@@ -615,7 +639,7 @@ export function ScanCardSheet({
                 <button
                   type="button"
                   onClick={handleNativeCamera}
-                  className="pressable flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)]"
+                  className="pressable flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)]"
                 >
                   <RotateCcw className="size-3.5" />
                   Rescan
@@ -634,7 +658,7 @@ export function ScanCardSheet({
                     setSavedToPhone(true)
                   }}
                   disabled={!card.name.trim()}
-                  className="pressable flex min-h-10 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
+                  className="pressable flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
                 >
                   <Smartphone className="size-3.5" />
                   {savedToPhone ? 'Opened Contacts' : 'Save to phone'}
@@ -942,7 +966,7 @@ function ContextNotesCard({
                         : `${prompt}: `,
                     )
                   }
-                  className="glass-button pressable min-h-[34px] rounded-[var(--r-chip)] px-3 text-xs font-medium text-[var(--ink-secondary)]"
+                  className="glass-button pressable min-h-11 rounded-[var(--r-chip)] px-3 text-xs font-medium text-[var(--ink-secondary)]"
                 >
                   + {prompt}
                 </button>

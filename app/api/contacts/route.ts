@@ -4,9 +4,11 @@ import {
   getUserContacts,
   setCircleTag,
   touchUserContact,
+  updateUserContact,
 } from '@/lib/server/people'
 import { requestedDeviceId } from '@/lib/server/request-device'
 import type { Contact } from '@/lib/types'
+import type { ContactUpdateInput } from '@/lib/contacts-store'
 
 export const maxDuration = 10
 
@@ -54,14 +56,16 @@ export async function PATCH(req: Request) {
     deviceId?: string
     contactId?: string
     circle?: string | null
-    action?: 'circle' | 'touch'
+    updates?: ContactUpdateInput
+    action?: 'circle' | 'touch' | 'update'
   }
   try {
     body = (await req.json()) as {
       deviceId?: string
       contactId?: string
       circle?: string | null
-      action?: 'circle' | 'touch'
+      updates?: ContactUpdateInput
+      action?: 'circle' | 'touch' | 'update'
     }
   } catch {
     return Response.json({ error: 'Invalid body' }, { status: 400 })
@@ -75,6 +79,8 @@ export async function PATCH(req: Request) {
   try {
     if (body.action === 'touch') {
       await touchUserContact(deviceId, contactId)
+    } else if (body.action === 'update') {
+      await updateUserContact(deviceId, contactId, body.updates ?? {})
     } else {
       await setCircleTag(deviceId, contactId, circle ?? null)
     }

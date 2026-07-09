@@ -131,7 +131,7 @@ export function MyCardSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
+            className="glass-button pressable flex size-11 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>

@@ -1,9 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Smartphone, UserPlus, Users, Check, ScanLine, QrCode } from 'lucide-react'
+import {
+  X,
+  Smartphone,
+  UserPlus,
+  Users,
+  Check,
+  ScanLine,
+  QrCode,
+  CalendarDays,
+} from 'lucide-react'
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { Tier } from '@/lib/types'
+import { todayDateInputValue } from '@/lib/contact-dates'
 import { cn } from '@/lib/utils'
 
 const TIER_OPTIONS: {
@@ -48,6 +58,7 @@ export function AddContactSheet({
   const [relationship, setRelationship] = useState('')
   const [title, setTitle] = useState('')
   const [tier, setTier] = useState<Tier>('network')
+  const [lastContactedAt, setLastContactedAt] = useState('')
   const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const [interests, setInterests] = useState('')
@@ -68,6 +79,7 @@ export function AddContactSheet({
       setRelationship('')
       setTitle('')
       setTier('network')
+      setLastContactedAt('')
       setPhone('')
       setNote('')
       setInterests('')
@@ -103,6 +115,7 @@ export function AddContactSheet({
       relationship,
       title: title || undefined,
       tier,
+      lastContactedAt: lastContactedAt || null,
       phone: phone || undefined,
       context: note || undefined,
       interests: interests
@@ -118,6 +131,7 @@ export function AddContactSheet({
       setName('')
       setRelationship('')
       setTitle('')
+      setLastContactedAt('')
       setPhone('')
       setNote('')
       setInterests('')
@@ -147,7 +161,7 @@ export function AddContactSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
+            className="glass-button pressable flex size-11 items-center justify-center rounded-full text-[var(--ink-secondary)]"
           >
             <X className="size-5" />
           </button>
@@ -321,6 +335,27 @@ export function AddContactSheet({
                   TIER_OPTIONS.find((o) => o.value === tier)?.reminder ??
                   'about 6 weeks'
                 }.`}
+              </p>
+            </Field>
+
+            <Field
+              label="Last contacted"
+              hint="Leave blank if never"
+            >
+              <div className="relative">
+                <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+                <input
+                  value={lastContactedAt}
+                  onChange={(e) => setLastContactedAt(e.target.value)}
+                  type="date"
+                  max={todayDateInputValue()}
+                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 pl-10 pr-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+                />
+              </div>
+              <p className="mt-1.5 px-1 text-[12px] text-[var(--ink-secondary)]">
+                {lastContactedAt
+                  ? 'FollowApp will time reminders from this date.'
+                  : 'No date means due now as “never contacted”.'}
               </p>
             </Field>
 

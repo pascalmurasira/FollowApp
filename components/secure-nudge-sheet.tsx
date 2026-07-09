@@ -42,7 +42,7 @@ export function SecureNudgeSheet({
       if (error) throw new Error(error.message)
       setStatus('sent')
     } catch (err) {
-      console.log('[v0] magic link send failed:', (err as Error).message)
+      console.error('[v0] magic link send failed:', (err as Error).message)
       setStatus('error')
     }
   }
@@ -68,7 +68,7 @@ export function SecureNudgeSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-muted"
+            className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-muted"
           >
             <X className="size-5" />
           </button>

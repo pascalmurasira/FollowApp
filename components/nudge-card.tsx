@@ -52,6 +52,7 @@ export function NudgeCard({
   const isWhatsApp = channel === 'whatsapp'
   const level = healthLevel(contact.daysSinceContact, contact.tier)
   const isExample = DEMO_CONTACT_IDS.has(contact.id)
+  const neverContacted = contact.lastContactedAt === null
 
   const handleSend = async () => {
     if (!nudge || !canSend) return
@@ -90,7 +91,11 @@ export function NudgeCard({
               {contact.title ?? contact.relationship}
             </span>
           </span>
-          <StatusBlock level={level} days={contact.daysSinceContact} />
+          <StatusBlock
+            level={level}
+            days={contact.daysSinceContact}
+            neverContacted={neverContacted}
+          />
         </button>
       </article>
     )
@@ -129,7 +134,11 @@ export function NudgeCard({
             {contact.title ?? (pinned ? 'Priority follow-up' : contact.relationship)}
           </p>
         </div>
-        <StatusBlock level={level} days={contact.daysSinceContact} />
+        <StatusBlock
+          level={level}
+          days={contact.daysSinceContact}
+          neverContacted={neverContacted}
+        />
       </button>
 
       {/* Opener — the hero. No nested box; it breathes on the card. */}
@@ -224,7 +233,14 @@ export function NudgeCard({
 function statusCopy(
   level: 'on-track' | 'due-soon' | 'overdue',
   days: number,
+  neverContacted = false,
 ): { label: string; sublabel: string } {
+  if (neverContacted) {
+    return {
+      label: 'Due now',
+      sublabel: 'never contacted',
+    }
+  }
   return {
     label:
       level === 'overdue'
@@ -239,11 +255,13 @@ function statusCopy(
 function StatusBlock({
   level,
   days,
+  neverContacted = false,
 }: {
   level: 'on-track' | 'due-soon' | 'overdue'
   days: number
+  neverContacted?: boolean
 }) {
-  const status = statusCopy(level, days)
+  const status = statusCopy(level, days, neverContacted)
   return (
     <span
       aria-label={`${status.label}, ${status.sublabel}`}

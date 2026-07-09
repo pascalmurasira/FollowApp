@@ -53,6 +53,12 @@ export function ConversationView({
   // WhatsApp send wears WhatsApp green so the channel handoff is recognizable.
   const isWhatsApp = channel === 'whatsapp'
   const firstName = contact.name.split(' ')[0]
+  const cadenceLabel =
+    contact.tier === 'key'
+      ? 'every 3 weeks'
+      : contact.tier === 'casual'
+        ? 'quarterly'
+        : 'monthly'
   // The lookup is most useful when reconnecting after a gap (or a blank thread).
   const isColdOpen =
     contact.messages.length === 0 || contact.daysSinceContact >= 14
@@ -117,9 +123,11 @@ export function ConversationView({
             {contact.name}
           </p>
           <p className="truncate text-xs text-[var(--ink-secondary)]">
-            {contact.daysSinceContact === 0
+            {contact.lastContactedAt === null
+              ? `Cadence: ${cadenceLabel} · never contacted`
+              : contact.daysSinceContact === 0
               ? 'Cadence: active · last contact today'
-              : `Cadence: ${contact.tier === 'key' ? 'every 3 weeks' : contact.tier === 'casual' ? 'quarterly' : 'monthly'} · ${driftLabel(contact.daysSinceContact)}`}
+                : `Cadence: ${cadenceLabel} · ${driftLabel(contact.daysSinceContact)}`}
           </p>
         </div>
         <ChannelSwitcher
@@ -320,7 +328,7 @@ function EnrichmentBar({
         <button
           type="button"
           onClick={onRun}
-          className="flex min-h-10 w-full items-center justify-center gap-2 rounded-full border border-border bg-secondary/50 px-4 text-[13px] font-semibold text-foreground transition-transform active:scale-[0.98]"
+          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-border bg-secondary/50 px-4 text-[13px] font-semibold text-foreground transition-transform active:scale-[0.98]"
         >
           <Newspaper className="size-4 text-primary" />
           {`Look up recent news about ${firstName}`}

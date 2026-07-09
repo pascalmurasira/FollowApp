@@ -40,6 +40,11 @@ export interface Contact {
   photoUrl?: string
   /** Days since your last touch. Drives the follow-up reminder. */
   daysSinceContact: number
+  /**
+   * Date the user last spoke to this person, as YYYY-MM-DD. `null` means the
+   * user has never contacted them, so they should surface as due.
+   */
+  lastContactedAt?: string | null
   /** Relationship priority. Defaults to "network" when unset. */
   tier?: Tier
   /** Free-form context the AI uses to craft a relevant message. */

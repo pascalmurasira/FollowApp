@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 
 function lastMessagePreview(contact: Contact) {
   const last = contact.messages[contact.messages.length - 1]
-  if (!last) return { text: 'No messages yet', minutesAgo: 0, mine: false }
+  if (!last) return { text: 'No messages yet', minutesAgo: null, mine: false }
   return {
     text: `${last.sender === 'me' ? 'You: ' : ''}${last.text}`,
     minutesAgo: last.minutesAgo,
@@ -39,6 +39,7 @@ export function ChatList({
       {ordered.map((contact) => {
         const preview = lastMessagePreview(contact)
         const level = driftLevel(contact.daysSinceContact)
+        const time = preview.minutesAgo === null ? '' : relativeTime(preview.minutesAgo)
         return (
           <li key={contact.id}>
             <button
@@ -71,7 +72,7 @@ export function ChatList({
                         : 'text-muted-foreground',
                     )}
                   >
-                    {relativeTime(preview.minutesAgo)}
+                    {time}
                   </span>
                 </div>
                 <div className="mt-0.5 flex items-center justify-between gap-2">

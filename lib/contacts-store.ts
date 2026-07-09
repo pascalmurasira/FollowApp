@@ -1,5 +1,10 @@
 import type { Contact, Tier } from '@/lib/types'
 import { cadenceForTier } from '@/lib/format'
+import {
+  daysForLastContactedAt,
+  normalizeLastContactedAt,
+  todayDateInputValue,
+} from '@/lib/contact-dates'
 
 const HUES: Contact['avatarHue'][] = ['coral', 'teal', 'amber', 'rose', 'sage']
 
@@ -18,6 +23,8 @@ export interface NewContactInput {
   context?: string
   interests?: string[]
   group?: string
+  /** YYYY-MM-DD. Null/blank means "never contacted". */
+  lastContactedAt?: string | null
 }
 
 // Free/consumer email hosts that say nothing about where someone works.
@@ -75,18 +82,25 @@ export function normalizeName(raw: string): string {
 export function createContact(input: NewContactInput, seed = Date.now()): Contact {
   const id = `user-${seed.toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   const name = normalizeName(input.name)
+  const tier = input.tier ?? 'network'
+  const lastContactedAt = normalizeLastContactedAt(input.lastContactedAt) ?? null
   return {
     id,
     name,
     relationship: input.relationship.trim() || 'A connection worth keeping',
     title: input.title?.trim() || undefined,
-    tier: input.tier ?? 'network',
+    tier,
     phone: input.phone?.trim() || undefined,
     email: input.email?.trim().toLowerCase() || undefined,
     avatarHue: pickHue(seed),
-    // New contacts should show up for a first follow-up instead of vanishing as
-    // "on track" before the user has ever reached out through FollowApp.
-    daysSinceContact: cadenceForTier(input.tier ?? 'network'),
+    // Blank date means "never contacted": show the contact as due now instead
+    // of hiding them as on-track.
+    daysSinceContact: daysForLastContactedAt(
+      lastContactedAt,
+      tier,
+      cadenceForTier(tier),
+    ),
+    lastContactedAt,
     context:
       input.context?.trim() ||
       `You added ${name.split(' ')[0]} to FollowApp to stay in better touch.`,
@@ -101,7 +115,13 @@ export function touchLocalContact(contactId: string): void {
   writeLocalPeople({
     ...local,
     contacts: local.contacts.map((contact) =>
-      contact.id === contactId ? { ...contact, daysSinceContact: 0 } : contact,
+      contact.id === contactId
+        ? {
+            ...contact,
+            daysSinceContact: 0,
+            lastContactedAt: todayDateInputValue(),
+          }
+        : contact,
     ),
   })
 }
@@ -148,7 +168,9 @@ function readLocalPeople(): PeopleResponse {
     const parsed = JSON.parse(raw) as Partial<PeopleResponse>
     return {
       contacts: Array.isArray(parsed.contacts)
-        ? parsed.contacts.filter((c) => c?.id && c?.name)
+        ? parsed.contacts
+            .filter((c) => c?.id && c?.name)
+            .map(refreshContactFreshness)
         : [],
       circles:
         parsed.circles && typeof parsed.circles === 'object'
@@ -176,6 +198,24 @@ function upsertContacts(existing: Contact[], incoming: Contact[]): Contact[] {
   return [...byId.values()]
 }
 
+function refreshContactFreshness(contact: Contact): Contact {
+  const normalizedLastContactedAt = normalizeLastContactedAt(
+    contact.lastContactedAt,
+  )
+  return {
+    ...contact,
+    lastContactedAt:
+      normalizedLastContactedAt === undefined
+        ? contact.lastContactedAt
+        : normalizedLastContactedAt,
+    daysSinceContact: daysForLastContactedAt(
+      contact.lastContactedAt,
+      contact.tier,
+      contact.daysSinceContact,
+    ),
+  }
+}
+
 /**
  * Load contacts from this browser first, then merge in the device-scoped server
  * copy. No account is required: the server copy is keyed by this browser's
@@ -194,7 +234,10 @@ export async function fetchPeople(
     if (!res.ok) throw new Error(`Contacts fetch failed: ${res.status}`)
     const data = (await res.json()) as PeopleResponse
     const merged = {
-      contacts: upsertContacts(data.contacts ?? [], local.contacts),
+      contacts: upsertContacts(
+        (data.contacts ?? []).map(refreshContactFreshness),
+        local.contacts,
+      ),
       circles: { ...(data.circles ?? {}), ...local.circles },
     }
     writeLocalPeople(merged)
@@ -202,6 +245,102 @@ export async function fetchPeople(
   } catch (error) {
     console.error('[v0] Failed to load people:', error)
     return local
+  }
+}
+
+export interface ContactUpdateInput {
+  name?: string
+  relationship?: string
+  title?: string
+  tier?: Tier
+  phone?: string
+  email?: string
+  context?: string
+  interests?: string[]
+  lastContactedAt?: string | null
+}
+
+export function applyContactUpdate(
+  contact: Contact,
+  updates: ContactUpdateInput,
+): Contact {
+  const nextTier = updates.tier ?? contact.tier ?? 'network'
+  const normalizedCurrentLast = normalizeLastContactedAt(contact.lastContactedAt)
+  const nextLastContactedAt =
+    updates.lastContactedAt === undefined
+      ? normalizedCurrentLast === undefined
+        ? contact.lastContactedAt
+        : normalizedCurrentLast
+      : normalizeLastContactedAt(updates.lastContactedAt) ?? null
+
+  return {
+    ...contact,
+    name: updates.name === undefined ? contact.name : normalizeName(updates.name),
+    relationship:
+      updates.relationship === undefined
+        ? contact.relationship
+        : updates.relationship.trim() || 'A connection worth keeping',
+    title:
+      updates.title === undefined
+        ? contact.title
+        : updates.title.trim() || undefined,
+    tier: nextTier,
+    phone:
+      updates.phone === undefined ? contact.phone : updates.phone.trim() || undefined,
+    email:
+      updates.email === undefined
+        ? contact.email
+        : updates.email.trim().toLowerCase() || undefined,
+    context:
+      updates.context === undefined
+        ? contact.context
+        : updates.context.trim() || contact.context,
+    interests:
+      updates.interests === undefined
+        ? contact.interests
+        : updates.interests.map((i) => i.trim()).filter(Boolean),
+    lastContactedAt: nextLastContactedAt,
+    daysSinceContact: daysForLastContactedAt(
+      nextLastContactedAt,
+      nextTier,
+      contact.daysSinceContact,
+    ),
+  }
+}
+
+export async function apiUpdateContact(
+  deviceId: string,
+  contactId: string,
+  updates: ContactUpdateInput,
+  _syncRemote = false,
+): Promise<void> {
+  void _syncRemote
+  const local = readLocalPeople()
+  const current = local.contacts.find((contact) => contact.id === contactId)
+  const nextContact = current
+    ? applyContactUpdate(current, updates)
+    : undefined
+  if (nextContact) {
+    writeLocalPeople({
+      ...local,
+      contacts: upsertContacts(local.contacts, [nextContact]),
+    })
+  }
+
+  try {
+    const res = await fetch('/api/contacts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceId,
+        contactId,
+        action: 'update',
+        updates,
+      }),
+    })
+    if (!res.ok) throw new Error(`Contact update failed: ${res.status}`)
+  } catch (error) {
+    console.error('[v0] Failed to update contact:', error)
   }
 }
 

@@ -100,7 +100,7 @@ export function ProfileHeader({
           type="button"
           onClick={() => fileRef.current?.click()}
           aria-label="Change profile photo"
-          className="primary-action pressable absolute -bottom-1 -right-1 flex size-8 items-center justify-center rounded-full ring-2 ring-white/40"
+          className="primary-action pressable absolute -bottom-2 -right-2 flex size-11 items-center justify-center rounded-full ring-2 ring-white/40"
         >
           <Camera className="size-4" />
         </button>
@@ -122,14 +122,14 @@ export function ProfileHeader({
             autoFocus
             maxLength={40}
             aria-label="Your name"
-            className="glass-card h-10 w-44 rounded-full px-4 text-center text-base outline-none focus-visible:border-[var(--action-bg)]"
+            className="glass-card h-11 w-44 rounded-full px-4 text-center text-base outline-none focus-visible:border-[var(--action-bg)]"
             onKeyDown={(e) => e.key === 'Enter' && saveName()}
           />
           <button
             type="button"
             onClick={saveName}
             aria-label="Save name"
-            className="primary-action pressable flex size-10 items-center justify-center rounded-full"
+            className="primary-action pressable flex size-11 items-center justify-center rounded-full"
           >
             <Check className="size-4" />
           </button>

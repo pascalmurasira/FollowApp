@@ -76,7 +76,7 @@ export function ChatLinkBanner({
         type="button"
         onClick={request}
         disabled={busy}
-        className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground transition-transform active:scale-95 disabled:opacity-50"
+        className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground transition-transform active:scale-95 disabled:opacity-50"
       >
         {busy ? <Loader2 className="size-4 animate-spin" /> : null}
         Chat

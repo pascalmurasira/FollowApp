@@ -55,7 +55,7 @@ export function ChatRequests({
                 type="button"
                 onClick={() => respond(link.id, false)}
                 aria-label={`Decline ${link.otherName}`}
-                className="glass-button pressable flex size-9 items-center justify-center rounded-full text-[var(--ink-secondary)]"
+                className="glass-button pressable flex size-11 items-center justify-center rounded-full text-[var(--ink-secondary)]"
               >
                 <X className="size-4" />
               </button>
@@ -63,7 +63,7 @@ export function ChatRequests({
                 type="button"
                 onClick={() => accept(link.id)}
                 aria-label={`Accept ${link.otherName}`}
-                className="primary-action pressable flex size-9 items-center justify-center rounded-full"
+                className="primary-action pressable flex size-11 items-center justify-center rounded-full"
               >
                 <Check className="size-4" />
               </button>

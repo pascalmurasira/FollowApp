@@ -12,6 +12,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import type { Contact } from '@/lib/types'
+import type { ContactUpdateInput } from '@/lib/contacts-store'
 import { getDeviceId } from '@/lib/device-id'
 import { ProfileHeader } from '@/components/profile-header'
 import { PeopleCircles } from '@/components/people-circles'
@@ -34,6 +35,7 @@ export function YouPanel({
   groups,
   onAddPerson,
   onSetGroup,
+  onUpdateContact,
   onShowCard,
 }: {
   voiceLabel: string
@@ -42,6 +44,7 @@ export function YouPanel({
   groups: string[]
   onAddPerson: () => void
   onSetGroup: (contactId: string, group: string | null) => void
+  onUpdateContact: (contactId: string, updates: ContactUpdateInput) => void
   onShowCard: () => void
 }) {
   const peopleCount = contacts.length
@@ -130,7 +133,7 @@ export function YouPanel({
           <button
             type="button"
             onClick={onAddPerson}
-            className="primary-action pressable flex min-h-10 items-center gap-1.5 rounded-full px-4 text-sm font-semibold"
+            className="primary-action pressable flex min-h-11 items-center gap-1.5 rounded-full px-4 text-sm font-semibold"
           >
             <UserPlus className="size-4" />
             Add someone
@@ -144,6 +147,7 @@ export function YouPanel({
           contacts={contacts}
           groups={groups}
           onSetGroup={onSetGroup}
+          onUpdateContact={onUpdateContact}
         />
       </section>
 

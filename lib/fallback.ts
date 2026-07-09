@@ -102,6 +102,25 @@ export function fallbackReplies(
   const firstName = contact.name.split(' ')[0]
   const interest = contact.interests[0]
 
+  if (!lastFromThem) {
+    return [
+      {
+        tone: 'warm',
+        text: `Hey ${firstName}, you crossed my mind today. How have you been?`,
+      },
+      {
+        tone: 'curious',
+        text: interest
+          ? `Hi ${firstName}, I thought of you when ${interest} came up. How's that going?`
+          : `Hi ${firstName}, just checking in — what's new in your world?`,
+      },
+      {
+        tone: 'plan',
+        text: `We're overdue for a proper catch-up. Free for a call this week?`,
+      },
+    ]
+  }
+
   const generic = [
     {
       tone: 'warm',
@@ -118,8 +137,6 @@ export function fallbackReplies(
       text: `We're overdue for a proper catch-up. Free for a call this week?`,
     },
   ]
-
-  if (!lastFromThem) return generic
 
   const lower = lastFromThem.toLowerCase()
 

@@ -3,6 +3,12 @@ import { and, eq } from 'drizzle-orm'
 import { db, pool } from '@/lib/db'
 import { circleTags, profiles, userContacts } from '@/lib/db/schema'
 import type { Contact, Profile } from '@/lib/types'
+import {
+  daysForLastContactedAt,
+  normalizeLastContactedAt,
+  toDateInputValue,
+} from '@/lib/contact-dates'
+import type { ContactUpdateInput } from '@/lib/contacts-store'
 
 /**
  * Server-only persistence for the user's profile, added contacts, and circle
@@ -84,13 +90,6 @@ function ensureContactSchema(): Promise<void> {
   return contactSchemaReady
 }
 
-function daysSince(date: Date | string | null | undefined): number {
-  if (!date) return 7
-  const ms = Date.now() - new Date(date).getTime()
-  if (!Number.isFinite(ms) || ms < 0) return 0
-  return Math.max(0, Math.floor(ms / 86_400_000))
-}
-
 function cap(value: string | null | undefined, max: number): string | undefined {
   const cleaned = value?.trim()
   if (!cleaned) return undefined
@@ -109,6 +108,8 @@ function sanitizeContact(contact: Contact): Contact {
     ? contact.tier
     : 'network'
   const avatarHue = HUES.includes(contact.avatarHue) ? contact.avatarHue : 'coral'
+  const lastContactedAt =
+    normalizeLastContactedAt(contact.lastContactedAt) ?? null
   return {
     ...contact,
     id: cap(contact.id, TEXT_LIMITS.id) ?? `contact-${Date.now()}`,
@@ -121,7 +122,12 @@ function sanitizeContact(contact: Contact): Contact {
     phone: cap(contact.phone, TEXT_LIMITS.phone),
     email: cap(contact.email, TEXT_LIMITS.email)?.toLowerCase(),
     avatarHue,
-    daysSinceContact: safeDays(contact.daysSinceContact),
+    daysSinceContact: daysForLastContactedAt(
+      lastContactedAt,
+      tier,
+      safeDays(contact.daysSinceContact),
+    ),
+    lastContactedAt,
     context: cap(contact.context, TEXT_LIMITS.context) ?? '',
     interests: (contact.interests ?? [])
       .map((interest) => cap(interest, TEXT_LIMITS.interest))
@@ -145,6 +151,9 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
   )
     ? (row.tier as Contact['tier'])
     : 'network'
+  const lastContactedAt = row.lastContactedAt
+    ? toDateInputValue(new Date(row.lastContactedAt))
+    : null
   return {
     id: row.id,
     name: row.name,
@@ -157,7 +166,8 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
       ? row.avatarHue
       : 'coral') as Contact['avatarHue'],
     // Messages aren't persisted; relationship freshness is.
-    daysSinceContact: daysSince(row.lastContactedAt ?? row.createdAt),
+    daysSinceContact: daysForLastContactedAt(lastContactedAt, tier, 0),
+    lastContactedAt,
     context: row.context ?? '',
     interests,
     messages: [],
@@ -189,7 +199,9 @@ export async function addUserContact(deviceId: string, contact: Contact): Promis
     avatarHue: safe.avatarHue,
     context: safe.context,
     interests: JSON.stringify(safe.interests ?? []),
-    lastContactedAt: new Date(Date.now() - safe.daysSinceContact * 86_400_000),
+    lastContactedAt: safe.lastContactedAt
+      ? new Date(`${safe.lastContactedAt}T12:00:00`)
+      : null,
   })
 }
 
@@ -212,10 +224,61 @@ export async function addUserContacts(
     avatarHue: contact.avatarHue,
     context: contact.context,
     interests: JSON.stringify(contact.interests ?? []),
-    lastContactedAt: new Date(Date.now() - contact.daysSinceContact * 86_400_000),
+    lastContactedAt: contact.lastContactedAt
+      ? new Date(`${contact.lastContactedAt}T12:00:00`)
+      : null,
   }))
   await db.insert(userContacts).values(values)
   return values.length
+}
+
+export async function updateUserContact(
+  deviceId: string,
+  contactId: string,
+  updates: ContactUpdateInput,
+): Promise<void> {
+  await ensureContactSchema()
+  const set: Partial<typeof userContacts.$inferInsert> = {}
+
+  if (updates.name !== undefined) {
+    set.name = cap(updates.name, TEXT_LIMITS.name) ?? 'New contact'
+  }
+  if (updates.relationship !== undefined) {
+    set.relationship =
+      cap(updates.relationship, TEXT_LIMITS.relationship) ??
+      'A connection worth keeping'
+  }
+  if (updates.title !== undefined) set.title = cap(updates.title, TEXT_LIMITS.title) ?? null
+  if (updates.tier !== undefined) {
+    set.tier = (['key', 'network', 'casual'] as const).includes(updates.tier)
+      ? updates.tier
+      : 'network'
+  }
+  if (updates.phone !== undefined) set.phone = cap(updates.phone, TEXT_LIMITS.phone) ?? null
+  if (updates.email !== undefined) {
+    set.email = cap(updates.email, TEXT_LIMITS.email)?.toLowerCase() ?? null
+  }
+  if (updates.context !== undefined) {
+    set.context = cap(updates.context, TEXT_LIMITS.context) ?? ''
+  }
+  if (updates.interests !== undefined) {
+    set.interests = JSON.stringify(
+      updates.interests
+        .map((interest) => cap(interest, TEXT_LIMITS.interest))
+        .filter((interest): interest is string => Boolean(interest))
+        .slice(0, 20),
+    )
+  }
+  if (updates.lastContactedAt !== undefined) {
+    const normalized = normalizeLastContactedAt(updates.lastContactedAt)
+    set.lastContactedAt = normalized ? new Date(`${normalized}T12:00:00`) : null
+  }
+
+  if (Object.keys(set).length === 0) return
+  await db
+    .update(userContacts)
+    .set(set)
+    .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
 }
 
 export async function touchUserContact(
