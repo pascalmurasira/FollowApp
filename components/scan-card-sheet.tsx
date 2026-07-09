@@ -168,6 +168,7 @@ export function ScanCardSheet({
   const [contextStatus, setContextStatus] = useState<ContextStatus>('idle')
   const [contextNotes, setContextNotes] = useState<ContextNote[]>([])
   const [cameraHelp, setCameraHelp] = useState<CameraPermissionHelp>(null)
+  const [showScanDetails, setShowScanDetails] = useState(false)
   const [followUpDate, setFollowUpDate] = useState<Date>(() =>
     addDays(new Date(), 1),
   )
@@ -187,6 +188,7 @@ export function ScanCardSheet({
     setContextStatus('idle')
     setContextNotes([])
     setCameraHelp(null)
+    setShowScanDetails(false)
     setFollowUpDate(addDays(new Date(), 1))
     setShowDateRoller(false)
     if (fileRef.current) fileRef.current.value = ''
@@ -375,6 +377,16 @@ export function ScanCardSheet({
     await openAppSettings()
   }
 
+  const handleManualEntry = async () => {
+    await tapFeedback()
+    setError(null)
+    setCameraHelp(null)
+    setCard(EMPTY)
+    setNote('')
+    setContextStatus('empty')
+    setStage('review')
+  }
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -466,7 +478,7 @@ export function ScanCardSheet({
         />
 
         <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-            {stage === 'capture' && (
+          {stage === 'capture' && (
             <div className="flex flex-col items-center gap-5 py-2 text-center">
               <div className="glass-hero w-full p-4">
                 <div className="relative mx-auto flex h-[170px] max-w-[18rem] items-center justify-center overflow-hidden rounded-[14px] bg-[oklch(0.24_0.03_255)] text-white shadow-inner">
@@ -486,14 +498,11 @@ export function ScanCardSheet({
                   Align the card inside the frame
                 </p>
               </div>
-              <div className="max-w-[18rem]">
-                <p className="text-pretty text-[15px] font-semibold text-[var(--ink-strong)]">
-                  Point your camera at a business card
-                </p>
-                <p className="mt-1 text-pretty text-[13px] leading-relaxed text-[var(--ink-secondary)]">
-                  FollowApp extracts the details, then you approve every field before saving.
-                </p>
-              </div>
+
+              <p className="max-w-[18rem] text-pretty text-[15px] font-semibold leading-relaxed text-[var(--ink-strong)]">
+                We’ll read the card. You approve before saving.
+              </p>
+
               {cameraHelp ? (
                 <CameraPermissionCard
                   kind={cameraHelp}
@@ -504,26 +513,56 @@ export function ScanCardSheet({
                 <p className="w-full rounded-xl border border-[var(--hairline)] bg-white/30 px-3 py-2.5 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
                   {error}
                 </p>
-              ) : (
-                <p className="w-full rounded-2xl border border-[var(--hairline)] bg-white/20 px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
-                  Camera is only used when you tap scan. Nothing is saved until you approve it.
-                </p>
+              ) : null}
+
+              {cameraHelp !== 'blocked' && cameraHelp !== 'unavailable' && (
+                <div className="flex w-full flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={handleNativeCamera}
+                    className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
+                  >
+                    <Camera className="size-4" />
+                    Open camera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleChoosePhoto}
+                    className="glass-button pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-strong)]"
+                  >
+                    Choose photo
+                  </button>
+                </div>
               )}
-              <button
-                type="button"
-                onClick={handleNativeCamera}
-                className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
-              >
-                <Camera className="size-4" />
-                Open camera and scan
-              </button>
-              <button
-                type="button"
-                onClick={handleChoosePhoto}
-                className="glass-button pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-strong)]"
-              >
-                Use a photo from library
-              </button>
+
+              <div className="flex w-full flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleManualEntry}
+                  className="pressable min-h-11 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-secondary)]"
+                >
+                  Enter manually
+                </button>
+                {!cameraHelp && (
+                  <div className="w-full">
+                    <button
+                      type="button"
+                      onClick={() => setShowScanDetails((value) => !value)}
+                      aria-expanded={showScanDetails}
+                      className="pressable mx-auto flex min-h-11 items-center justify-center gap-1.5 rounded-full px-4 text-[12px] font-semibold text-[var(--ink-tertiary)]"
+                    >
+                      <ShieldCheck className="size-3.5" />
+                      Why we ask
+                    </button>
+                    {showScanDetails && (
+                      <p className="rounded-2xl border border-[var(--hairline)] bg-white/20 px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
+                        Camera opens only when you tap. The card is read so you
+                        can approve every field before anything is saved.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -744,17 +783,17 @@ function CameraPermissionCard({
         <div className="min-w-0 flex-1">
           <p className="font-heading text-[16px] font-semibold leading-tight text-[var(--ink-strong)]">
             {blocked
-              ? 'One quick permission unlock'
+              ? 'Camera is off'
               : unavailable
-                ? 'Camera needs a little nudge'
-                : 'Camera stays in your hands'}
+                ? 'Camera did not open'
+                : 'Camera permission'}
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
             {blocked
-              ? 'iOS still has camera access off for FollowApp. Turn it on once, come back, and scanning will feel instant.'
+              ? 'Turn it on once, or choose a saved card photo.'
               : unavailable
-                ? 'Your phone did not open the camera this time. You can enable it in Settings or use a saved card photo.'
-                : 'We only open the camera when you tap scan. FollowApp reads the card, then you approve every field before saving.'}
+                ? 'You can enable it in Settings, or choose a saved card photo.'
+                : 'We’ll read the card. You approve before saving.'}
           </p>
         </div>
       </div>
@@ -767,14 +806,14 @@ function CameraPermissionCard({
             className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold"
           >
             <Settings className="size-4" />
-            Turn on camera in Settings
+            Turn on camera
           </button>
           <button
             type="button"
             onClick={onChoosePhoto}
             className="glass-button pressable flex min-h-11 items-center justify-center rounded-[var(--r-button)] px-4 text-sm font-semibold text-[var(--ink-strong)]"
           >
-            Use a photo instead
+            Choose photo
           </button>
         </div>
       )}
