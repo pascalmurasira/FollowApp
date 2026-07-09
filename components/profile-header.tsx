@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useRef, useState } from 'react'
 import { Camera, Check, Pencil } from 'lucide-react'
 import type { Profile } from '@/lib/types'
@@ -82,9 +83,12 @@ export function ProfileHeader({
       {/* Avatar with camera overlay */}
       <div className="relative">
         {profile.photoUrl ? (
-          <img
+          <Image
             src={profile.photoUrl || '/placeholder.svg'}
             alt="Your profile"
+            width={64}
+            height={64}
+            unoptimized
             className="size-16 rounded-full object-cover ring-1 ring-inset ring-white/40"
           />
         ) : (

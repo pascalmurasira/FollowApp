@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import type { Contact } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -35,10 +36,13 @@ export function ContactAvatar({
 
   if (contact.photoUrl) {
     return (
-      <img
+      <Image
         src={contact.photoUrl || '/placeholder.svg'}
         alt=""
         aria-hidden="true"
+        width={56}
+        height={56}
+        unoptimized
         className={cn(
           'shrink-0 rounded-full object-cover ring-1 ring-inset ring-foreground/[0.06]',
           sizeClasses,

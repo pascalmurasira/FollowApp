@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { X, Pencil, Check, Share2, QrCode, Loader2 } from 'lucide-react'
@@ -188,9 +189,12 @@ export function MyCardSheet({
               <div className="primary-action w-full rounded-3xl p-6">
                 <div className="flex items-center gap-4">
                   {profile.photoUrl ? (
-                    <img
+                    <Image
                       src={profile.photoUrl || '/placeholder.svg'}
                       alt=""
+                      width={64}
+                      height={64}
+                      unoptimized
                       className="size-16 rounded-full object-cover ring-2 ring-primary-foreground/20"
                     />
                   ) : (
@@ -220,9 +224,12 @@ export function MyCardSheet({
                 {/* QR */}
                 <div className="glass-card mt-5 flex flex-col items-center gap-2 rounded-2xl bg-white/80 p-4">
                   {qr ? (
-                    <img
+                    <Image
                       src={qr || '/placeholder.svg'}
                       alt={`QR code linking to ${profile.name}'s FollowApp card`}
+                      width={176}
+                      height={176}
+                      unoptimized
                       className="size-44"
                     />
                   ) : (
