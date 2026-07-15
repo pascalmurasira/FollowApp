@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { X, ShieldCheck, MailCheck } from 'lucide-react'
 import { signIn } from '@/lib/auth-client'
+import { accountSyncCallbackURL } from '@/lib/account-sync-flow'
+import { getDeviceId } from '@/lib/device-id'
 
 /**
  * The "Secure your Nudge" magic-link sheet. Collects an email, sends a sign-in
@@ -37,7 +39,11 @@ export function SecureNudgeSheet({
     try {
       const { error } = await signIn.magicLink({
         email: email.trim(),
-        callbackURL: '/welcome-back',
+        // Carry the anonymous capability that is being secured through the
+        // one-time magic-link flow. If the email is opened on another device,
+        // /welcome-back claims this source first and then merges the device
+        // that opened the link into the same canonical account dataset.
+        callbackURL: accountSyncCallbackURL(getDeviceId()),
       })
       if (error) throw new Error(error.message)
       setStatus('sent')

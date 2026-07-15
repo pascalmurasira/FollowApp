@@ -2,15 +2,37 @@ import {
   addUserContact,
   getCircleTags,
   getUserContacts,
+  ensureContactSchema,
   setCircleTag,
   touchUserContact,
   updateUserContact,
 } from '@/lib/server/people'
+import { normalizeDeviceId } from '@/lib/server/device-id'
+import { withDeviceAccess } from '@/lib/server/device-access'
+import {
+  contactInputSchema,
+  contactUpdateInputSchema,
+} from '@/lib/server/input-schemas'
+import { protectExpensiveRequest } from '@/lib/server/api-protection'
 import { requestedDeviceId } from '@/lib/server/request-device'
 import type { Contact } from '@/lib/types'
 import type { ContactUpdateInput } from '@/lib/contacts-store'
+import { z } from 'zod'
 
 export const maxDuration = 10
+
+const postSchema = z.object({
+  deviceId: z.unknown(),
+  contact: contactInputSchema,
+})
+
+const patchSchema = z.object({
+  deviceId: z.unknown(),
+  contactId: z.string().trim().min(1).max(200),
+  circle: z.string().max(120).nullable().optional(),
+  updates: contactUpdateInputSchema.optional(),
+  action: z.enum(['circle', 'touch', 'update']).optional(),
+})
 
 export async function GET(req: Request) {
   const deviceId = requestedDeviceId(req)
@@ -18,11 +40,19 @@ export async function GET(req: Request) {
     return Response.json({ error: 'Missing deviceId' }, { status: 400 })
   }
   try {
-    const [contacts, circles] = await Promise.all([
-      getUserContacts(deviceId),
-      getCircleTags(deviceId),
-    ])
-    return Response.json({ contacts, circles })
+    // Finish the additive legacy-schema check before reserving the transaction
+    // connection used by withDeviceAccess, avoiding pool starvation at cold start.
+    await ensureContactSchema()
+    const access = await withDeviceAccess(
+      req,
+      deviceId,
+      async ({ deviceId: canonicalDeviceId, executor }) => ({
+        contacts: await getUserContacts(canonicalDeviceId, executor),
+        circles: await getCircleTags(canonicalDeviceId, executor),
+      }),
+    )
+    if (!access.ok) return access.response
+    return Response.json(access.value)
   } catch (error) {
     console.error('[v0] Contacts GET failed:', error)
     return Response.json({ contacts: [], circles: {} })
@@ -30,20 +60,40 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  let body: { deviceId?: string; contact?: Contact }
+  const blocked = await protectExpensiveRequest(req, 'contacts-write', {
+    limit: 120,
+    windowMs: 60 * 60_000,
+  })
+  if (blocked) return blocked
+
+  let input: unknown
   try {
-    body = (await req.json()) as { deviceId?: string; contact?: Contact }
+    input = await req.json()
   } catch {
     return Response.json({ error: 'Invalid body' }, { status: 400 })
   }
 
-  const { deviceId, contact } = body
-  if (!deviceId || !contact?.id || !contact?.name) {
-    return Response.json({ error: 'Missing deviceId or contact' }, { status: 400 })
+  const parsed = postSchema.safeParse(input)
+  const deviceId = parsed.success
+    ? normalizeDeviceId(parsed.data.deviceId)
+    : null
+  if (!parsed.success || !deviceId) {
+    return Response.json(
+      { error: 'Missing or invalid deviceId/contact' },
+      { status: 400 },
+    )
   }
+  const contact = parsed.data.contact as Contact
 
   try {
-    await addUserContact(deviceId, contact)
+    await ensureContactSchema()
+    const access = await withDeviceAccess(
+      req,
+      deviceId,
+      async ({ deviceId: canonicalDeviceId, executor }) =>
+        addUserContact(canonicalDeviceId, contact, executor),
+    )
+    if (!access.ok) return access.response
     return Response.json({ ok: true })
   } catch (error) {
     console.error('[v0] Contacts POST failed:', error)
@@ -52,38 +102,57 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  let body: {
-    deviceId?: string
-    contactId?: string
-    circle?: string | null
-    updates?: ContactUpdateInput
-    action?: 'circle' | 'touch' | 'update'
-  }
+  const blocked = await protectExpensiveRequest(req, 'contacts-write', {
+    limit: 120,
+    windowMs: 60 * 60_000,
+  })
+  if (blocked) return blocked
+
+  let input: unknown
   try {
-    body = (await req.json()) as {
-      deviceId?: string
-      contactId?: string
-      circle?: string | null
-      updates?: ContactUpdateInput
-      action?: 'circle' | 'touch' | 'update'
-    }
+    input = await req.json()
   } catch {
     return Response.json({ error: 'Invalid body' }, { status: 400 })
   }
 
-  const { deviceId, contactId, circle } = body
-  if (!deviceId || !contactId) {
-    return Response.json({ error: 'Missing deviceId or contactId' }, { status: 400 })
+  const parsed = patchSchema.safeParse(input)
+  const deviceId = parsed.success
+    ? normalizeDeviceId(parsed.data.deviceId)
+    : null
+  if (!parsed.success || !deviceId) {
+    return Response.json(
+      { error: 'Missing or invalid deviceId/contactId' },
+      { status: 400 },
+    )
   }
+  const { contactId, circle } = parsed.data
 
   try {
-    if (body.action === 'touch') {
-      await touchUserContact(deviceId, contactId)
-    } else if (body.action === 'update') {
-      await updateUserContact(deviceId, contactId, body.updates ?? {})
-    } else {
-      await setCircleTag(deviceId, contactId, circle ?? null)
-    }
+    await ensureContactSchema()
+    const access = await withDeviceAccess(
+      req,
+      deviceId,
+      async ({ deviceId: canonicalDeviceId, executor }) => {
+        if (parsed.data.action === 'touch') {
+          await touchUserContact(canonicalDeviceId, contactId, executor)
+        } else if (parsed.data.action === 'update') {
+          await updateUserContact(
+            canonicalDeviceId,
+            contactId,
+            (parsed.data.updates ?? {}) as ContactUpdateInput,
+            executor,
+          )
+        } else {
+          await setCircleTag(
+            canonicalDeviceId,
+            contactId,
+            circle ?? null,
+            executor,
+          )
+        }
+      },
+    )
+    if (!access.ok) return access.response
     return Response.json({ ok: true })
   } catch (error) {
     console.error('[v0] Contacts PATCH (circle) failed:', error)

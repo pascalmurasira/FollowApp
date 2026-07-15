@@ -37,3 +37,17 @@ export function setDeviceId(id: string) {
   localStorage.setItem(KEY, id)
   localStorage.removeItem(LEGACY_KEY)
 }
+
+/** Clear browser-scoped data before switching away from another account. */
+export function resetDeviceForAccountSwitch(): string {
+  if (typeof window === 'undefined') return ''
+  const keys = Array.from({ length: localStorage.length }, (_, index) =>
+    localStorage.key(index),
+  ).filter((key): key is string => Boolean(key))
+  for (const key of keys) {
+    if (key.startsWith('followapp.') || key.startsWith('nudge.')) {
+      localStorage.removeItem(key)
+    }
+  }
+  return getDeviceId()
+}

@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["ZF489NYM57.com.pascalmurasira.followapp"],
+        "components": [
+          {
+            "/": "/api/auth/magic-link/verify",
+            "comment": "Open FollowApp magic-link verification inside the native app"
+          }
+        ]
+      }
+    ]
+  }
+}

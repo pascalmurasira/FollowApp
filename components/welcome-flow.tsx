@@ -15,7 +15,7 @@ interface WelcomeFlowProps {
   contacts: Contact[]
   onComplete: (result: { selectedContactIds: string[]; toneId: string }) => void
   /** Persist a card scanned during onboarding (same path as the in-app scanner). */
-  onScanContact: (input: NewContactInput) => void
+  onScanContact: (input: NewContactInput) => Contact
 }
 
 type Step = 0 | 1 | 2 | 3
@@ -45,7 +45,10 @@ export function WelcomeFlow({
   }
 
   const handleScanAdd = (input: NewContactInput) => {
-    onScanContact(input)
+    const contact = onScanContact(input)
+    setSelected((previous) =>
+      previous.includes(contact.id) ? previous : [...previous, contact.id],
+    )
     setScannedName(input.name?.trim() || 'your contact')
   }
 

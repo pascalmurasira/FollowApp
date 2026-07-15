@@ -13,7 +13,8 @@ import {
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { Tier } from '@/lib/types'
 import type { CardData } from '@/lib/card'
-import { readCardFromScan, saveToPhone } from '@/lib/card'
+import { readCardFromScan } from '@/lib/card'
+import { saveContactToPhone } from '@/lib/native'
 import { cn } from '@/lib/utils'
 
 type Stage = 'scanning' | 'result' | 'denied'
@@ -340,9 +341,12 @@ export function QrScanSheet({
             </button>
             <button
               type="button"
-              onClick={() => {
-                saveToPhone(card)
-                setSavedToPhone(true)
+              onClick={async () => {
+                try {
+                  setSavedToPhone(await saveContactToPhone(card))
+                } catch (err) {
+                  console.error('[v0] Save to Contacts failed:', err)
+                }
               }}
               className="glass-button pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold text-[var(--ink-strong)]"
             >

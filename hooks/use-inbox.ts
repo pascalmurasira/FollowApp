@@ -5,7 +5,7 @@ import { useSession } from '@/lib/auth-client'
 
 export interface LinkView {
   id: string
-  otherUserId: string
+  otherUserId?: string
   otherName: string
   status: 'pending' | 'accepted' | 'declined'
   direction: 'incoming' | 'outgoing'

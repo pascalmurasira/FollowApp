@@ -1,6 +1,6 @@
 import 'server-only'
-import { and, eq } from 'drizzle-orm'
-import { db, pool } from '@/lib/db'
+import { and, eq, inArray } from 'drizzle-orm'
+import { db, pool, type DbExecutor } from '@/lib/db'
 import { circleTags, profiles, userContacts } from '@/lib/db/schema'
 import type { Contact, Profile } from '@/lib/types'
 import {
@@ -31,8 +31,11 @@ const TEXT_LIMITS = {
 
 // ---- Profile ----
 
-export async function getProfile(deviceId: string): Promise<Profile> {
-  const [row] = await db
+export async function getProfile(
+  deviceId: string,
+  executor: DbExecutor = db,
+): Promise<Profile> {
+  const [row] = await executor
     .select()
     .from(profiles)
     .where(eq(profiles.deviceId, deviceId))
@@ -48,8 +51,12 @@ export async function getProfile(deviceId: string): Promise<Profile> {
   }
 }
 
-export async function saveProfile(deviceId: string, profile: Profile): Promise<void> {
-  await db
+export async function saveProfile(
+  deviceId: string,
+  profile: Profile,
+  executor: DbExecutor = db,
+): Promise<void> {
+  await executor
     .insert(profiles)
     .values({
       deviceId,
@@ -81,7 +88,7 @@ const HUES: Contact['avatarHue'][] = ['coral', 'teal', 'amber', 'rose', 'sage']
 
 let contactSchemaReady: Promise<void> | null = null
 
-function ensureContactSchema(): Promise<void> {
+export function ensureContactSchema(): Promise<void> {
   contactSchemaReady ??= pool
     .query(
       'ALTER TABLE user_contacts ADD COLUMN IF NOT EXISTS last_contacted_at timestamptz',
@@ -174,9 +181,12 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
   }
 }
 
-export async function getUserContacts(deviceId: string): Promise<Contact[]> {
+export async function getUserContacts(
+  deviceId: string,
+  executor: DbExecutor = db,
+): Promise<Contact[]> {
   await ensureContactSchema()
-  const rows = await db
+  const rows = await executor
     .select()
     .from(userContacts)
     .where(eq(userContacts.deviceId, deviceId))
@@ -184,10 +194,14 @@ export async function getUserContacts(deviceId: string): Promise<Contact[]> {
   return rows.map(rowToContact)
 }
 
-export async function addUserContact(deviceId: string, contact: Contact): Promise<void> {
+export async function addUserContact(
+  deviceId: string,
+  contact: Contact,
+  executor: DbExecutor = db,
+): Promise<void> {
   await ensureContactSchema()
   const safe = sanitizeContact(contact)
-  await db.insert(userContacts).values({
+  await executor.insert(userContacts).values({
     id: safe.id,
     deviceId,
     name: safe.name,
@@ -205,10 +219,14 @@ export async function addUserContact(deviceId: string, contact: Contact): Promis
   })
 }
 
-/** Batch-insert imported contacts in one statement. Returns the count saved. */
+/**
+ * Idempotently persist an import batch and return how many requested ids now
+ * belong to this device. This makes a retry safe after a lost HTTP response.
+ */
 export async function addUserContacts(
   deviceId: string,
   contacts: Contact[],
+  executor: DbExecutor = db,
 ): Promise<number> {
   if (contacts.length === 0) return 0
   await ensureContactSchema()
@@ -228,14 +246,27 @@ export async function addUserContacts(
       ? new Date(`${contact.lastContactedAt}T12:00:00`)
       : null,
   }))
-  await db.insert(userContacts).values(values)
-  return values.length
+  await executor.insert(userContacts).values(values).onConflictDoNothing()
+  const persisted = await executor
+    .select({ id: userContacts.id })
+    .from(userContacts)
+    .where(
+      and(
+        eq(userContacts.deviceId, deviceId),
+        inArray(
+          userContacts.id,
+          values.map((contact) => contact.id),
+        ),
+      ),
+    )
+  return persisted.length
 }
 
 export async function updateUserContact(
   deviceId: string,
   contactId: string,
   updates: ContactUpdateInput,
+  executor: DbExecutor = db,
 ): Promise<void> {
   await ensureContactSchema()
   const set: Partial<typeof userContacts.$inferInsert> = {}
@@ -275,7 +306,7 @@ export async function updateUserContact(
   }
 
   if (Object.keys(set).length === 0) return
-  await db
+  await executor
     .update(userContacts)
     .set(set)
     .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
@@ -284,9 +315,10 @@ export async function updateUserContact(
 export async function touchUserContact(
   deviceId: string,
   contactId: string,
+  executor: DbExecutor = db,
 ): Promise<void> {
   await ensureContactSchema()
-  await db
+  await executor
     .update(userContacts)
     .set({ lastContactedAt: new Date() })
     .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
@@ -296,8 +328,11 @@ export async function touchUserContact(
 
 export type CircleMap = Record<string, string[]>
 
-export async function getCircleTags(deviceId: string): Promise<CircleMap> {
-  const rows = await db
+export async function getCircleTags(
+  deviceId: string,
+  executor: DbExecutor = db,
+): Promise<CircleMap> {
+  const rows = await executor
     .select()
     .from(circleTags)
     .where(eq(circleTags.deviceId, deviceId))
@@ -310,14 +345,15 @@ export async function setCircleTag(
   deviceId: string,
   contactId: string,
   circle: string | null,
+  executor: DbExecutor = db,
 ): Promise<void> {
   if (!circle) {
-    await db
+    await executor
       .delete(circleTags)
       .where(and(eq(circleTags.deviceId, deviceId), eq(circleTags.contactId, contactId)))
     return
   }
-  await db
+  await executor
     .insert(circleTags)
     .values({ deviceId, contactId, circle })
     .onConflictDoUpdate({

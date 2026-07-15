@@ -63,7 +63,7 @@ export function NudgeFeed({
   const rest = drifting.slice(1)
 
   return (
-    <div className="relative z-[1] grid gap-6 px-4 py-4 sm:px-6 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-7">
+    <div className="relative z-[1] grid min-w-0 gap-6 px-4 py-4 sm:px-6 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-7">
       {groups.length > 0 && (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 lg:col-span-12 [&::-webkit-scrollbar]:hidden">
           <FilterChip
@@ -85,7 +85,7 @@ export function NudgeFeed({
       )}
 
       {dailyPick ? (
-        <section className="flex flex-col gap-3 lg:col-span-7">
+        <section className="min-w-0 flex flex-col gap-3 lg:col-span-7">
           <SectionLabel>
             Today&apos;s follow-up
             {loading && (
@@ -111,7 +111,7 @@ export function NudgeFeed({
       )}
 
       {rest.length > 0 && (
-        <section className="flex flex-col gap-3 lg:col-span-5">
+        <section className="min-w-0 flex flex-col gap-3 lg:col-span-5">
           <SectionLabel>
             Needs a follow-up
             <span className="ml-auto tnum text-muted-foreground/70">

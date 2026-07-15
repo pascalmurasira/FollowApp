@@ -125,7 +125,7 @@ export function NudgeCard({
               </span>
             )}
             {isExample && (
-              <span className="shrink-0 rounded-full border border-[var(--hairline)] bg-white/25 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-secondary)]">
+              <span className="hidden shrink-0 rounded-full border border-[var(--hairline)] bg-white/25 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-secondary)] min-[400px]:inline">
                 Example
               </span>
             )}

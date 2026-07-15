@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   X,
   Camera,
@@ -20,13 +20,13 @@ import {
 import { Capacitor } from '@capacitor/core'
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { EnrichmentHook, Tier } from '@/lib/types'
-import { saveToPhone } from '@/lib/card'
 import {
   captureImageDataUrl,
   chooseImageDataUrl,
   isNativePermissionDeniedError,
   isNativeUserCancelError,
   openAppSettings,
+  saveContactToPhone,
   tapFeedback,
 } from '@/lib/native'
 import { todayDateInputValue } from '@/lib/contact-dates'
@@ -50,6 +50,7 @@ interface ContextNote {
 
 type ContextStatus = 'idle' | 'loading' | 'done' | 'empty' | 'error'
 type CameraPermissionHelp = null | 'blocked' | 'unavailable'
+type ReviewSource = 'scan' | 'manual'
 
 const EMPTY: ScannedCard = {
   name: '',
@@ -60,48 +61,22 @@ const EMPTY: ScannedCard = {
   website: '',
 }
 
-const TIER_OPTIONS: { value: Tier; label: string; hint: string; cta: string }[] = [
+const TIER_OPTIONS: { value: Tier; label: string }[] = [
   {
     value: 'key',
-    label: 'Every 2 weeks',
-    hint: 'high-value contact',
-    cta: 'first follow-up tomorrow',
+    label: 'Every 3 weeks',
   },
   {
     value: 'network',
-    label: 'Monthly',
-    hint: 'regular relationship',
-    cta: 'first follow-up tomorrow',
+    label: 'Every 6 weeks',
   },
   {
     value: 'casual',
     label: 'Quarterly',
-    hint: 'light keep-warm',
-    cta: 'first follow-up tomorrow',
   },
 ]
 
 type Stage = 'capture' | 'reading' | 'review' | 'added'
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
-}
-
-function formatDateShort(date: Date): string {
-  return date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-function formatFollowUpPhrase(date: Date): string {
-  const tomorrow = addDays(new Date(), 1)
-  if (date.toDateString() === tomorrow.toDateString()) return 'tomorrow'
-  return formatDateShort(date)
-}
 
 /**
  * Downscale a captured photo to a JPEG data URL no wider/taller than `max`,
@@ -170,15 +145,20 @@ export function ScanCardSheet({
   const [cameraHelp, setCameraHelp] = useState<CameraPermissionHelp>(null)
   const [isOpeningCamera, setIsOpeningCamera] = useState(false)
   const [showScanDetails, setShowScanDetails] = useState(false)
-  const [followUpDate, setFollowUpDate] = useState<Date>(() =>
-    addDays(new Date(), 1),
-  )
-  const [showDateRoller, setShowDateRoller] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [reviewSource, setReviewSource] = useState<ReviewSource>('scan')
+  const cameraFileRef = useRef<HTMLInputElement>(null)
+  const photoFileRef = useRef<HTMLInputElement>(null)
+  const operationRef = useRef(0)
+  const openRef = useRef(open)
+  useEffect(() => {
+    openRef.current = open
+    if (!open) operationRef.current += 1
+  }, [open])
 
   if (!open) return null
 
   const reset = () => {
+    operationRef.current += 1
     setStage('capture')
     setCard(EMPTY)
     setTier('network')
@@ -191,9 +171,9 @@ export function ScanCardSheet({
     setCameraHelp(null)
     setIsOpeningCamera(false)
     setShowScanDetails(false)
-    setFollowUpDate(addDays(new Date(), 1))
-    setShowDateRoller(false)
-    if (fileRef.current) fileRef.current.value = ''
+    setReviewSource('scan')
+    if (cameraFileRef.current) cameraFileRef.current.value = ''
+    if (photoFileRef.current) photoFileRef.current.value = ''
   }
 
   const close = () => {
@@ -201,7 +181,7 @@ export function ScanCardSheet({
     onClose()
   }
 
-  const findContext = async (scanned: ScannedCard) => {
+  const findContext = async (scanned: ScannedCard, operation: number) => {
     if (!scanned.name.trim()) {
       setContextStatus('empty')
       return
@@ -226,6 +206,7 @@ export function ScanCardSheet({
         hooks?: EnrichmentHook[]
         status?: 'ok' | 'unavailable'
       }
+      if (!openRef.current || operationRef.current !== operation) return
 
       const hooks = data.status === 'ok' ? data.hooks ?? [] : []
       const notes: ContextNote[] = hooks.map((hook, index) => ({
@@ -245,15 +226,24 @@ export function ScanCardSheet({
       }
 
       setContextNotes(notes)
-      setContextStatus(notes.length > 0 ? 'done' : 'empty')
+      setContextStatus(
+        res.ok && data.status === 'ok'
+          ? notes.length > 0
+            ? 'done'
+            : 'empty'
+          : 'error',
+      )
     } catch (err) {
+      if (!openRef.current || operationRef.current !== operation) return
       console.error('[v0] Context lookup failed:', err)
       setContextStatus('error')
     }
   }
 
-  const readCardImage = async (image: string) => {
+  const readCardImage = async (image: string, operation: number) => {
+    if (!openRef.current || operationRef.current !== operation) return
     setError(null)
+    setReviewSource('scan')
     setStage('reading')
     try {
       const res = await fetch('/api/scan-card', {
@@ -262,11 +252,13 @@ export function ScanCardSheet({
         body: JSON.stringify({ image }),
       })
       const data = (await res.json()) as Partial<ScannedCard> & { status?: string }
+      if (!openRef.current || operationRef.current !== operation) return
 
       if (data.status !== 'ok') {
         // Rate-limited or failed: drop into manual review, never a dead end.
         setError("Couldn't read that one — add the details by hand.")
         setCard(EMPTY)
+        setReviewSource('manual')
         setStage('review')
         setContextStatus('empty')
         return
@@ -286,17 +278,20 @@ export function ScanCardSheet({
         setError("Couldn't read much — check the details below.")
       }
       setStage('review')
-      void findContext(scanned)
+      void findContext(scanned, operation)
     } catch (err) {
+      if (!openRef.current || operationRef.current !== operation) return
       console.error('[v0] Card capture failed:', err)
       setError("Something went wrong reading the photo — add the details by hand.")
       setCard(EMPTY)
+      setReviewSource('manual')
       setStage('review')
       setContextStatus('empty')
     }
   }
 
   const handleNativeCamera = async () => {
+    const operation = ++operationRef.current
     setError(null)
     setCameraHelp(null)
     const native = Capacitor.isNativePlatform()
@@ -304,7 +299,7 @@ export function ScanCardSheet({
       // Browser/iOS Safari requires the file picker to be opened directly from
       // the user's tap. If we await the native-camera checks first, the browser
       // can treat it as no longer user-initiated and silently block it.
-      fileRef.current?.click()
+      cameraFileRef.current?.click()
       return
     }
 
@@ -312,12 +307,14 @@ export function ScanCardSheet({
     void tapFeedback()
     try {
       const image = await captureImageDataUrl()
+      if (!openRef.current || operationRef.current !== operation) return
       if (!image) {
-        fileRef.current?.click()
+        cameraFileRef.current?.click()
         return
       }
-      await readCardImage(await normalizeDataUrl(image))
+      await readCardImage(await normalizeDataUrl(image), operation)
     } catch (err) {
+      if (!openRef.current || operationRef.current !== operation) return
       if (isNativePermissionDeniedError(err)) {
         setCameraHelp('blocked')
         setStage('capture')
@@ -328,28 +325,33 @@ export function ScanCardSheet({
         setStage('capture')
       }
     } finally {
-      setIsOpeningCamera(false)
+      if (openRef.current && operationRef.current === operation) {
+        setIsOpeningCamera(false)
+      }
     }
   }
 
   const handleChoosePhoto = async () => {
+    const operation = ++operationRef.current
     setError(null)
     setCameraHelp(null)
     const native = Capacitor.isNativePlatform()
     if (!native) {
-      fileRef.current?.click()
+      photoFileRef.current?.click()
       return
     }
 
     await tapFeedback()
     try {
       const image = await chooseImageDataUrl()
+      if (!openRef.current || operationRef.current !== operation) return
       if (!image) {
-        fileRef.current?.click()
+        photoFileRef.current?.click()
         return
       }
-      await readCardImage(await normalizeDataUrl(image))
+      await readCardImage(await normalizeDataUrl(image), operation)
     } catch (err) {
+      if (!openRef.current || operationRef.current !== operation) return
       const error = err as { message?: string }
       const message = error?.message?.toLowerCase() ?? ''
       const cancelled =
@@ -376,16 +378,19 @@ export function ScanCardSheet({
     setCard(EMPTY)
     setNote('')
     setContextStatus('empty')
+    setReviewSource('manual')
     setStage('review')
   }
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const operation = ++operationRef.current
+    const input = e.currentTarget
     const file = e.target.files?.[0]
     if (!file) return
     try {
-      await readCardImage(await downscale(file))
+      await readCardImage(await downscale(file), operation)
     } finally {
-      if (fileRef.current) fileRef.current.value = ''
+      input.value = ''
     }
   }
 
@@ -411,7 +416,6 @@ export function ScanCardSheet({
     const contextParts = [
       note.trim(),
       ...acceptedNotes.map((item) => `${item.text} (${item.source})`),
-      `First follow-up: ${formatDateShort(followUpDate)}`,
     ].filter(Boolean)
     onAdd({
       name: card.name,
@@ -441,11 +445,17 @@ export function ScanCardSheet({
         <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
           <div>
             <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
-              {stage === 'review' ? 'Confirm contact' : 'Scan a business card'}
+              {stage === 'review'
+                ? reviewSource === 'manual'
+                  ? 'Add contact details'
+                  : 'Confirm contact'
+                : 'Scan a business card'}
             </h2>
             {stage === 'review' && (
               <p className="mt-0.5 text-[12px] text-[var(--ink-secondary)]">
-                Parsed from card · check anything uncertain
+                {reviewSource === 'manual'
+                  ? 'Enter what you know — you can fill in the rest later'
+                  : 'Parsed from card · check anything uncertain'}
               </p>
             )}
           </div>
@@ -461,10 +471,21 @@ export function ScanCardSheet({
 
         {/* Hidden file input — opens the camera on iOS via capture="environment". */}
         <input
-          ref={fileRef}
+          ref={cameraFileRef}
           type="file"
           accept="image/*"
           capture="environment"
+          aria-hidden="true"
+          tabIndex={-1}
+          onChange={handleFile}
+          className="sr-only"
+        />
+        <input
+          ref={photoFileRef}
+          type="file"
+          accept="image/*"
+          aria-hidden="true"
+          tabIndex={-1}
           onChange={handleFile}
           className="sr-only"
         />
@@ -618,6 +639,7 @@ export function ScanCardSheet({
               <ParsedSummary
                 card={card}
                 onUpdate={update}
+                manual={reviewSource === 'manual'}
               />
 
               <ContextNotesCard
@@ -626,6 +648,7 @@ export function ScanCardSheet({
                 manualNote={note}
                 onManualNoteChange={setNote}
                 onToggle={toggleContext}
+                manualEntry={reviewSource === 'manual'}
               />
 
               <section className="glass-card rounded-3xl p-4">
@@ -680,20 +703,24 @@ export function ScanCardSheet({
                   className="pressable flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)]"
                 >
                   <RotateCcw className="size-3.5" />
-                  Rescan
+                  {reviewSource === 'manual' ? 'Scan instead' : 'Rescan'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (!card.name.trim()) return
-                    saveToPhone({
-                      n: card.name,
-                      t: card.title || undefined,
-                      co: card.company || undefined,
-                      p: card.phone || undefined,
-                      e: card.email || undefined,
-                    })
-                    setSavedToPhone(true)
+                    try {
+                      const saved = await saveContactToPhone({
+                        n: card.name,
+                        t: card.title || undefined,
+                        co: card.company || undefined,
+                        p: card.phone || undefined,
+                        e: card.email || undefined,
+                      })
+                      setSavedToPhone(saved)
+                    } catch (err) {
+                      console.error('[v0] Save to Contacts failed:', err)
+                    }
                   }}
                   disabled={!card.name.trim()}
                   className="pressable flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
@@ -720,38 +747,10 @@ export function ScanCardSheet({
                 context{' '}
                 {contextNotes.filter((item) => item.accepted).length === 1
                   ? 'note'
-                  : 'notes'}{' '}
-                · follow up{' '}
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className="underline decoration-white/50 underline-offset-2"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setShowDateRoller(true)
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      setShowDateRoller(true)
-                    }
-                  }}
-                >
-                  {formatFollowUpPhrase(followUpDate)}
-                </span>
+                  : 'notes'}
               </span>
             </button>
           </footer>
-        )}
-
-        {showDateRoller && (
-          <FollowUpDateRoller
-            value={followUpDate}
-            tier={tier}
-            onSelect={setFollowUpDate}
-            onClose={() => setShowDateRoller(false)}
-          />
         )}
       </div>
     </div>
@@ -825,50 +824,63 @@ function CameraPermissionCard({
 function ParsedSummary({
   card,
   onUpdate,
+  manual,
 }: {
   card: ScannedCard
   onUpdate: (key: keyof ScannedCard, value: string) => void
+  manual: boolean
 }) {
-  const nameRole = [
-    card.name,
-    [card.title, card.company].filter(Boolean).join(', '),
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const contactLine = [card.phone, card.email].filter(Boolean).join(' · ')
-  const nameRoleSure = card.name.trim() && (card.title.trim() || card.company.trim())
-  const contactSure =
-    (!card.phone.trim() || looksLikePhone(card.phone)) &&
-    (!card.email.trim() || looksLikeEmail(card.email)) &&
-    (card.phone.trim() || card.email.trim())
-
   return (
     <section className="glass-hero overflow-hidden rounded-3xl px-4 py-0">
       <EditableSummaryRow
-        label="Name · Role"
-        value={nameRole}
-        placeholder="Daniel Okafor · VP Partnerships, Northbeam"
-        sure={!!nameRoleSure}
-        onChange={(value) => {
-          const [name, roleCompany = ''] = value.split(' · ')
-          const [title, ...companyParts] = roleCompany.split(',')
-          onUpdate('name', name?.trim() ?? '')
-          onUpdate('title', title?.trim() ?? '')
-          onUpdate('company', companyParts.join(',').trim())
-        }}
+        label="Full name"
+        value={card.name}
+        placeholder="Full name (required)"
+        sure={Boolean(card.name.trim())}
+        showConfidence={!manual}
+        autoComplete="name"
+        required
+        onChange={(value) => onUpdate('name', value)}
       />
       <EditableSummaryRow
-        label="Mobile · Email"
-        value={contactLine}
-        placeholder="+1 (415) 555-0182 · d.okafor@northbeam.com"
-        sure={!!contactSure}
-        onChange={(value) => {
-          const parts = value.split(' · ')
-          const phone = parts.find((part) => /[+\d().\-\s]{7,}/.test(part)) ?? ''
-          const email = parts.find((part) => part.includes('@')) ?? ''
-          onUpdate('phone', phone.trim())
-          onUpdate('email', email.trim())
-        }}
+        label="Role or title"
+        value={card.title}
+        placeholder="Role or job title"
+        sure={Boolean(card.title.trim())}
+        showConfidence={!manual && Boolean(card.title.trim())}
+        autoComplete="organization-title"
+        onChange={(value) => onUpdate('title', value)}
+      />
+      <EditableSummaryRow
+        label="Company"
+        value={card.company}
+        placeholder="Company or organization"
+        sure={Boolean(card.company.trim())}
+        showConfidence={!manual && Boolean(card.company.trim())}
+        autoComplete="organization"
+        onChange={(value) => onUpdate('company', value)}
+      />
+      <EditableSummaryRow
+        label="Mobile"
+        value={card.phone}
+        placeholder="Phone number"
+        sure={looksLikePhone(card.phone)}
+        showConfidence={!manual && Boolean(card.phone.trim())}
+        type="tel"
+        inputMode="tel"
+        autoComplete="tel"
+        onChange={(value) => onUpdate('phone', value)}
+      />
+      <EditableSummaryRow
+        label="Email"
+        value={card.email}
+        placeholder="Email address"
+        sure={looksLikeEmail(card.email)}
+        showConfidence={!manual && Boolean(card.email.trim())}
+        type="email"
+        inputMode="email"
+        autoComplete="email"
+        onChange={(value) => onUpdate('email', value)}
       />
     </section>
   )
@@ -879,28 +891,47 @@ function EditableSummaryRow({
   value,
   placeholder,
   sure,
+  showConfidence,
+  type = 'text',
+  inputMode,
+  autoComplete,
+  required = false,
   onChange,
 }: {
   label: string
   value: string
   placeholder: string
   sure: boolean
+  showConfidence: boolean
+  type?: 'text' | 'tel' | 'email'
+  inputMode?: 'text' | 'tel' | 'email'
+  autoComplete?: string
+  required?: boolean
   onChange: (value: string) => void
 }) {
   return (
-    <label className="grid grid-cols-[1fr_auto] gap-3 border-b border-[var(--hairline)] py-3 last:border-b-0">
+    <label
+      className={cn(
+        'grid gap-3 border-b border-[var(--hairline)] py-3 last:border-b-0',
+        showConfidence ? 'grid-cols-[1fr_auto]' : 'grid-cols-1',
+      )}
+    >
       <span className="min-w-0">
         <span className="block text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-tertiary)]">
           {label}
         </span>
         <input
+          type={type}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          required={required}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
           className="mt-1 h-7 w-full min-w-0 bg-transparent font-heading text-[15px] font-semibold tracking-[-0.012em] text-[var(--ink-strong)] outline-none placeholder:text-[var(--ink-tertiary)]/45"
         />
       </span>
-      <ConfidenceBadge sure={sure} />
+      {showConfidence && <ConfidenceBadge sure={sure} />}
     </label>
   )
 }
@@ -928,12 +959,14 @@ function ContextNotesCard({
   manualNote,
   onManualNoteChange,
   onToggle,
+  manualEntry,
 }: {
   status: ContextStatus
   notes: ContextNote[]
   manualNote: string
   onManualNoteChange: (value: string) => void
   onToggle: (id: string) => void
+  manualEntry: boolean
 }) {
   const showManual = status === 'empty' || status === 'error'
   return (
@@ -978,7 +1011,9 @@ function ContextNotesCard({
             <span>
               {status === 'error'
                 ? "Context lookup isn't available right now. Your own note is enough."
-                : 'No public context found — small companies often have none. Your memory is the best source right now.'}
+                : manualEntry
+                  ? 'Add anything that will help you remember this person and follow up naturally.'
+                  : 'No public context found — small companies often have none. Your memory is the best source right now.'}
             </span>
           </div>
           <label className="mt-3 block">
@@ -1051,108 +1086,5 @@ function ContextChip({
         <span className="text-[var(--ink-tertiary)]">· {note.source}</span>
       </span>
     </button>
-  )
-}
-
-function FollowUpDateRoller({
-  value,
-  tier,
-  onSelect,
-  onClose,
-}: {
-  value: Date
-  tier: Tier
-  onSelect: (date: Date) => void
-  onClose: () => void
-}) {
-  const options = [
-    { label: 'Today', date: new Date(), hint: 'tonight is tight' },
-    { label: 'Tomorrow', date: addDays(new Date(), 1), hint: 'suggested' },
-    { label: 'Thursday', date: addDays(new Date(), 3), hint: '2 others due · fine' },
-    { label: 'Next Mon', date: addDays(new Date(), 7), hint: 'after the weekend' },
-    { label: 'In 2 weeks', date: addDays(new Date(), 14), hint: 'momentum fades' },
-  ]
-  const cadence =
-    tier === 'key'
-      ? 'then every 2 weeks from this date'
-      : tier === 'casual'
-        ? 'then quarterly from this date'
-        : 'then monthly from this date'
-
-  return (
-    <div className="absolute inset-0 z-30 flex items-end">
-      <button
-        type="button"
-        aria-label="Close date picker"
-        onClick={onClose}
-        className="absolute inset-0 bg-[oklch(0.2_0.03_255_/_0.25)] backdrop-blur-[2px]"
-      />
-      <section className="relative z-[1] w-full rounded-t-[24px] border border-b-0 border-white/65 bg-[linear-gradient(170deg,oklch(1_0_0_/_0.72),oklch(1_0_0_/_0.5))] px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-20px_50px_-20px_oklch(0.2_0.03_255_/_0.4)] backdrop-blur-[30px] animate-rise">
-        <div className="mx-auto h-1 w-9 rounded-full bg-[oklch(0.5_0.02_252_/_0.2)]" />
-        <div className="mt-4 flex items-baseline justify-between gap-3">
-          <h3 className="font-heading text-lg font-bold tracking-[-0.02em] text-[var(--ink-strong)]">
-            First follow-up
-          </h3>
-          <p className="text-right text-xs text-[var(--ink-secondary)]">
-            {cadence}
-          </p>
-        </div>
-
-        <div className="relative mt-4 h-[250px] overflow-hidden">
-          <div className="absolute left-0 right-0 top-[100px] h-[50px] rounded-[13px] border border-[oklch(0.28_0.05_255_/_0.25)] bg-[oklch(0.28_0.05_255_/_0.08)]" />
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-[70px] bg-gradient-to-b from-white/70 to-transparent" />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-[70px] bg-gradient-to-t from-white/70 to-transparent" />
-          <div className="flex flex-col">
-            {options.map((option, index) => {
-              const selected = option.date.toDateString() === value.toDateString()
-              const distance = Math.abs(index - 2)
-              return (
-                <button
-                  key={`${option.label}-${option.date.toDateString()}`}
-                  type="button"
-                  onClick={() => onSelect(option.date)}
-                  className={cn(
-                    'grid h-[50px] grid-cols-[92px_1fr_auto] items-center gap-3 px-3 text-left transition-transform',
-                    selected
-                      ? 'scale-100 opacity-100'
-                      : distance > 1
-                        ? 'scale-[0.92] opacity-35'
-                        : 'scale-[0.96] opacity-60',
-                  )}
-                >
-                  <span className="font-heading text-[15px] font-semibold tracking-[-0.014em] text-[var(--ink-strong)]">
-                    {option.label}
-                  </span>
-                  <span className="tnum text-[15px] text-[var(--ink-secondary)]">
-                    {formatDateShort(option.date).replace(/^[A-Za-z]+,?\s?/, '')}
-                  </span>
-                  <span
-                    className={cn(
-                      'text-right text-[11.5px] font-medium',
-                      option.hint === 'suggested'
-                        ? 'text-[var(--status-on-track)]'
-                        : option.hint === 'momentum fades'
-                          ? 'text-[var(--status-due-soon)]'
-                          : 'text-[var(--ink-secondary)]',
-                    )}
-                  >
-                    {option.hint}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="primary-action pressable mt-3 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[var(--r-button-lg)] text-[15px] font-semibold"
-        >
-          <CalendarDays className="size-4" />
-          Set · first follow-up {formatDateShort(value)}
-        </button>
-      </section>
-    </div>
   )
 }

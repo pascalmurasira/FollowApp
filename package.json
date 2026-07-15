@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.ts",
     "lint": "eslint .",
     "native:sync": "cap sync ios",
     "native:open:ios": "cap open ios",

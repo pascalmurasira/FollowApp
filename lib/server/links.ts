@@ -2,7 +2,7 @@ import 'server-only'
 import { and, eq, ne, or } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { contactLinks, user } from '@/lib/db/schema'
-import { pairKeyFor, normalizePhone } from '@/lib/server/chat-core'
+import { pairKeyFor } from '@/lib/server/chat-core'
 
 /**
  * Server-only logic for FollowApp-to-FollowApp links: matching a contact to a
@@ -19,27 +19,20 @@ export interface MatchedUser {
 }
 
 /**
- * Find a real, OTHER user matching a contact's email or phone. Email is matched
- * exactly (Better Auth stores it verified); phone is normalized on both sides.
- * Returns null when nothing matches or the only match is the caller themselves.
+ * Find a real, OTHER user matching a contact's verified account email. Phone
+ * matching stays disabled until FollowApp has a phone-verification flow.
  */
 export async function matchContactToUser(
   callerUserId: string,
   email?: string | null,
-  phone?: string | null,
 ): Promise<MatchedUser | null> {
   const normEmail = email?.trim().toLowerCase() || null
-  const normPhone = normalizePhone(phone)
-  if (!normEmail && !normPhone) return null
-
-  const conditions = []
-  if (normEmail) conditions.push(eq(user.email, normEmail))
-  if (normPhone) conditions.push(eq(user.phone, normPhone))
+  if (!normEmail) return null
 
   const rows = await db
     .select({ id: user.id, name: user.name })
     .from(user)
-    .where(and(ne(user.id, callerUserId), or(...conditions)))
+    .where(and(ne(user.id, callerUserId), eq(user.email, normEmail)))
     .limit(1)
 
   if (rows.length === 0) return null

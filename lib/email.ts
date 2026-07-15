@@ -47,10 +47,13 @@ export async function sendMagicLinkEmail({
     })
     if (!res.ok) {
       const detail = await res.text()
-      console.error(`[v0] Resend send failed (${res.status}): ${detail}`)
+      throw new Error(
+        `Resend send failed (${res.status}): ${detail.slice(0, 500)}`,
+      )
     }
   } catch (err) {
     console.error('[v0] Resend send threw:', (err as Error).message)
+    throw err
   }
 }
 

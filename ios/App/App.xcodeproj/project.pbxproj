@@ -32,6 +32,7 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		5B88E7A02C40000100F0A001 /* FollowAppNativePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowAppNativePlugin.swift; sourceTree = "<group>"; };
 		5B88E7A22C40000100F0A001 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
+		5B88E7A42C40000100F0A001 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		6B932A492C39600100F0A001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -72,6 +73,7 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				5B88E7A22C40000100F0A001 /* MainViewController.swift */,
 				5B88E7A02C40000100F0A001 /* FollowAppNativePlugin.swift */,
+				5B88E7A42C40000100F0A001 /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -119,6 +121,11 @@
 						CreatedOnToolsVersion = 9.2;
 						LastSwiftMigration = 1100;
 						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.AssociatedDomains = {
+								enabled = 1;
+							};
+						};
 					};
 				};
 			};
@@ -307,9 +314,10 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202607091355;
+				CURRENT_PROJECT_VERSION = 202607141900;
 				DEVELOPMENT_TEAM = ZF489NYM57;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -331,9 +339,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202607091355;
+				CURRENT_PROJECT_VERSION = 202607141900;
 				DEVELOPMENT_TEAM = ZF489NYM57;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;

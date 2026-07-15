@@ -2,6 +2,7 @@ import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { withRetry } from '@/lib/with-retry'
 import { TEXT_MODEL } from '@/lib/ai'
+import { protectExpensiveRequest } from '@/lib/server/api-protection'
 
 export const maxDuration = 30
 
@@ -32,8 +33,42 @@ interface RequestBody {
   enrichment?: string[]
 }
 
+const requestSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  relationship: z.string().max(500),
+  context: z.string().max(4_000),
+  interests: z.array(z.string().max(300)).max(30),
+  daysSinceContact: z.number().finite().min(0).max(100_000),
+  voice: z.string().trim().min(1).max(500),
+  recentMessages: z
+    .array(
+      z.object({
+        sender: z.enum(['me', 'them']),
+        text: z.string().max(2_000),
+      }),
+    )
+    .max(8),
+  enrichment: z.array(z.string().max(1_000)).max(3).optional(),
+})
+
 export async function POST(req: Request) {
-  const body = (await req.json()) as RequestBody
+  const blocked = await protectExpensiveRequest(req, 'suggest', {
+    limit: 30,
+    windowMs: 60_000,
+  })
+  if (blocked) return blocked
+
+  let input: unknown
+  try {
+    input = await req.json()
+  } catch {
+    return Response.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  const parsed = requestSchema.safeParse(input)
+  if (!parsed.success) {
+    return Response.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  const body = parsed.data as RequestBody
 
   const transcript = body.recentMessages
     .map((m) => `${m.sender === 'me' ? 'User' : body.name}: ${m.text}`)

@@ -36,18 +36,21 @@ import {
   applyContactUpdate,
   createContact,
   allGroupNames,
+  upsertContacts,
   type GroupTags,
   type ContactUpdateInput,
   type NewContactInput,
 } from '@/lib/contacts-store'
 import {
+  importedContactId,
+  importedContactIdentityKey,
   toNewContactInput,
   type ParsedContact,
 } from '@/lib/import-contacts'
+import { savedCountFromImportError } from '@/lib/contact-import-utils'
 import { getDeviceId } from '@/lib/device-id'
 import { useSession } from '@/lib/auth-client'
 import { useEngagement } from '@/hooks/use-engagement'
-import { primeEnrichment } from '@/hooks/use-enrichment'
 
 let idCounter = 0
 const nextId = () => `local-${idCounter++}`
@@ -168,39 +171,62 @@ export function NudgeApp() {
     return contact
   }, [signedIn])
 
-  // A scanned card flows through the same add path, then warms the enrichment
-  // cache in the background so recent-news hooks are ready when its
-  // conversation opens — turning a snapshot into a context-rich first nudge.
+  // The scan sheet already performs its context lookup while the user reviews
+  // the card, so saving must not spend the enrichment quota a second time.
   const addScannedContact = useCallback(
     (input: NewContactInput) => {
       const contact = addContact(input)
-      void primeEnrichment({
-        id: contact.id,
-        name: contact.name,
-        title: contact.title,
-        relationship: contact.relationship,
-      })
+      return contact
     },
     [addContact],
   )
 
-  // Batch-import reviewed contacts. Build full Contact records (distinct seeds
-  // so ids and avatar hues don't collide), optimistically add them, then
-  // persist to Neon. Returns the saved count for the import sheet's toast.
+  // Batch-import reviewed contacts. Stable device-scoped ids make retries safe,
+  // and the UI changes only after each server-confirmed portion is persisted.
   const importContacts = useCallback(
     async (rows: ParsedContact[], tier: Tier): Promise<number> => {
       const base = Date.now()
-      const built = rows.map((row, i) =>
-        createContact(toNewContactInput(row, tier), base + i),
-      )
-      setContacts((prev) => [...prev, ...built])
-      setCustomCount((n) => n + built.length)
-
       const deviceId = getDeviceId()
-      if (deviceId) return apiImportContacts(deviceId, built, signedIn)
-      return built.length
+      const existingImportIds = new Map(
+        contacts
+          .filter((contact) => contact.id.startsWith('import-'))
+          .map((contact) => [
+            importedContactIdentityKey(contact),
+            contact.id,
+          ]),
+      )
+      const built = rows.map((row, i) => {
+        const contact = createContact(toNewContactInput(row, tier), base + i)
+        return {
+          ...contact,
+          id:
+            existingImportIds.get(importedContactIdentityKey(contact)) ??
+            importedContactId(deviceId ?? 'local', contact),
+        }
+      })
+
+      const commit = (saved: Contact[]) => {
+        if (saved.length === 0) return
+        setContacts((prev) => upsertContacts(prev, saved))
+        setCustomCount((count) => count + saved.length)
+      }
+
+      try {
+        const savedCount = deviceId
+          ? await apiImportContacts(deviceId, built, signedIn)
+          : built.length
+        commit(built.slice(0, savedCount))
+        return savedCount
+      } catch (error) {
+        const savedCount = Math.min(
+          built.length,
+          savedCountFromImportError(error),
+        )
+        commit(built.slice(0, savedCount))
+        throw error
+      }
     },
-    [signedIn],
+    [contacts, signedIn],
   )
 
   // Assign (or clear) a contact's circle. Tags are stored separately so the
@@ -314,7 +340,7 @@ export function NudgeApp() {
   }
 
   return (
-    <div className="app-field mx-auto flex min-h-[100dvh] w-full max-w-6xl flex-col lg:my-6 lg:min-h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.6rem] lg:border lg:border-white/40 lg:shadow-card-lg">
+    <div className="app-field mx-auto flex h-[100dvh] w-full max-w-6xl flex-col lg:my-6 lg:h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.6rem] lg:border lg:border-white/40 lg:shadow-card-lg">
       <span className="field-grain" aria-hidden />
       {activeContact ? (
         <ConversationView
@@ -364,7 +390,7 @@ export function NudgeApp() {
             </div>
           </header>
 
-          <main className="order-2 flex-1 overflow-y-auto overscroll-y-contain pb-24 lg:pb-8">
+          <main className="order-2 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain pb-24 lg:pb-8">
             <div key={tab} className="tab-page" data-direction={tabDirection}>
               {tab === 'nudges' ? (
                 <NudgeFeed

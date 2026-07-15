@@ -218,7 +218,7 @@ export function LandingIntro({ onGetStarted }: LandingIntroProps) {
               <Principle
                 icon={LockKeyhole}
                 title="Private by default"
-                body="Anonymous data stays on your device until you choose to secure and sync it."
+                body="Your data is scoped to this browser until you choose to secure it to an account."
               />
               <Principle
                 icon={Clock3}

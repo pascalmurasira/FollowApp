@@ -1,3 +1,6 @@
+import type { CardData } from '@/lib/card'
+import { isNativeMethodUnavailableError } from '@/lib/native-bridge'
+
 export async function isNativeRuntime(): Promise<boolean> {
   if (typeof window === 'undefined') return false
   try {
@@ -171,7 +174,7 @@ export async function captureImageDataUrl(): Promise<string | null> {
     saveToGallery: false,
   })
 
-  return mediaResultToDataUrl(photo.thumbnail, photo.uri)
+  return mediaResultToDataUrl(photo.webPath, photo.uri, photo.thumbnail)
 }
 
 async function followAppNativePlugin(): Promise<{
@@ -181,6 +184,7 @@ async function followAppNativePlugin(): Promise<{
     permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
   }>
   takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
+  saveContact(card: CardData): Promise<{ saved?: boolean }>
 }> {
   const { registerPlugin } = await import('@capacitor/core')
   return registerPlugin<{
@@ -190,6 +194,7 @@ async function followAppNativePlugin(): Promise<{
       permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
     }>
     takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
+    saveContact(card: CardData): Promise<{ saved?: boolean }>
   }>('FollowAppNative')
 }
 
@@ -232,7 +237,7 @@ export async function chooseImageDataUrl(): Promise<string | null> {
     })
     const photo = result.results[0]
     if (!photo) return null
-    return mediaResultToDataUrl(photo.thumbnail, photo.uri)
+    return mediaResultToDataUrl(photo.webPath, photo.uri, photo.thumbnail)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (/cancel/i.test(message)) throw error
@@ -255,14 +260,48 @@ export async function chooseImageDataUrl(): Promise<string | null> {
 }
 
 async function mediaResultToDataUrl(
-  thumbnail?: string,
+  webPath?: string,
   uri?: string,
+  thumbnail?: string,
 ): Promise<string | null> {
-  if (thumbnail) return base64ToJpegDataUrl(thumbnail)
-  if (!uri) return null
-  const response = await fetch(uri)
-  const blob = await response.blob()
-  return blobToDataUrl(blob)
+  const { Capacitor } = await import('@capacitor/core')
+  const candidates = [webPath, uri ? Capacitor.convertFileSrc(uri) : undefined]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    try {
+      const response = await fetch(candidate)
+      if (!response.ok) continue
+      return blobToDataUrl(await response.blob())
+    } catch {
+      // Fall through to the next WebView-safe representation.
+    }
+  }
+  return thumbnail ? base64ToJpegDataUrl(thumbnail) : null
+}
+
+export async function saveContactToPhone(card: CardData): Promise<boolean> {
+  if (await isNativeRuntime()) {
+    try {
+      const result = await (await followAppNativePlugin()).saveContact(card)
+      // The current iOS editor resolves false when the user cancels. Preserve
+      // that outcome instead of unexpectedly opening a second save flow.
+      return result.saved ?? false
+    } catch (error) {
+      if (
+        isNativeUserCancelError(error) ||
+        !isNativeMethodUnavailableError(error)
+      ) {
+        throw error
+      }
+      console.warn(
+        '[v0] Native contact bridge unavailable, using vCard fallback:',
+        error,
+      )
+    }
+  }
+  const { saveToPhone } = await import('@/lib/card')
+  saveToPhone(card)
+  return true
 }
 
 function base64ToJpegDataUrl(value: string): string {

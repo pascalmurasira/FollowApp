@@ -1,6 +1,7 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { TEXT_MODEL, SEARCH_MODEL } from '@/lib/ai'
+import { protectExpensiveRequest } from '@/lib/server/api-protection'
 
 export const maxDuration = 30
 
@@ -33,6 +34,13 @@ interface RequestBody {
   relationship?: string
 }
 
+const requestSchema = z.object({
+  name: z.string().trim().max(200).optional().default(''),
+  title: z.string().max(300).optional(),
+  company: z.string().max(300).optional(),
+  relationship: z.string().max(500).optional(),
+})
+
 function isRateLimitOrUnavailable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const e = error as { statusCode?: number; type?: string; name?: string }
@@ -46,7 +54,23 @@ function isRateLimitOrUnavailable(error: unknown): boolean {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as RequestBody
+  const blocked = await protectExpensiveRequest(req, 'enrich', {
+    limit: 10,
+    windowMs: 10 * 60_000,
+  })
+  if (blocked) return blocked
+
+  let input: unknown
+  try {
+    input = await req.json()
+  } catch {
+    return Response.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  const parsed = requestSchema.safeParse(input)
+  if (!parsed.success) {
+    return Response.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  const body = parsed.data as RequestBody
 
   if (!body.name?.trim()) {
     return Response.json({ hooks: [], status: 'ok' })

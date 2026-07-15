@@ -5,6 +5,13 @@ import {
   normalizeLastContactedAt,
   todayDateInputValue,
 } from '@/lib/contact-dates'
+import {
+  ContactImportError,
+  confirmedImportCount,
+  contactImportBatches,
+} from '@/lib/contact-import-utils'
+
+export { ContactImportError } from '@/lib/contact-import-utils'
 
 const HUES: Contact['avatarHue'][] = ['coral', 'teal', 'amber', 'rose', 'sage']
 
@@ -192,7 +199,7 @@ function writeLocalPeople(people: PeopleResponse): void {
   }
 }
 
-function upsertContacts(existing: Contact[], incoming: Contact[]): Contact[] {
+export function upsertContacts(existing: Contact[], incoming: Contact[]): Contact[] {
   const byId = new Map(existing.map((contact) => [contact.id, contact]))
   for (const contact of incoming) byId.set(contact.id, contact)
   return [...byId.values()]
@@ -394,24 +401,37 @@ export async function apiImportContacts(
   _syncRemote = false,
 ): Promise<number> {
   void _syncRemote
-  const local = readLocalPeople()
-  writeLocalPeople({
-    ...local,
-    contacts: upsertContacts(local.contacts, contacts),
-  })
-  try {
-    const res = await fetch('/api/contacts/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, contacts }),
-    })
-    if (!res.ok) throw new Error(`Import failed: ${res.status}`)
-    const data = (await res.json()) as { saved?: number }
-    return data.saved ?? contacts.length
-  } catch (error) {
-    console.error('[v0] Failed to import contacts:', error)
-    return contacts.length
+  let savedCount = 0
+
+  for (const batch of contactImportBatches(contacts)) {
+    try {
+      const res = await fetch('/api/contacts/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, contacts: batch }),
+      })
+      if (!res.ok) throw new Error(`Import failed: ${res.status}`)
+
+      const confirmed = confirmedImportCount(await res.json(), batch.length)
+      savedCount += confirmed
+
+      // Commit local state only after the server confirmed this exact batch.
+      // Reading afresh avoids overwriting another contact edit made in flight.
+      const local = readLocalPeople()
+      writeLocalPeople({
+        ...local,
+        contacts: upsertContacts(local.contacts, batch),
+      })
+    } catch (error) {
+      console.error('[v0] Failed to import contacts:', error)
+      throw new ContactImportError(
+        'The contact import could not be completed. Please try again.',
+        savedCount,
+      )
+    }
   }
+
+  return savedCount
 }
 
 /** Assign or clear a contact's circle for this device. */

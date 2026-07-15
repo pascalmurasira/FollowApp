@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { NativeAuthLinkHandler } from '@/components/native-auth-link-handler'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -36,6 +37,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="bg-background">
       <body className="font-sans antialiased">
+        <NativeAuthLinkHandler />
         {children}
       </body>
     </html>

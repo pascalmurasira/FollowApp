@@ -47,7 +47,8 @@ export function ConversationView({
   // link is accepted we replace the demo composer with the live thread.
   const { match, requestChat } = useContactMatch(contact)
   const linkStatus = match?.link?.status ?? null
-  const chatLive = linkStatus === 'accepted' && !!match
+  const chatLive =
+    linkStatus === 'accepted' && !!match?.otherUserId
   const channel = resolveChannel(contact, preferred)
   const canSend = canDeliver(contact)
   // WhatsApp send wears WhatsApp green so the channel handoff is recognizable.
@@ -137,7 +138,7 @@ export function ConversationView({
         />
       </header>
 
-      {chatLive && match ? (
+      {chatLive && match?.otherUserId ? (
         <InAppChat otherUserId={match.otherUserId} otherName={match.otherName} />
       ) : (
         <>
