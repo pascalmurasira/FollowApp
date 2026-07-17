@@ -54,7 +54,6 @@ import { savedCountFromImportError } from '@/lib/contact-import-utils'
 import { getDeviceId } from '@/lib/device-id'
 import { useSession } from '@/lib/auth-client'
 import { useEngagement } from '@/hooks/use-engagement'
-import { prewarmBusinessCardCamera } from '@/lib/native'
 
 let idCounter = 0
 const nextId = () => `local-${idCounter++}`
@@ -99,12 +98,6 @@ export function NudgeApp() {
   useEffect(() => {
     if (showSyncPrompt) setShowSecure(true)
   }, [showSyncPrompt])
-
-  // Returning users with camera permission already granted get a warm native
-  // picker. This never asks for permission or opens UI before their tap.
-  useEffect(() => {
-    void prewarmBusinessCardCamera()
-  }, [])
 
   // 'pending' until we've checked localStorage, then 'onboarding' or 'app'.
   const [phase, setPhase] = useState<'pending' | 'onboarding' | 'app'>('pending')
