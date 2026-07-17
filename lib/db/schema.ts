@@ -128,6 +128,8 @@ export const userContacts = pgTable(
     avatarHue: text('avatar_hue'),
     context: text('context'),
     interests: text('interests'),
+    /** Bounded JSON array of user-confirmed external outreach events. */
+    messages: text('messages').notNull().default('[]'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastContactedAt: timestamp('last_contacted_at', { withTimezone: true }),
   },

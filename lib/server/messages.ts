@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, eq, gt } from 'drizzle-orm'
+import { and, asc, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { contactLinks, directMessages } from '@/lib/db/schema'
 import { pairKeyFor } from '@/lib/server/chat-core'
@@ -16,6 +16,15 @@ export interface ChatMessage {
   body: string
   createdAt: string
   mine: boolean
+}
+
+export const CHAT_THREAD_PAGE_SIZE = 200
+
+export class NoAcceptedLinkError extends Error {
+  constructor() {
+    super('No accepted link with this user')
+    this.name = 'NoAcceptedLinkError'
+  }
 }
 
 /** True when caller and other have an accepted link (either direction). */
@@ -42,7 +51,7 @@ export async function sendMessage(
   const trimmed = body.trim()
   if (!trimmed) throw new Error('Empty message')
   if (!(await isAccepted(callerUserId, recipientUserId))) {
-    throw new Error('No accepted link with this user')
+    throw new NoAcceptedLinkError()
   }
   const [row] = await db
     .insert(directMessages)
@@ -73,7 +82,11 @@ export async function getThread(
     .select()
     .from(directMessages)
     .where(and(eq(directMessages.pairKey, key), gt(directMessages.id, sinceId)))
-    .orderBy(asc(directMessages.id))
+    .orderBy(
+      sinceId > 0 ? asc(directMessages.id) : desc(directMessages.id),
+    )
+    .limit(CHAT_THREAD_PAGE_SIZE)
+  if (sinceId === 0) rows.reverse()
 
   // Mark inbound messages as read (best-effort; doesn't block the response).
   void db
@@ -85,6 +98,7 @@ export async function getThread(
         eq(directMessages.recipientUserId, callerUserId),
       ),
     )
+    .catch(() => undefined)
 
   return rows.map((r) => ({
     id: r.id,

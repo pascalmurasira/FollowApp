@@ -70,24 +70,40 @@ export function useInbox() {
 
   const respond = useCallback(
     async (linkId: string, accept: boolean) => {
-      // Optimistic: update locally, then confirm with the server.
+      const nextStatus = accept ? 'accepted' : 'declined'
+      let previousStatus: LinkView['status'] | null = null
+      // Optimistic: update locally, then confirm with the server. Keep the
+      // prior state so a rejected/network-failed response never makes a chat
+      // request disappear from the user's inbox.
       setLinks((prev) =>
-        prev.map((l) =>
-          l.id === linkId
-            ? { ...l, status: accept ? 'accepted' : 'declined' }
-            : l,
-        ),
+        prev.map((link) => {
+          if (link.id !== linkId) return link
+          previousStatus = link.status
+          return { ...link, status: nextStatus }
+        }),
       )
       try {
-        await fetch('/api/chat/link', {
+        const response = await fetch('/api/chat/link', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ linkId, accept }),
         })
+        if (!response.ok) throw new Error('Chat request update failed')
+        await refresh()
+        return true
       } catch (err) {
         console.error('[v0] respond failed:', err)
+        if (previousStatus) {
+          setLinks((prev) =>
+            prev.map((link) =>
+              link.id === linkId
+                ? { ...link, status: previousStatus! }
+                : link,
+            ),
+          )
+        }
+        return false
       }
-      void refresh()
     },
     [refresh],
   )

@@ -1,14 +1,18 @@
-import type { CardData } from '@/lib/card'
-import { isNativeMethodUnavailableError } from '@/lib/native-bridge'
+import type { CardData } from './card'
+import { Capacitor } from '@capacitor/core'
+import { isNativeMethodUnavailableError } from './native-bridge.ts'
 
-export async function isNativeRuntime(): Promise<boolean> {
+function isNativeRuntimeNow(): boolean {
   if (typeof window === 'undefined') return false
   try {
-    const { Capacitor } = await import('@capacitor/core')
     return Capacitor.isNativePlatform()
   } catch {
     return false
   }
+}
+
+export async function isNativeRuntime(): Promise<boolean> {
+  return isNativeRuntimeNow()
 }
 
 export async function copyText(text: string): Promise<void> {
@@ -41,12 +45,15 @@ export async function shareContent(input: {
 }
 
 export async function openExternalUrl(url: string): Promise<void> {
-  if (await isNativeRuntime()) {
+  if (isNativeRuntimeNow()) {
     const { Browser } = await import('@capacitor/browser')
     await Browser.open({ url })
     return
   }
 
+  // This branch must execute before the first await. Desktop browsers otherwise
+  // treat the handoff as an unsolicited popup after the user-activation window
+  // has expired and silently block WhatsApp Web.
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
@@ -144,12 +151,37 @@ export async function captureImageDataUrl(): Promise<string | null> {
 }
 
 interface FollowAppNativePlugin {
+  addListener(
+    eventName: 'followUpReminderTapped',
+    listener: (event: { contactId?: string }) => void,
+  ): Promise<{ remove: () => Promise<void> }>
   openSettings(): Promise<void>
   cameraStatus(): Promise<{
     available?: boolean
     permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
   }>
   saveContact(card: CardData): Promise<{ saved?: boolean }>
+  notificationStatus(): Promise<{
+    status?: 'granted' | 'denied' | 'prompt' | 'unsupported'
+  }>
+  requestNotificationPermission(): Promise<{
+    status?: 'granted' | 'denied' | 'prompt' | 'unsupported'
+  }>
+  scheduleFollowUpReminder(input: {
+    id: string
+    contactId: string
+    title: string
+    body: string
+    date: string
+  }): Promise<{ scheduled?: boolean }>
+  cancelFollowUpReminder(input: { id: string }): Promise<void>
+  cancelAllFollowUpReminders(): Promise<void>
+  consumeFollowUpReminderTap(): Promise<{ contactId?: string }>
+  recognizeBusinessCard(input: { image: string }): Promise<{
+    lines?: string[]
+    text?: string
+    averageConfidence?: number
+  }>
 }
 
 let followAppNativePluginPromise: Promise<FollowAppNativePlugin> | null = null
@@ -222,13 +254,17 @@ async function mediaResultToDataUrl(
   return thumbnail ? base64ToJpegDataUrl(thumbnail) : null
 }
 
-export async function saveContactToPhone(card: CardData): Promise<boolean> {
+export type PhoneContactSaveResult = 'saved' | 'cancelled' | 'exported'
+
+export async function saveContactToPhone(
+  card: CardData,
+): Promise<PhoneContactSaveResult> {
   if (await isNativeRuntime()) {
     try {
       const result = await (await followAppNativePlugin()).saveContact(card)
       // The current iOS editor resolves false when the user cancels. Preserve
       // that outcome instead of unexpectedly opening a second save flow.
-      return result.saved ?? false
+      return result.saved ? 'saved' : 'cancelled'
     } catch (error) {
       if (
         isNativeUserCancelError(error) ||
@@ -242,10 +278,109 @@ export async function saveContactToPhone(card: CardData): Promise<boolean> {
       )
     }
   }
-  const { saveToPhone } = await import('@/lib/card')
+  const { saveToPhone } = await import('./card')
   saveToPhone(card)
-  return true
+  // A browser download/open is not proof that the person completed the import.
+  // Keep this distinct from the native editor's confirmed saved result.
+  return 'exported'
 }
+
+export type ReminderPermission =
+  | 'granted'
+  | 'denied'
+  | 'prompt'
+  | 'unsupported'
+
+async function reminderBridgeResult(
+  action: (plugin: FollowAppNativePlugin) => Promise<{ status?: ReminderPermission }>,
+): Promise<ReminderPermission> {
+  if (!(await isNativeRuntime())) return 'unsupported'
+  try {
+    const result = await action(await followAppNativePlugin())
+    return result.status ?? 'unsupported'
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return 'unsupported'
+    throw error
+  }
+}
+
+export function reminderPermissionStatus(): Promise<ReminderPermission> {
+  return reminderBridgeResult((plugin) => plugin.notificationStatus())
+}
+
+export function requestReminderPermission(): Promise<ReminderPermission> {
+  return reminderBridgeResult((plugin) => plugin.requestNotificationPermission())
+}
+
+export async function scheduleFollowUpReminder(input: {
+  id: string
+  contactId: string
+  title: string
+  body: string
+  date: string
+}): Promise<boolean> {
+  if (!(await isNativeRuntime())) return false
+  try {
+    const result = await (
+      await followAppNativePlugin()
+    ).scheduleFollowUpReminder(input)
+    return result.scheduled ?? false
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return false
+    throw error
+  }
+}
+
+export async function cancelFollowUpReminder(id: string): Promise<void> {
+  if (!(await isNativeRuntime())) return
+  try {
+    await (await followAppNativePlugin()).cancelFollowUpReminder({ id })
+  } catch (error) {
+    if (!isNativeMethodUnavailableError(error)) throw error
+  }
+}
+
+/** Remove every FollowApp follow-up from both pending and delivered lists. */
+export async function cancelAllFollowUpReminders(): Promise<void> {
+  if (!(await isNativeRuntime())) return
+  try {
+    await (await followAppNativePlugin()).cancelAllFollowUpReminders()
+  } catch (error) {
+    if (!isNativeMethodUnavailableError(error)) throw error
+  }
+}
+
+/** Consume, at most once, the contact selected from a reminder notification. */
+export async function consumeFollowUpReminderTap(): Promise<string | null> {
+  if (!(await isNativeRuntime())) return null
+  try {
+    const result = await (
+      await followAppNativePlugin()
+    ).consumeFollowUpReminderTap()
+    const contactId = result.contactId?.trim()
+    return contactId ? contactId.slice(0, 200) : null
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return null
+    throw error
+  }
+}
+
+/** Wake the web layer immediately when a foreground notification is tapped. */
+export async function listenForFollowUpReminderTaps(
+  listener: () => void,
+): Promise<() => void> {
+  if (!(await isNativeRuntime())) return () => {}
+  try {
+    const handle = await (
+      await followAppNativePlugin()
+    ).addListener('followUpReminderTapped', listener)
+    return () => void handle.remove()
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return () => {}
+    throw error
+  }
+}
+
 
 function base64ToJpegDataUrl(value: string): string {
   if (value.startsWith('data:')) return value

@@ -1,14 +1,51 @@
 import UIKit
 import Capacitor
+import UserNotifications
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        UNUserNotificationCenter.current().delegate = self
         return true
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // FollowApp currently uses only local follow-up notifications. Keep
+        // future notification categories visible rather than swallowing them.
+        completionHandler([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let request = response.notification.request
+        defer { completionHandler() }
+        guard FollowAppReminderNotification.isFollowUp(request),
+              let contactId = request.content.userInfo["contactId"] as? String,
+              !contactId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        FollowAppReminderNotification.storeTap(
+            contactId: contactId,
+            notificationId: request.identifier
+        )
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: FollowAppReminderNotification.tappedEvent,
+                object: nil,
+                userInfo: ["contactId": contactId]
+            )
+        }
+        center.removeDeliveredNotifications(withIdentifiers: [request.identifier])
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

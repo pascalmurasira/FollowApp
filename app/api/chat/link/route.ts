@@ -6,6 +6,7 @@ import {
   matchContactToUser,
 } from '@/lib/server/links'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { logServerError } from '@/lib/server/error-metadata'
 import { z } from 'zod'
 
 export const maxDuration = 10
@@ -48,7 +49,7 @@ export async function GET() {
     const links = await listLinks(userId)
     return Response.json({ links: links.map(linkForApi) })
   } catch (error) {
-    console.error('[v0] chat/link GET failed:', error)
+    logServerError('[v0] chat/link GET failed', error)
     return Response.json({ links: [] }, { status: 500 })
   }
 }
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
     const link = await requestLink(userId, recipient.userId, parsed.data.intro)
     return Response.json({ link: linkForApi(link) })
   } catch (error) {
-    console.error('[v0] chat/link POST failed:', error)
+    logServerError('[v0] chat/link POST failed', error)
     return Response.json({ error: 'Failed to send request' }, { status: 500 })
   }
 }
@@ -113,7 +114,7 @@ export async function PATCH(req: Request) {
     await respondToLink(userId, parsed.data.linkId, parsed.data.accept)
     return Response.json({ ok: true })
   } catch (error) {
-    console.error('[v0] chat/link PATCH failed:', error)
+    logServerError('[v0] chat/link PATCH failed', error)
     return Response.json({ error: 'Failed to respond' }, { status: 500 })
   }
 }

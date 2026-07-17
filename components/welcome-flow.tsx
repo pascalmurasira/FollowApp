@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowRight,
   Camera,
@@ -15,6 +15,7 @@ import { DEMO_CONTACT_IDS } from '@/lib/mock-data'
 import { NudgeLogo } from '@/components/nudge-logo'
 import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { MyCardSheet } from '@/components/my-card-sheet'
+import { activationAfterOwnCard } from '@/lib/onboarding'
 
 export interface WelcomeResult {
   selectedContactIds: string[]
@@ -43,7 +44,6 @@ export function WelcomeFlow({
   const [scanOpen, setScanOpen] = useState(false)
   const [cardOpen, setCardOpen] = useState(false)
   const [cardReady, setCardReady] = useState(false)
-  const [activatedContactId, setActivatedContactId] = useState<string | null>(null)
   const sampleContact = useMemo(
     () => contacts.find((contact) => DEMO_CONTACT_IDS.has(contact.id)),
     [contacts],
@@ -58,30 +58,11 @@ export function WelcomeFlow({
     })
   }
 
-  // Let the success state register visually, then move straight to the useful
-  // outcome: an editable draft for the contact that was just added.
-  useEffect(() => {
-    if (!activatedContactId) return
-    const timer = window.setTimeout(
-      () => completeWithContact(activatedContactId, false),
-      650,
-    )
-    return () => window.clearTimeout(timer)
-    // `onComplete` is stable in NudgeApp; the contact id is the transition key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activatedContactId])
-
   const handleScanAdd = (input: NewContactInput) => {
-    const contact = onScanContact(input)
-    setActivatedContactId(contact.id)
-    return contact
+    return onScanContact(input)
   }
 
   const handleScanClose = () => {
-    if (activatedContactId) {
-      completeWithContact(activatedContactId, false)
-      return
-    }
     setScanOpen(false)
   }
 
@@ -89,13 +70,9 @@ export function WelcomeFlow({
     setCardOpen(false)
     if (!cardReady) return
 
-    // Creating a shareable card is a valid first win. Keep samples available
-    // as an optional preview until this user adds their first real contact.
-    onComplete({
-      selectedContactIds: sampleContact ? [sampleContact.id] : [],
-      toneId: 'lowkey',
-      sampleMode: Boolean(sampleContact),
-    })
+    // Creating a shareable card is a valid first win. Samples remain explicitly
+    // opt-in through "Try with a sample" and never appear as real relationships.
+    onComplete(activationAfterOwnCard())
   }
 
   const trySample = () => {
@@ -191,6 +168,7 @@ export function WelcomeFlow({
         variant="onboarding"
         onClose={handleScanClose}
         onAdd={handleScanAdd}
+        onOpenContact={(contactId) => completeWithContact(contactId, false)}
         onTrySample={sampleContact ? trySample : undefined}
       />
       <MyCardSheet

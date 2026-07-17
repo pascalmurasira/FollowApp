@@ -1,14 +1,24 @@
 import 'server-only'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db, pool, type DbExecutor } from '@/lib/db'
-import { circleTags, profiles, userContacts } from '@/lib/db/schema'
-import type { Contact, Profile } from '@/lib/types'
+import { circleTags, memorySignals, profiles, userContacts } from '@/lib/db/schema'
+import type { Contact, Message, Profile } from '@/lib/types'
 import {
+  dateInputToUtcNoon,
   daysForLastContactedAt,
   normalizeLastContactedAt,
-  toDateInputValue,
+  utcDateToDateInputValue,
 } from '@/lib/contact-dates'
 import type { ContactUpdateInput } from '@/lib/contacts-store'
+import {
+  appendMessageOnce,
+  confirmedOutreachDate,
+} from '@/lib/contact-outreach'
+import {
+  sameDeviceContactConflict,
+  sameDeviceImportedContactConflict,
+} from '@/lib/server/contact-upsert'
+import { CONTACT_LIMITS } from '@/lib/persistence-limits'
 
 /**
  * Server-only persistence for the user's profile, added contacts, and circle
@@ -18,15 +28,17 @@ import type { ContactUpdateInput } from '@/lib/contacts-store'
 
 const DEFAULT_NAME = 'You'
 const TEXT_LIMITS = {
-  id: 160,
-  name: 120,
-  relationship: 180,
-  title: 180,
-  phone: 80,
-  email: 254,
+  ...CONTACT_LIMITS,
   avatarHue: 24,
-  context: 2_000,
-  interest: 80,
+}
+
+export class ContactOwnershipConflictError extends Error {
+  readonly code = 'CONTACT_ID_CONFLICT'
+
+  constructor(readonly contactId: string) {
+    super('This contact id already belongs to another data owner.')
+    this.name = 'ContactOwnershipConflictError'
+  }
 }
 
 // ---- Profile ----
@@ -89,11 +101,21 @@ const HUES: Contact['avatarHue'][] = ['coral', 'teal', 'amber', 'rose', 'sage']
 let contactSchemaReady: Promise<void> | null = null
 
 export function ensureContactSchema(): Promise<void> {
-  contactSchemaReady ??= pool
-    .query(
-      'ALTER TABLE user_contacts ADD COLUMN IF NOT EXISTS last_contacted_at timestamptz',
-    )
-    .then(() => undefined)
+  contactSchemaReady ??= (async () => {
+    try {
+      await pool.query(
+        'ALTER TABLE user_contacts ADD COLUMN IF NOT EXISTS last_contacted_at timestamptz',
+      )
+      await pool.query(
+        "ALTER TABLE user_contacts ADD COLUMN IF NOT EXISTS messages text NOT NULL DEFAULT '[]'",
+      )
+    } catch (error) {
+      // A cold-start database interruption must not poison this instance for
+      // its entire lifetime. Let a later request retry the additive migration.
+      contactSchemaReady = null
+      throw error
+    }
+  })()
   return contactSchemaReady
 }
 
@@ -105,7 +127,67 @@ function cap(value: string | null | undefined, max: number): string | undefined 
 
 function safeDays(days: number | undefined): number {
   if (!Number.isFinite(days)) return 0
-  return Math.min(3650, Math.max(0, Math.floor(days ?? 0)))
+  return Math.min(
+    CONTACT_LIMITS.daysSinceContact,
+    Math.max(0, Math.floor(days ?? 0)),
+  )
+}
+
+function safeMinutes(minutes: number | undefined): number {
+  if (!Number.isFinite(minutes)) return 0
+  return Math.min(10_000_000, Math.max(0, Math.floor(minutes ?? 0)))
+}
+
+function safeMessage(value: unknown): Message | null {
+  if (!value || typeof value !== 'object') return null
+  const message = value as Partial<Message>
+  if (
+    typeof message.id !== 'string' ||
+    !message.id.trim() ||
+    (message.sender !== 'me' && message.sender !== 'them') ||
+    typeof message.text !== 'string' ||
+    !message.text.trim()
+  ) {
+    return null
+  }
+  const channel =
+    message.channel === 'whatsapp' || message.channel === 'email'
+      ? message.channel
+      : undefined
+  const sentAt =
+    typeof message.sentAt === 'string' && Number.isFinite(new Date(message.sentAt).getTime())
+      ? new Date(message.sentAt).toISOString()
+      : undefined
+  const sentOn =
+    typeof message.sentOn === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(message.sentOn) &&
+    normalizeLastContactedAt(message.sentOn) === message.sentOn
+      ? message.sentOn
+      : undefined
+  return {
+    id: message.id.trim().slice(0, 200),
+    sender: message.sender,
+    text: message.text.trim().slice(0, 4_000),
+    minutesAgo: safeMinutes(message.minutesAgo),
+    sentAt,
+    sentOn,
+    channel,
+    system: message.system === true || undefined,
+  }
+}
+
+function parseMessages(value: string | null | undefined): Message[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map(safeMessage)
+      .filter((message): message is Message => Boolean(message))
+      .slice(-100)
+  } catch {
+    return []
+  }
 }
 
 function sanitizeContact(contact: Contact): Contact {
@@ -139,8 +221,11 @@ function sanitizeContact(contact: Contact): Contact {
     interests: (contact.interests ?? [])
       .map((interest) => cap(interest, TEXT_LIMITS.interest))
       .filter((interest): interest is string => Boolean(interest))
-      .slice(0, 20),
-    messages: [],
+      .slice(0, CONTACT_LIMITS.interests),
+    messages: (contact.messages ?? [])
+      .map(safeMessage)
+      .filter((message): message is Message => Boolean(message))
+      .slice(-100),
   }
 }
 
@@ -159,7 +244,7 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
     ? (row.tier as Contact['tier'])
     : 'network'
   const lastContactedAt = row.lastContactedAt
-    ? toDateInputValue(new Date(row.lastContactedAt))
+    ? utcDateToDateInputValue(new Date(row.lastContactedAt))
     : null
   return {
     id: row.id,
@@ -172,12 +257,11 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
     avatarHue: (HUES.includes(row.avatarHue as Contact['avatarHue'])
       ? row.avatarHue
       : 'coral') as Contact['avatarHue'],
-    // Messages aren't persisted; relationship freshness is.
     daysSinceContact: daysForLastContactedAt(lastContactedAt, tier, 0),
     lastContactedAt,
     context: row.context ?? '',
     interests,
-    messages: [],
+    messages: parseMessages(row.messages),
   }
 }
 
@@ -201,7 +285,7 @@ export async function addUserContact(
 ): Promise<void> {
   await ensureContactSchema()
   const safe = sanitizeContact(contact)
-  await executor.insert(userContacts).values({
+  const values = {
     id: safe.id,
     deviceId,
     name: safe.name,
@@ -213,10 +297,26 @@ export async function addUserContact(
     avatarHue: safe.avatarHue,
     context: safe.context,
     interests: JSON.stringify(safe.interests ?? []),
+    messages: JSON.stringify(safe.messages ?? []),
     lastContactedAt: safe.lastContactedAt
-      ? new Date(`${safe.lastContactedAt}T12:00:00`)
+      ? dateInputToUtcNoon(safe.lastContactedAt)
       : null,
-  })
+  }
+  const [persisted] = await executor
+    .insert(userContacts)
+    .values(values)
+    .onConflictDoUpdate({
+      // A retry from the same device performs a harmless ownership-preserving
+      // update so RETURNING can confirm success. Do not overwrite the row here:
+      // the retry path follows with a field PATCH, while confirmed messages
+      // remain append-only. A collision owned by another device performs no
+      // update and returns no row, so callers can reject it without leaking
+      // the other owner.
+      ...sameDeviceContactConflict(deviceId),
+    })
+    .returning({ id: userContacts.id })
+
+  if (!persisted) throw new ContactOwnershipConflictError(safe.id)
 }
 
 /**
@@ -230,7 +330,11 @@ export async function addUserContacts(
 ): Promise<number> {
   if (contacts.length === 0) return 0
   await ensureContactSchema()
-  const values = contacts.map(sanitizeContact).map((contact) => ({
+  const unique = new Map<string, Contact>()
+  for (const contact of contacts.map(sanitizeContact)) {
+    if (!unique.has(contact.id)) unique.set(contact.id, contact)
+  }
+  const values = [...unique.values()].map((contact) => ({
     id: contact.id,
     deviceId,
     name: contact.name,
@@ -242,11 +346,15 @@ export async function addUserContacts(
     avatarHue: contact.avatarHue,
     context: contact.context,
     interests: JSON.stringify(contact.interests ?? []),
+    messages: JSON.stringify(contact.messages ?? []),
     lastContactedAt: contact.lastContactedAt
-      ? new Date(`${contact.lastContactedAt}T12:00:00`)
+      ? dateInputToUtcNoon(contact.lastContactedAt)
       : null,
   }))
-  await executor.insert(userContacts).values(values).onConflictDoNothing()
+  await executor
+    .insert(userContacts)
+    .values(values)
+    .onConflictDoUpdate(sameDeviceImportedContactConflict(deviceId))
   const persisted = await executor
     .select({ id: userContacts.id })
     .from(userContacts)
@@ -267,7 +375,7 @@ export async function updateUserContact(
   contactId: string,
   updates: ContactUpdateInput,
   executor: DbExecutor = db,
-): Promise<void> {
+): Promise<boolean> {
   await ensureContactSchema()
   const set: Partial<typeof userContacts.$inferInsert> = {}
 
@@ -297,30 +405,113 @@ export async function updateUserContact(
       updates.interests
         .map((interest) => cap(interest, TEXT_LIMITS.interest))
         .filter((interest): interest is string => Boolean(interest))
-        .slice(0, 20),
+        .slice(0, CONTACT_LIMITS.interests),
     )
   }
   if (updates.lastContactedAt !== undefined) {
     const normalized = normalizeLastContactedAt(updates.lastContactedAt)
-    set.lastContactedAt = normalized ? new Date(`${normalized}T12:00:00`) : null
+    set.lastContactedAt = normalized ? dateInputToUtcNoon(normalized) : null
   }
 
-  if (Object.keys(set).length === 0) return
-  await executor
+  if (Object.keys(set).length === 0) {
+    const [existing] = await executor
+      .select({ id: userContacts.id })
+      .from(userContacts)
+      .where(
+        and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)),
+      )
+      .limit(1)
+    return Boolean(existing)
+  }
+  const updated = await executor
     .update(userContacts)
     .set(set)
     .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
+    .returning({ id: userContacts.id })
+  return updated.length > 0
 }
 
 export async function touchUserContact(
   deviceId: string,
   contactId: string,
+  contactedOn?: string,
+  executor: DbExecutor = db,
+): Promise<boolean> {
+  await ensureContactSchema()
+  const normalized = normalizeLastContactedAt(contactedOn)
+  const updated = await executor
+    .update(userContacts)
+    .set({
+      lastContactedAt:
+        (normalized && dateInputToUtcNoon(normalized)) || new Date(),
+    })
+    .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
+    .returning({ id: userContacts.id })
+  return updated.length > 0
+}
+
+/** Persist one user-confirmed external outreach and advance its cadence once. */
+export type OutreachConfirmationResult =
+  | 'confirmed'
+  | 'duplicate'
+  | 'missing'
+  | 'invalid'
+
+export async function confirmUserOutreach(
+  deviceId: string,
+  contactId: string,
+  message: Message,
+  executor: DbExecutor = db,
+): Promise<OutreachConfirmationResult> {
+  await ensureContactSchema()
+  const [row] = await executor
+    .select({ messages: userContacts.messages })
+    .from(userContacts)
+    .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
+    .limit(1)
+  if (!row) return 'missing'
+
+  const safe = safeMessage(message)
+  if (!safe || safe.sender !== 'me' || !safe.sentAt || !safe.channel) {
+    return 'invalid'
+  }
+  const previous = parseMessages(row.messages)
+  const next = appendMessageOnce(previous, safe)
+  if (!next.inserted) return 'duplicate'
+
+  const confirmedOn = confirmedOutreachDate(safe)
+  if (!confirmedOn) return 'invalid'
+
+  const updated = await executor
+    .update(userContacts)
+    .set({
+      messages: JSON.stringify(next.messages),
+      lastContactedAt: dateInputToUtcNoon(confirmedOn),
+    })
+    .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
+    .returning({ id: userContacts.id })
+  return updated.length > 0 ? 'confirmed' : 'missing'
+}
+
+/** Delete a person and every device-scoped trace tied to that contact id. */
+export async function deleteUserContact(
+  deviceId: string,
+  contactId: string,
   executor: DbExecutor = db,
 ): Promise<void> {
-  await ensureContactSchema()
   await executor
-    .update(userContacts)
-    .set({ lastContactedAt: new Date() })
+    .delete(circleTags)
+    .where(and(eq(circleTags.deviceId, deviceId), eq(circleTags.contactId, contactId)))
+  await executor
+    .delete(memorySignals)
+    .where(
+      and(
+        eq(memorySignals.deviceId, deviceId),
+        eq(memorySignals.contactId, contactId),
+      ),
+    )
+  await executor
+    .delete(userContacts)
     .where(and(eq(userContacts.deviceId, deviceId), eq(userContacts.id, contactId)))
 }
 

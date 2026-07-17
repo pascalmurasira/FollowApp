@@ -1,9 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  activationAfterOwnCard,
   shouldEnterApp,
   shouldShowSampleContacts,
 } from '../lib/onboarding.ts'
+
+test('creating only a personal card enters the app without demo contacts', () => {
+  const state = activationAfterOwnCard()
+  assert.deepEqual(state, {
+    selectedContactIds: [],
+    toneId: 'lowkey',
+    sampleMode: false,
+  })
+  assert.equal(
+    shouldShowSampleContacts({ completed: true, ...state }, 0),
+    false,
+  )
+})
 
 test('samples are visible only before real relationship data exists', () => {
   assert.equal(shouldShowSampleContacts(null, 0), true)

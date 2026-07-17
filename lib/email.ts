@@ -1,4 +1,5 @@
 import 'server-only'
+import { logServerError } from '@/lib/server/error-metadata'
 
 /**
  * Sends the magic-link sign-in email.
@@ -29,7 +30,13 @@ export async function sendMagicLinkEmail({
     return
   }
 
-  const from = process.env.RESEND_FROM ?? 'FollowApp <onboarding@resend.dev>'
+  const configuredFrom = process.env.RESEND_FROM?.trim()
+  if (!configuredFrom && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'RESEND_FROM must be a verified sender in production.',
+    )
+  }
+  const from = configuredFrom ?? 'FollowApp <onboarding@resend.dev>'
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -52,7 +59,7 @@ export async function sendMagicLinkEmail({
       )
     }
   } catch (err) {
-    console.error('[v0] Resend send threw:', (err as Error).message)
+    logServerError('[v0] Resend send failed', err)
     throw err
   }
 }
@@ -62,7 +69,7 @@ function magicLinkHtml(url: string) {
   <div style="font-family:ui-sans-serif,system-ui,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#3a3027">
     <h1 style="font-size:20px;margin:0 0 8px">Sign in to FollowApp</h1>
     <p style="font-size:15px;line-height:1.6;color:#6b5d4f;margin:0 0 24px">
-      Tap the button below to securely sync your people and streaks to this device.
+      Tap the button below to securely sync your people and follow-up history to this device.
       This link expires in a few minutes and can only be used once.
     </p>
     <a href="${url}" style="display:inline-block;background:#2c46c9;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:12px">

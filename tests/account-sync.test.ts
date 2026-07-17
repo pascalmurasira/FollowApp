@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  deleteAccountAndData,
   mergeAndRetireDeviceData,
   mergeDeviceData,
 } from '../lib/server/account-sync.ts'
 import {
   DeviceAlreadyClaimedError,
+  DeviceAliasLimitError,
+  MAX_DEVICE_ALIASES_PER_ACCOUNT,
   lockDeviceIds,
+  registerDeviceAlias,
 } from '../lib/server/device-ownership.ts'
 import type { PoolClient } from 'pg'
 
@@ -176,4 +180,94 @@ test('replayed merge from an existing same-owner alias is a no-op', async () => 
     ),
     false,
   )
+})
+
+test('one account cannot create unbounded retired device aliases', async () => {
+  const client = {
+    async query(text: string) {
+      if (text.startsWith('SELECT COUNT(*)')) {
+        return {
+          rowCount: 1,
+          rows: [{ count: MAX_DEVICE_ALIASES_PER_ACCOUNT }],
+        }
+      }
+      throw new Error('the capped alias must not be inserted')
+    },
+  } as unknown as PoolClient
+
+  await assert.rejects(
+    registerDeviceAlias(
+      client,
+      'source-device',
+      'target-device',
+      'user-1',
+    ),
+    DeviceAliasLimitError,
+  )
+})
+
+test('account deletion removes every owned data scope in one transaction', async () => {
+  const statements: Array<{ text: string; values: unknown[] }> = []
+  const client = {
+    async query(text: string, values: unknown[] = []) {
+      const normalized = text.replace(/\s+/g, ' ').trim()
+      statements.push({ text: normalized, values })
+      if (normalized.startsWith('SELECT "dataDeviceId"')) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              dataDeviceId: 'canonical-device',
+              email: 'owner@example.com',
+            },
+          ],
+        }
+      }
+      if (normalized.includes('FROM device_aliases')) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              deviceId: 'retired-device',
+              canonicalDeviceId: 'canonical-device',
+            },
+          ],
+        }
+      }
+      return { rowCount: 1, rows: [] }
+    },
+  } as unknown as PoolClient
+
+  assert.equal(await deleteAccountAndData(client, 'user-1'), true)
+
+  assert.equal(statements[0].text, 'BEGIN')
+  assert.equal(statements.at(-1)?.text, 'COMMIT')
+  for (const table of [
+    'circle_tags',
+    'memory_signals',
+    'user_contacts',
+    'profiles',
+    'direct_messages',
+    'contact_links',
+    'verification',
+    '"user"',
+  ]) {
+    assert.ok(
+      statements.some(({ text }) => text.startsWith(`DELETE FROM ${table}`)),
+      `expected ${table} to be deleted`,
+    )
+  }
+  const scopedDelete = statements.find(({ text }) =>
+    text.startsWith('DELETE FROM user_contacts'),
+  )
+  assert.deepEqual(scopedDelete?.values, [
+    ['canonical-device', 'retired-device'],
+  ])
+  const verificationDelete = statements.find(({ text }) =>
+    text.startsWith('DELETE FROM verification'),
+  )
+  assert.match(verificationDelete?.text ?? '', /followapp-rate:%/)
+  assert.deepEqual(verificationDelete?.values, [
+    '"email":"owner@example.com"',
+  ])
 })

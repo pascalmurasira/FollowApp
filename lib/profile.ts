@@ -1,4 +1,5 @@
 import type { Profile } from '@/lib/types'
+import { PROFILE_LIMITS } from './persistence-limits.ts'
 
 export const DEFAULT_PROFILE: Profile = { name: 'You' }
 
@@ -14,9 +15,9 @@ interface CachedProfile {
   pendingSync?: boolean
 }
 
-function optionalText(value: unknown): string | undefined {
+function optionalText(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
+  const trimmed = value.trim().slice(0, max)
   return trimmed || undefined
 }
 
@@ -29,12 +30,12 @@ export function normalizeProfile(value: unknown): Profile {
   if (!value || typeof value !== 'object') return DEFAULT_PROFILE
   const input = value as Record<string, unknown>
   return {
-    name: optionalText(input.name) ?? DEFAULT_PROFILE.name,
-    photoUrl: optionalText(input.photoUrl),
-    title: optionalText(input.title),
-    company: optionalText(input.company),
-    phone: optionalText(input.phone),
-    email: optionalText(input.email),
+    name: optionalText(input.name, PROFILE_LIMITS.name) ?? DEFAULT_PROFILE.name,
+    photoUrl: optionalText(input.photoUrl, PROFILE_LIMITS.photoUrl),
+    title: optionalText(input.title, PROFILE_LIMITS.title),
+    company: optionalText(input.company, PROFILE_LIMITS.company),
+    phone: optionalText(input.phone, PROFILE_LIMITS.phone),
+    email: optionalText(input.email, PROFILE_LIMITS.email),
   }
 }
 
@@ -80,6 +81,42 @@ export function loadLocalProfile(deviceId: string): Profile | null {
   return readLocalProfile(deviceId)?.profile ?? null
 }
 
+export function hasPendingProfileSync(deviceId: string): boolean {
+  return readLocalProfile(deviceId)?.pendingSync === true
+}
+
+/** Carry an unsynced card edit across account adoption before the id changes. */
+export function migratePendingProfileSync(
+  sourceDeviceId: string,
+  targetDeviceId: string,
+): boolean {
+  if (
+    typeof localStorage === 'undefined' ||
+    !sourceDeviceId ||
+    !targetDeviceId ||
+    sourceDeviceId === targetDeviceId
+  ) {
+    return false
+  }
+  const source = readLocalProfile(sourceDeviceId)
+  if (!source?.pendingSync) return false
+  try {
+    const migrated: CachedProfile = {
+      version: PROFILE_CACHE_VERSION,
+      profile: source.profile,
+      pendingSync: true,
+    }
+    localStorage.setItem(
+      profileCacheKey(targetDeviceId),
+      JSON.stringify(migrated),
+    )
+    localStorage.removeItem(profileCacheKey(sourceDeviceId))
+    return true
+  } catch {
+    return false
+  }
+}
+
 function writeLocalProfile(
   deviceId: string,
   profile: Profile,
@@ -106,16 +143,18 @@ export function saveLocalProfile(deviceId: string, profile: Profile): void {
   writeLocalProfile(deviceId, profile, false)
 }
 
-function retryPendingProfileSync(deviceId: string, profile: Profile): void {
-  if (!deviceId || profileSyncs.has(deviceId)) return
-  const sync = saveProfile(deviceId, profile)
-    .catch((error) => {
-      console.warn('[v0] Pending profile sync will retry later:', error)
-    })
-    .finally(() => {
-      profileSyncs.delete(deviceId)
-    })
+export async function retryPendingProfileSync(deviceId: string): Promise<void> {
+  if (!deviceId) return
+  const existing = profileSyncs.get(deviceId)
+  if (existing) return existing
+  const cached = readLocalProfile(deviceId)
+  if (!cached?.pendingSync) return
+
+  const sync = saveProfile(deviceId, cached.profile).finally(() => {
+    if (profileSyncs.get(deviceId) === sync) profileSyncs.delete(deviceId)
+  })
   profileSyncs.set(deviceId, sync)
+  return sync
 }
 
 /** Load this device's profile from Neon, with an instant local fallback. */
@@ -125,7 +164,9 @@ export async function loadProfile(deviceId: string): Promise<Profile> {
   if (cached?.pendingSync) {
     // Return the local-first value immediately and repair cloud state in the
     // background. Opening either profile surface becomes a safe retry point.
-    retryPendingProfileSync(deviceId, cached.profile)
+    void retryPendingProfileSync(deviceId).catch((error) => {
+      console.warn('[v0] Pending profile sync will retry later:', error)
+    })
     return cached.profile
   }
   try {
@@ -161,6 +202,9 @@ export async function loadProfile(deviceId: string): Promise<Profile> {
  */
 export async function saveProfile(deviceId: string, profile: Profile): Promise<void> {
   const normalized = normalizeProfile(profile)
+  if (!isShareableProfile(normalized)) {
+    throw new Error('Add your real name before saving your digital card.')
+  }
   writeLocalProfile(deviceId, normalized, true)
 
   // Serialize every write for a device, including automatic retries. Without

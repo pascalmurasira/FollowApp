@@ -1,11 +1,24 @@
 export type MessageSender = 'me' | 'them'
 
+/** External channels that FollowApp can prepare an outreach for. */
+export type OutreachChannel = 'whatsapp' | 'email'
+
 export interface Message {
   id: string
   sender: MessageSender
   text: string
   /** Minutes ago, used to render relative timestamps in the demo. */
   minutesAgo: number
+  /** Absolute time for persisted, user-confirmed outreach history. */
+  sentAt?: string
+  /**
+   * The sender's local calendar date (YYYY-MM-DD). This is separate from the
+   * absolute timestamp so confirmations near midnight keep the date the user
+   * actually saw even when the server is in another time zone.
+   */
+  sentOn?: string
+  /** Where the user confirmed sending the outreach. */
+  channel?: OutreachChannel
   /**
    * Renders as a centered status note rather than a chat bubble — used for
    * non-text events like "You called Maya" so a call shows in the thread

@@ -26,7 +26,7 @@ export function InAppChat({
   otherUserId: string
   otherName: string
 }) {
-  const { messages, loading, sending, send } = useThread(otherUserId)
+  const { messages, loading, sending, send, sendError } = useThread(otherUserId)
   const [draft, setDraft] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -38,8 +38,8 @@ export function InAppChat({
     e.preventDefault()
     const text = draft.trim()
     if (!text) return
-    setDraft('')
-    await send(text)
+    const sent = await send(text)
+    if (sent) setDraft((current) => (current.trim() === text ? '' : current))
   }
 
   const firstName = otherName.split(' ')[0]
@@ -96,6 +96,7 @@ export function InAppChat({
       >
         <input
           value={draft}
+          maxLength={4_000}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={`Message ${firstName}…`}
           className="glass-card h-11 flex-1 rounded-full px-4 text-base outline-none focus-visible:border-[var(--action-bg)]"
@@ -113,6 +114,11 @@ export function InAppChat({
           )}
         </button>
       </form>
+      {sendError && (
+        <p className="px-4 pb-[max(0.6rem,env(safe-area-inset-bottom))] text-xs text-destructive">
+          {sendError}
+        </p>
+      )}
     </div>
   )
 }

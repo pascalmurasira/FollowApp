@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { X, Upload, ClipboardList, FileText, Check } from 'lucide-react'
 import {
+  importedContactIdentityKey,
   parseContactsCsv,
   parseContactsText,
   type ImportSource,
@@ -76,16 +77,23 @@ export function ImportContactsSheet({
   }
 
   const showReview = (contacts: ParsedContact[], src: ImportSource) => {
-    if (contacts.length === 0) {
+    const seen = new Set<string>()
+    const uniqueContacts = contacts.filter((contact) => {
+      const key = importedContactIdentityKey(contact)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    if (uniqueContacts.length === 0) {
       setError('No contacts found. Check the file or paste names one per line.')
       return
     }
     setError(null)
-    setParsed(contacts)
+    setParsed(uniqueContacts)
     setSource(src)
     // Include everyone by default.
     const all: Record<number, boolean> = {}
-    contacts.forEach((_, i) => (all[i] = true))
+    uniqueContacts.forEach((_, i) => (all[i] = true))
     setIncluded(all)
   }
 

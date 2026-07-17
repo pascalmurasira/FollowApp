@@ -20,3 +20,32 @@ export function serializeContactWrite<T>(
   })
   return run
 }
+
+/**
+ * Serialize one batch operation against every contact it contains. This keeps
+ * a contact import from racing an in-flight delete/update for the same stable
+ * id while still allowing unrelated contacts to persist independently.
+ */
+export function serializeContactWrites<T>(
+  keys: readonly string[],
+  write: () => Promise<T>,
+): Promise<T> {
+  const uniqueKeys = [...new Set(keys)].sort()
+  if (uniqueKeys.length === 0) return write()
+
+  const previous = uniqueKeys.map(
+    (key) => contactWriteTails.get(key) ?? Promise.resolve(),
+  )
+  const run = Promise.all(previous).then(write)
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  for (const key of uniqueKeys) contactWriteTails.set(key, settled)
+  void settled.then(() => {
+    for (const key of uniqueKeys) {
+      if (contactWriteTails.get(key) === settled) contactWriteTails.delete(key)
+    }
+  })
+  return run
+}

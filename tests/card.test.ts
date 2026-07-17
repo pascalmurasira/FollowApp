@@ -7,6 +7,7 @@ import {
   cardUrl,
   decodeCard,
   encodeCard,
+  MAX_CARD_TOKEN_CHARS,
   readCardFromScan,
 } from '../lib/card.ts'
 
@@ -86,6 +87,57 @@ test('non-string optional fields are discarded when decoding', () => {
   )
 })
 
+test('card decoding rejects oversized and control-character fields', () => {
+  const oversized = [
+    { n: 'N'.repeat(201) },
+    { n: 'Person', t: 'T'.repeat(301) },
+    { n: 'Person', co: 'C'.repeat(301) },
+    { n: 'Person', p: '1'.repeat(101) },
+    { n: 'Person', e: `${'e'.repeat(309)}@example.com` },
+  ]
+
+  for (const payload of oversized) {
+    assert.equal(decodeCard(tokenFor(payload)), null)
+  }
+  assert.equal(decodeCard(tokenFor({ n: 'Person\nInjected' })), null)
+  assert.equal(decodeCard(tokenFor({ n: 'Person', co: 'Company\u0000Hidden' })), null)
+  assert.equal(decodeCard('a'.repeat(MAX_CARD_TOKEN_CHARS + 1)), null)
+})
+
+test('card decoding trims bounded text and drops empty optional fields', () => {
+  assert.deepEqual(
+    decodeCard(tokenFor({ n: '  Grace Hopper ', t: '  ', co: ' Navy  ' })),
+    {
+      n: 'Grace Hopper',
+      t: undefined,
+      co: 'Navy',
+      p: undefined,
+      e: undefined,
+    },
+  )
+})
+
+test('card decoding accepts every field exactly at its public input limit', () => {
+  assert.deepEqual(
+    decodeCard(
+      tokenFor({
+        n: 'N'.repeat(200),
+        t: 'T'.repeat(300),
+        co: 'C'.repeat(300),
+        p: '1'.repeat(100),
+        e: 'e'.repeat(320),
+      }),
+    ),
+    {
+      n: 'N'.repeat(200),
+      t: 'T'.repeat(300),
+      co: 'C'.repeat(300),
+      p: '1'.repeat(100),
+      e: 'e'.repeat(320),
+    },
+  )
+})
+
 test('card paths and absolute URLs contain one decodable card token', () => {
   const profile = {
     name: 'Lin Chen',
@@ -113,9 +165,9 @@ test('card paths and absolute URLs contain one decodable card token', () => {
   })
 })
 
-test('cardUrl falls back to a relative card path outside the browser', () => {
+test('cardUrl always uses the canonical public origin by default', () => {
   const profile = { name: 'Katherine Johnson' }
-  assert.equal(cardUrl(profile), cardPath(profile))
+  assert.equal(cardUrl(profile), `https://followapp.chat${cardPath(profile)}`)
 })
 
 test('QR sizing accepts concise cards and rejects oversized Unicode payloads', () => {
@@ -139,7 +191,7 @@ test('QR sizing accepts concise cards and rejects oversized Unicode payloads', (
   )
 })
 
-test('scanned cards can be read from a link or a bare, whitespace-padded token', () => {
+test('scanned cards require a canonical FollowApp card link', () => {
   const profile = { name: 'Radia Perlman', title: 'Engineer' }
   const token = encodeCard(profile)
   const expected = {
@@ -158,9 +210,48 @@ test('scanned cards can be read from a link or a bare, whitespace-padded token',
     readCardFromScan(`https://followapp.chat/card#c=${token}`),
     expected,
   )
-  assert.deepEqual(readCardFromScan(`  ${token}\n`), expected)
+  assert.deepEqual(
+    readCardFromScan(`http://localhost:3000/card#c=${token}`),
+    expected,
+  )
+  assert.equal(readCardFromScan(`  ${token}\n`), null)
+  assert.equal(readCardFromScan(`https://followapp.chat.evil.test/card#c=${token}`), null)
+  assert.equal(readCardFromScan(`http://followapp.chat/card#c=${token}`), null)
+  assert.equal(readCardFromScan(`https://user@followapp.chat/card#c=${token}`), null)
+  assert.equal(readCardFromScan(`https://followapp.chat:8443/card#c=${token}`), null)
+  assert.equal(readCardFromScan(`https://followapp.chat/other#c=${token}`), null)
   assert.equal(readCardFromScan('https://followapp.chat/card'), null)
   assert.equal(readCardFromScan('not a card'), null)
+})
+
+test('scanned card URLs fail closed above the reliable QR size ceiling', () => {
+  const token = encodeCard({ name: 'Bounded Person' })
+  assert.equal(
+    readCardFromScan(
+      `https://followapp.chat/card#c=${token}&padding=${'x'.repeat(900)}`,
+    ),
+    null,
+  )
+})
+
+test('production scanning never treats a localhost link as a FollowApp card', () => {
+  const environment = process.env as Record<string, string | undefined>
+  const previous = environment.NODE_ENV
+  Reflect.set(environment, 'NODE_ENV', 'production')
+  try {
+    const token = encodeCard({ name: 'Local Impostor' })
+    assert.equal(
+      readCardFromScan(`http://localhost:3000/card#c=${token}`),
+      null,
+    )
+  } finally {
+    if (previous === undefined) Reflect.deleteProperty(environment, 'NODE_ENV')
+    else Reflect.set(environment, 'NODE_ENV', previous)
+  }
+})
+
+test('unknown future card versions fail closed', () => {
+  assert.equal(decodeCard(tokenFor({ v: 999, n: 'Future Person' })), null)
 })
 
 test('a minimal vCard uses CRLF delimiters and standard name fields', () => {

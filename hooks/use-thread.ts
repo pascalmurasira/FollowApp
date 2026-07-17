@@ -11,6 +11,8 @@ export interface ChatMessage {
 }
 
 const POLL_MS = 4000
+const MAX_CATCH_UP_PAGES = 5
+const MAX_LOCAL_MESSAGES = 500
 
 /**
  * Polls the in-app message thread with `otherUserId`. Cursor-based: only rows
@@ -23,42 +25,57 @@ export function useThread(otherUserId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const cursorRef = useRef(0)
   const otherRef = useRef(otherUserId)
+  const pollingRef = useRef(false)
 
   // Reset when the conversation partner changes.
   useEffect(() => {
     otherRef.current = otherUserId
     cursorRef.current = 0
     setMessages([])
+    setSendError(null)
     if (otherUserId) setLoading(true)
   }, [otherUserId])
 
   const poll = useCallback(async () => {
     const other = otherRef.current
-    if (!other) return
+    if (!other || pollingRef.current) return
+    pollingRef.current = true
     try {
-      const res = await fetch(
-        `/api/chat/messages?with=${encodeURIComponent(other)}&since=${cursorRef.current}`,
-      )
-      if (!res.ok) return
-      const data = (await res.json()) as { messages: ChatMessage[] }
-      if (otherRef.current !== other) return // partner changed mid-flight
-      if (data.messages.length > 0) {
-        cursorRef.current = Math.max(
-          cursorRef.current,
-          ...data.messages.map((m) => m.id),
+      for (let page = 0; page < MAX_CATCH_UP_PAGES; page += 1) {
+        const res = await fetch(
+          `/api/chat/messages?with=${encodeURIComponent(other)}&since=${cursorRef.current}`,
         )
-        setMessages((prev) => {
-          const seen = new Set(prev.map((m) => m.id))
-          const fresh = data.messages.filter((m) => !seen.has(m.id))
-          return fresh.length ? [...prev, ...fresh] : prev
-        })
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          messages: ChatMessage[]
+          hasMore?: boolean
+        }
+        if (otherRef.current !== other) return
+        if (data.messages.length > 0) {
+          cursorRef.current = Math.max(
+            cursorRef.current,
+            ...data.messages.map((message) => message.id),
+          )
+          setMessages((previous) => {
+            const seen = new Set(previous.map((message) => message.id))
+            const fresh = data.messages.filter(
+              (message) => !seen.has(message.id),
+            )
+            return fresh.length
+              ? [...previous, ...fresh].slice(-MAX_LOCAL_MESSAGES)
+              : previous
+          })
+        }
+        if (!data.hasMore) break
       }
     } catch (err) {
       console.error('[v0] thread poll failed:', err)
     } finally {
-      setLoading(false)
+      pollingRef.current = false
+      if (otherRef.current === other) setLoading(false)
     }
   }, [])
 
@@ -92,17 +109,31 @@ export function useThread(otherUserId: string | null) {
   const send = useCallback(
     async (body: string) => {
       const other = otherRef.current
-      if (!other || !body.trim()) return
+      if (!other || !body.trim()) return false
       setSending(true)
+      setSendError(null)
       try {
         const res = await fetch('/api/chat/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ recipientUserId: other, body }),
         })
-        if (res.ok) await poll() // pull our own message back immediately
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as {
+            error?: string
+          }
+          throw new Error(payload.error || 'The message could not be sent.')
+        }
+        await poll()
+        return true
       } catch (err) {
         console.error('[v0] send failed:', err)
+        setSendError(
+          err instanceof Error
+            ? err.message
+            : 'The message could not be sent. Please try again.',
+        )
+        return false
       } finally {
         setSending(false)
       }
@@ -110,5 +141,5 @@ export function useThread(otherUserId: string | null) {
     [poll],
   )
 
-  return { messages, loading, sending, send }
+  return { messages, loading, sending, send, sendError }
 }

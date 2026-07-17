@@ -33,7 +33,14 @@ export function driftLabel(days: number): string {
   return `Last touch: ${Math.round(days / 30)}mo ago`
 }
 
-import type { Tier } from './types'
+import type { Message, Tier } from './types'
+import {
+  cadenceForTier,
+  cadenceLabel,
+  cadenceShortLabel,
+} from './follow-up-schedule'
+
+export { cadenceForTier, cadenceLabel, cadenceShortLabel }
 
 /** Compact "time since last contact" for tight card chips, e.g. "2mo ago". */
 export function lastTouchShort(days: number): string {
@@ -45,24 +52,17 @@ export function lastTouchShort(days: number): string {
 }
 
 /** Returns a warmth bucket used to color the chat-list drift indicator. */
-export function driftLevel(days: number): 'warm' | 'cooling' | 'cold' {
-  if (days < 10) return 'warm'
-  if (days < 30) return 'cooling'
+export function driftLevel(
+  days: number,
+  tier: Tier = 'network',
+): 'warm' | 'cooling' | 'cold' {
+  const health = healthLevel(days, tier)
+  if (health === 'on-track') return 'warm'
+  if (health === 'due-soon') return 'cooling'
   return 'cold'
 }
 
 /** Target follow-up rhythm (in days) for each relationship tier. */
-export function cadenceForTier(tier: Tier = 'network'): number {
-  switch (tier) {
-    case 'key':
-      return 21
-    case 'casual':
-      return 90
-    default:
-      return 45
-  }
-}
-
 /** Human label for a tier, used on badges and the add form. */
 export function tierLabel(tier: Tier = 'network'): string {
   switch (tier) {
@@ -93,6 +93,14 @@ export function healthLevel(
   if (days >= cadence) return 'overdue'
   if (days >= cadence * 0.6) return 'due-soon'
   return 'on-track'
+}
+
+/** Current age of a message, using persisted time when it is available. */
+export function messageMinutesAgo(message: Message, now = new Date()): number {
+  if (!message.sentAt) return Math.max(0, message.minutesAgo)
+  const sentAt = new Date(message.sentAt).getTime()
+  if (!Number.isFinite(sentAt)) return Math.max(0, message.minutesAgo)
+  return Math.max(0, Math.floor((now.getTime() - sentAt) / 60_000))
 }
 
 /** A short "why now" reason shown on the daily pick, blending timing + a hook. */

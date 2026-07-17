@@ -5,19 +5,12 @@ import {
   accountSyncDeviceIds,
 } from '../lib/account-sync-flow.ts'
 
-test('magic-link callback carries the source capability safely', () => {
-  assert.equal(
-    accountSyncCallbackURL('dev_source/with spaces'),
-    '/welcome-back?sourceDeviceId=dev_source%2Fwith%20spaces',
-  )
-  assert.equal(accountSyncCallbackURL('  '), '/welcome-back')
+test('magic-link callback never carries an anonymous device capability', () => {
+  assert.equal(accountSyncCallbackURL(), '/welcome-back')
 })
 
-test('cross-device sync claims the source before the destination', () => {
-  assert.deepEqual(accountSyncDeviceIds('source', 'destination'), [
-    'source',
-    'destination',
-  ])
+test('sync reconciles only the installation that opened the link', () => {
+  assert.deepEqual(accountSyncDeviceIds('source', 'destination'), ['destination'])
   assert.deepEqual(accountSyncDeviceIds('same', 'same'), ['same'])
   assert.deepEqual(accountSyncDeviceIds(null, 'destination'), ['destination'])
 })

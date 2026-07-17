@@ -1,4 +1,5 @@
 import 'server-only'
+import { logServerError } from './error-metadata.ts'
 
 import { auth } from '@/lib/auth'
 import { dbForClient, pool, type DbExecutor } from '@/lib/db'
@@ -48,7 +49,7 @@ export async function withDeviceAccess<T>(
     const session = await auth.api.getSession({ headers: req.headers })
     sessionUserId = session?.user?.id ?? null
   } catch (error) {
-    console.error('[v0] device session check failed:', error)
+    logServerError('[v0] device session check failed', error)
     return { ok: false, response: unavailable() }
   }
 
@@ -58,7 +59,7 @@ export async function withDeviceAccess<T>(
     await ensureDeviceOwnershipSchema(client)
   } catch (error) {
     client?.release()
-    console.error('[v0] device access database unavailable:', error)
+    logServerError('[v0] device access database unavailable', error)
     return { ok: false, response: unavailable() }
   }
 
@@ -84,11 +85,20 @@ export async function withDeviceAccess<T>(
       if (ownership) {
         if (sessionUserId !== ownership.ownerUserId) {
           await client.query('ROLLBACK')
+          const signedOut = sessionUserId === null
           return {
             ok: false,
             response: Response.json(
-              { error: 'This data is secured to another account.' },
-              { status: 403 },
+              signedOut
+                ? {
+                    error: 'Sign in on this device to access its secured data.',
+                    code: 'DEVICE_AUTH_REQUIRED',
+                  }
+                : {
+                    error: 'This data is secured to another account.',
+                    code: 'DEVICE_ACCOUNT_MISMATCH',
+                  },
+              { status: signedOut ? 401 : 403 },
             ),
           }
         }
@@ -113,7 +123,7 @@ export async function withDeviceAccess<T>(
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined)
     if (error instanceof DeviceOperationError) throw error.cause
-    console.error('[v0] device transaction failed:', error)
+    logServerError('[v0] device transaction failed', error)
     return { ok: false, response: unavailable() }
   } finally {
     client.release()

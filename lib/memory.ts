@@ -1,4 +1,5 @@
 import 'server-only'
+import { logServerError } from '@/lib/server/error-metadata'
 import { desc, eq } from 'drizzle-orm'
 import { db, type DbExecutor } from '@/lib/db'
 import { memorySignals, type MemorySignal } from '@/lib/db/schema'
@@ -62,7 +63,7 @@ export async function buildUserLearnings(
   try {
     signals = await recentSignals(deviceId, 120, executor)
   } catch (error) {
-    console.error('[v0] buildUserLearnings failed to read signals:', error)
+    logServerError('[v0] buildUserLearnings failed to read signals', error)
     return { count: 0, insights: [] }
   }
 
@@ -160,7 +161,7 @@ export async function buildVoiceProfile(
   try {
     signals = await recentSignals(deviceId, 120, executor)
   } catch (error) {
-    console.error('[v0] buildVoiceProfile failed to read signals:', error)
+    logServerError('[v0] buildVoiceProfile failed to read signals', error)
     return ''
   }
   if (signals.length < 3) return ''

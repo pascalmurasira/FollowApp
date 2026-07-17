@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { X, ShieldCheck, MailCheck } from 'lucide-react'
 import { signIn } from '@/lib/auth-client'
 import { accountSyncCallbackURL } from '@/lib/account-sync-flow'
+import { trackProductEvent } from '@/lib/product-analytics'
 import { getDeviceId } from '@/lib/device-id'
+import { isShareableProfile, loadLocalProfile } from '@/lib/profile'
 
 /**
  * The "Secure your Nudge" magic-link sheet. Collects an email, sends a sign-in
@@ -14,20 +16,32 @@ import { getDeviceId } from '@/lib/device-id'
 export function SecureNudgeSheet({
   open,
   onClose,
+  initialEmail,
 }: {
   open: boolean
   onClose: () => void
+  initialEmail?: string | null
 }) {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>(
     'idle',
   )
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (open) {
       setStatus('idle')
+      setErrorMessage(null)
+      setEmail((current) => {
+        if (current.trim()) return current
+        return (
+          initialEmail?.trim() ||
+          loadLocalProfile(getDeviceId())?.email?.trim() ||
+          ''
+        )
+      })
     }
-  }, [open])
+  }, [initialEmail, open])
 
   if (!open) return null
 
@@ -36,20 +50,26 @@ export function SecureNudgeSheet({
   const send = async () => {
     if (!valid) return
     setStatus('sending')
+    setErrorMessage(null)
     try {
+      const profile = loadLocalProfile(getDeviceId())
       const { error } = await signIn.magicLink({
-        email: email.trim(),
-        // Carry the anonymous capability that is being secured through the
-        // one-time magic-link flow. If the email is opened on another device,
-        // /welcome-back claims this source first and then merges the device
-        // that opened the link into the same canonical account dataset.
-        callbackURL: accountSyncCallbackURL(getDeviceId()),
+        email: email.trim().toLowerCase(),
+        name: isShareableProfile(profile) ? profile.name : undefined,
+        // The current installation reconciles its own device id after the link
+        // opens in FollowApp. Never put that bearer capability in an email.
+        callbackURL: accountSyncCallbackURL(),
       })
       if (error) throw new Error(error.message)
       setStatus('sent')
+      trackProductEvent('backup_sync_link_requested', { surface: 'you' })
     } catch (err) {
       console.error('[v0] magic link send failed:', (err as Error).message)
+      setErrorMessage(
+        'We could not send the link. Check your connection and try again.',
+      )
       setStatus('error')
+      trackProductEvent('backup_sync_failed', { stage: 'email_request' })
     }
   }
 
@@ -67,7 +87,7 @@ export function SecureNudgeSheet({
           <span className="flex items-center gap-2">
             <ShieldCheck className="size-5 text-primary" />
             <h2 className="font-serif text-xl font-medium tracking-tight">
-              Secure your network
+              Back up &amp; sync
             </h2>
           </span>
           <button
@@ -94,7 +114,8 @@ export function SecureNudgeSheet({
                 <span className="font-medium text-foreground">
                   {email.trim()}
                 </span>
-                . Open it on any device to sync your network and follow-ups.
+                . Open it on this device. If iOS asks, choose FollowApp so this
+                installation receives the signed-in session.
               </p>
               <button
                 type="button"
@@ -107,9 +128,8 @@ export function SecureNudgeSheet({
           ) : (
             <>
               <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
-                FollowApp keeps a device-scoped backup for this installation.
-                Add your email to securely sync your network and follow-ups
-                across devices. No password needed.
+                Link this installation to your email so you can restore your
+                network and follow-ups on another device. No password needed.
               </p>
 
               <label className="flex flex-col gap-1.5">
@@ -132,7 +152,7 @@ export function SecureNudgeSheet({
 
               {status === 'error' && (
                 <p className="text-sm text-destructive">
-                  Something went wrong sending your link. Please try again.
+                  {errorMessage}
                 </p>
               )}
 

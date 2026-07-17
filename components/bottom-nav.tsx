@@ -1,12 +1,12 @@
 'use client'
 
-import { Sparkles, MessageCircle, User } from 'lucide-react'
+import { Sparkles, Users, User } from 'lucide-react'
 import type { Tab } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 const TABS: { id: Tab; label: string; icon: typeof Sparkles }[] = [
   { id: 'nudges', label: 'Follow-ups', icon: Sparkles },
-  { id: 'chats', label: 'Chats', icon: MessageCircle },
+  { id: 'chats', label: 'People', icon: Users },
   { id: 'you', label: 'You', icon: User },
 ]
 
@@ -60,7 +60,7 @@ export function BottomNav({
                   'text-[11px] leading-none transition-colors',
                   active
                     ? 'font-semibold text-[var(--action-fg)]'
-                    : 'sr-only font-medium text-[var(--ink-tertiary)] lg:not-sr-only',
+                    : 'font-medium text-[var(--ink-tertiary)]',
                 )}
               >
                 {label}

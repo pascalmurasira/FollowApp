@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { withRetry } from '@/lib/with-retry'
 import { TEXT_MODEL } from '@/lib/ai'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { logServerError } from '@/lib/server/error-metadata'
 
 export const maxDuration = 30
 
@@ -112,7 +113,7 @@ export async function POST(req: Request) {
 
     return Response.json(output)
   } catch (error) {
-    console.error('Nudges route failed:', error)
+    logServerError('[v0] Nudges route failed', error)
     return Response.json(
       { error: 'Could not generate nudges right now.' },
       { status: 500 },

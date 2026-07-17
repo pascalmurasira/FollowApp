@@ -3,6 +3,7 @@ import { betterAuth } from 'better-auth'
 import { magicLink } from 'better-auth/plugins'
 import { Pool } from 'pg'
 import { sendMagicLinkEmail } from '@/lib/email'
+import { consumeDurableRateLimit } from '@/lib/server/api-protection'
 
 /**
  * Better Auth server config for FollowApp.
@@ -45,13 +46,43 @@ export const auth = betterAuth({
   secret: authSecret,
   baseURL,
   trustedOrigins,
+  rateLimit: {
+    // Serverless instances share one atomic database-backed counter rather
+    // than each keeping an independently bypassable in-memory bucket.
+    customStorage: {
+      get: async () => null,
+      set: async () => undefined,
+      consume: async (key, rule) => {
+        const decision = await consumeDurableRateLimit(`better-auth:${key}`, {
+          limit: rule.max,
+          windowMs: rule.window * 1_000,
+        })
+        return {
+          allowed: decision.allowed,
+          retryAfter: decision.allowed
+            ? null
+            : decision.retryAfter ??
+              Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1_000)),
+        }
+      },
+    },
+  },
   plugins: [
     magicLink({
       // The link the user clicks. We route it through our own page so we can
       // run the device-adoption step right after the session is created.
       sendMagicLink: async ({ email, url }) => {
+        const recipient = email.trim().toLowerCase()
+        const decision = await consumeDurableRateLimit(
+          `magic-link-recipient:${recipient}`,
+          { limit: 3, windowMs: 15 * 60_000 },
+        )
+        if (!decision.allowed) {
+          throw new Error('Please wait before requesting another sign-in link.')
+        }
         await sendMagicLinkEmail({ email, url })
       },
+      storeToken: 'hashed',
     }),
   ],
   advanced:

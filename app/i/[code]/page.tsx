@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { MessageCircle, Sparkles, UserPlus } from 'lucide-react'
+import { inviteLandingHeadline } from '@/lib/invite-link'
 
 export const metadata: Metadata = {
   title: 'You’re invited to FollowApp',
@@ -9,23 +10,11 @@ export const metadata: Metadata = {
 }
 
 /**
- * Invite landing page (/i/[code]). A warm, low-friction welcome that explains
- * what FollowApp is and sends new arrivals into the app. The code is a soft
- * referral marker — we greet by inviter first name when it parses, but the page
- * works for any code so old links never 404.
+ * Invite landing page (/i/[code]). Codes are routing-only for backwards
+ * compatibility. They are never parsed or displayed because old links may
+ * contain local contact identifiers and names.
  */
-export default async function InvitePage({
-  params,
-}: {
-  params: Promise<{ code: string }>
-}) {
-  const { code } = await params
-  // Codes look like "<id>-<firstname>"; surface the name when present.
-  const rawName = code.split('-').slice(1).join(' ').trim()
-  const inviter = rawName
-    ? rawName.charAt(0).toUpperCase() + rawName.slice(1)
-    : null
-
+export default function InvitePage() {
   const points = [
     {
       icon: MessageCircle,
@@ -53,13 +42,7 @@ export default async function InvitePage({
         </span>
 
         <h1 className="text-pretty font-serif text-4xl leading-[1.1] text-foreground">
-          {inviter ? (
-            <>
-              {inviter} wants to keep in touch with you on FollowApp
-            </>
-          ) : (
-            <>You’ve been invited to FollowApp</>
-          )}
+          {inviteLandingHeadline()}
         </h1>
 
         <p className="mt-4 text-pretty text-[15px] leading-relaxed text-muted-foreground">

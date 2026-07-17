@@ -70,6 +70,17 @@ export interface OnboardingState {
   sampleMode?: boolean
 }
 
+/** Completing activation with a personal card must not opt the user into demos. */
+export function activationAfterOwnCard(): Required<
+  Pick<OnboardingState, 'selectedContactIds' | 'toneId' | 'sampleMode'>
+> {
+  return {
+    selectedContactIds: [],
+    toneId: 'lowkey',
+    sampleMode: false,
+  }
+}
+
 /**
  * New users may preview samples, but real relationship data must never be mixed
  * with fictional people. Undefined preserves the legacy sample experience only

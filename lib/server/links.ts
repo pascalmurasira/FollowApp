@@ -36,7 +36,7 @@ export async function matchContactToUser(
     .limit(1)
 
   if (rows.length === 0) return null
-  return { userId: rows[0].id, name: rows[0].name }
+  return { userId: rows[0].id, name: rows[0].name?.trim() || 'Someone' }
 }
 
 /** A link row plus the other person's display name, from the caller's view. */
@@ -70,7 +70,7 @@ export async function getLink(
   return {
     id: row.id,
     otherUserId,
-    otherName: other?.name ?? 'Someone',
+    otherName: other?.name?.trim() || 'Someone',
     status: row.status as LinkStatus,
     direction: row.requesterUserId === callerUserId ? 'outgoing' : 'incoming',
     intro: row.intro,
@@ -156,7 +156,7 @@ export async function listLinks(callerUserId: string): Promise<LinkView[]> {
     views.push({
       id: row.id,
       otherUserId,
-      otherName: other?.name ?? 'Someone',
+      otherName: other?.name?.trim() || 'Someone',
       status: row.status as LinkStatus,
       direction: outgoing ? 'outgoing' : 'incoming',
       intro: row.intro,

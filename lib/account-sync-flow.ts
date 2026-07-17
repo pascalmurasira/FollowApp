@@ -1,20 +1,30 @@
-/** Build the same-origin callback carried by a one-time magic link. */
-export function accountSyncCallbackURL(sourceDeviceId: string): string {
-  const source = sourceDeviceId.trim()
-  return source
-    ? `/welcome-back?sourceDeviceId=${encodeURIComponent(source)}`
-    : '/welcome-back'
+/**
+ * Build the same-origin callback carried by a one-time magic link.
+ *
+ * A device id is a bearer capability until it is claimed by an account. Never
+ * put that capability in an email link: if the link is opened on another
+ * device, that browser must not be able to claim the source installation and
+ * leave it signed out of its own data. The installation that opens the link
+ * reconciles its own local id on `/welcome-back` instead.
+ */
+export function accountSyncCallbackURL(): string {
+  return '/welcome-back'
 }
 
 /**
- * Reconcile the link-requesting device before the browser that opened it.
- * De-duplicating the ids keeps same-device sign-ins to one server transaction.
+ * Reconcile only the browser that actually holds the authenticated session.
+ *
+ * `sourceDeviceId` remains accepted so old, already-sent links can be handled
+ * safely. It is used only when it is exactly the current installation id; a
+ * cross-device source capability is deliberately ignored.
  */
 export function accountSyncDeviceIds(
   sourceDeviceId: string | null | undefined,
   destinationDeviceId: string,
 ): string[] {
-  const source = sourceDeviceId?.trim()
+  // Kept in the signature for safe handling of links emitted by older builds.
+  void sourceDeviceId
   const destination = destinationDeviceId.trim()
-  return [...new Set([source, destination].filter((id): id is string => Boolean(id)))]
+  if (!destination) return []
+  return [destination]
 }

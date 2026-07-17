@@ -2,10 +2,13 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'node:test'
 import {
   DEFAULT_PROFILE,
+  hasPendingProfileSync,
   isShareableProfile,
   loadLocalProfile,
   loadProfile,
+  migratePendingProfileSync,
   normalizeProfile,
+  retryPendingProfileSync,
   saveLocalProfile,
   saveProfile,
 } from '../lib/profile.ts'
@@ -101,6 +104,21 @@ test('caches only meaningful profiles per device', () => {
   assert.equal(loadLocalProfile('device-b'), null)
 })
 
+test('rejects saving the placeholder identity before making a request', async () => {
+  let requested = false
+  globalThis.fetch = async () => {
+    requested = true
+    return new Response(null, { status: 200 })
+  }
+
+  await assert.rejects(
+    saveProfile('device-a', { name: ' You ' }),
+    /real name/,
+  )
+  assert.equal(requested, false)
+  assert.equal(loadLocalProfile('device-a'), null)
+})
+
 test('keeps a meaningful local card when the server returns its default', async () => {
   saveLocalProfile('device-a', {
     name: 'Katherine Johnson',
@@ -151,6 +169,55 @@ test('a later load retries a pending local profile sync', async () => {
   }
   assert.equal((await loadProfile('device-a')).name, 'Dorothy Vaughan')
   assert.deepEqual(methods, ['PUT', 'GET'])
+})
+
+test('an online retry immediately repairs a pending local profile', async () => {
+  globalThis.fetch = async () => new Response(null, { status: 503 })
+  await assert.rejects(
+    saveProfile('device-online', { name: 'Mary Jackson', company: 'NASA' }),
+    /503/,
+  )
+
+  const methods: string[] = []
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method ?? 'GET')
+    return new Response(null, { status: 200 })
+  }
+  await retryPendingProfileSync('device-online')
+  assert.deepEqual(methods, ['PUT'])
+
+  await retryPendingProfileSync('device-online')
+  assert.deepEqual(methods, ['PUT'])
+})
+
+test('moves an unsynced profile to the adopted account id without losing it', async () => {
+  globalThis.fetch = async () => new Response(null, { status: 503 })
+  await assert.rejects(
+    saveProfile('anonymous-device', {
+      name: 'Annie Easley',
+      company: 'NASA',
+    }),
+    /503/,
+  )
+
+  assert.equal(hasPendingProfileSync('anonymous-device'), true)
+  assert.equal(
+    migratePendingProfileSync('anonymous-device', 'account-device'),
+    true,
+  )
+  assert.equal(loadLocalProfile('anonymous-device'), null)
+  assert.equal(hasPendingProfileSync('account-device'), true)
+  assert.equal(loadLocalProfile('account-device')?.name, 'Annie Easley')
+
+  const writes: string[] = []
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as { profile: { name: string } }
+    writes.push(body.profile.name)
+    return new Response(null, { status: 200 })
+  }
+  await retryPendingProfileSync('account-device')
+  assert.deepEqual(writes, ['Annie Easley'])
+  assert.equal(hasPendingProfileSync('account-device'), false)
 })
 
 test('a pending retry cannot overwrite a newer direct edit in the cloud', async () => {

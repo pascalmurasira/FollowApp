@@ -65,6 +65,16 @@ export function contactImportBatches<T>(items: T[]): T[][] {
   return batches
 }
 
+/** Preserve review order while preventing one SQL upsert from seeing an id twice. */
+export function uniqueContactsById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false
+    seen.add(item.id)
+    return true
+  })
+}
+
 /** Only an exact integer confirmation is considered a successful batch. */
 export function confirmedImportCount(
   payload: unknown,

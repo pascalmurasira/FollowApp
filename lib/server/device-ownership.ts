@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg'
 
 const SCHEMA_LOCK_NAME = 'followapp:device-aliases-schema'
+export const MAX_DEVICE_ALIASES_PER_ACCOUNT = 50
 
 let ownershipSchemaReady: Promise<void> | null = null
 
@@ -13,6 +14,13 @@ export class DeviceAlreadyClaimedError extends Error {
   constructor() {
     super('Device data is already secured by another account')
     this.name = 'DeviceAlreadyClaimedError'
+  }
+}
+
+export class DeviceAliasLimitError extends Error {
+  constructor() {
+    super('This account has reached its retired-device safety limit')
+    this.name = 'DeviceAliasLimitError'
   }
 }
 
@@ -164,6 +172,20 @@ export async function registerDeviceAlias(
   ownerUserId: string,
 ): Promise<void> {
   if (sourceDeviceId === canonicalDeviceId) return
+
+  // account/sync holds the owning user row FOR UPDATE, so this count and the
+  // insert are serialized for one account even across serverless instances.
+  const countResult = await client.query<{ count: string | number }>(
+    'SELECT COUNT(*) AS count FROM device_aliases WHERE owner_user_id = $1',
+    [ownerUserId],
+  )
+  const aliasCount = Number(countResult.rows[0]?.count ?? 0)
+  if (
+    !Number.isFinite(aliasCount) ||
+    aliasCount >= MAX_DEVICE_ALIASES_PER_ACCOUNT
+  ) {
+    throw new DeviceAliasLimitError()
+  }
 
   const result = await client.query(
     `

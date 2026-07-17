@@ -1,7 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { CalendarDays, ChevronDown, Check, Save, X } from 'lucide-react'
+import {
+  CalendarDays,
+  ChevronDown,
+  Check,
+  Save,
+  Trash2,
+  X,
+} from 'lucide-react'
 import type { Contact, Tier } from '@/lib/types'
 import type { ContactUpdateInput } from '@/lib/contacts-store'
 import {
@@ -10,6 +17,7 @@ import {
 } from '@/lib/contact-dates'
 import { ContactAvatar } from '@/components/contact-avatar'
 import { cn } from '@/lib/utils'
+import { CONTACT_LIMITS } from '@/lib/persistence-limits'
 
 const TIER_OPTIONS: { value: Tier; label: string }[] = [
   { value: 'key', label: 'Key' },
@@ -29,25 +37,34 @@ export function PeopleCircles({
   groups,
   onSetGroup,
   onUpdateContact,
+  onDeleteContact,
 }: {
   contacts: Contact[]
   groups: string[]
   onSetGroup: (contactId: string, group: string | null) => void
   onUpdateContact: (contactId: string, updates: ContactUpdateInput) => void
+  onDeleteContact?: (contactId: string) => Promise<void> | void
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const [newGroup, setNewGroup] = useState('')
   const [draft, setDraft] = useState<EditDraft | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const openContact = (contact: Contact, isOpen: boolean) => {
     if (isOpen) {
       setOpenId(null)
       setDraft(null)
       setNewGroup('')
+      setConfirmDeleteId(null)
+      setDeleteError(null)
       return
     }
     setOpenId(contact.id)
     setNewGroup('')
+    setConfirmDeleteId(null)
+    setDeleteError(null)
     setDraft({
       relationship: contact.relationship,
       title: contact.title ?? '',
@@ -109,7 +126,7 @@ export function PeopleCircles({
                       event.preventDefault()
                       onUpdateContact(contact.id, {
                         relationship: draft.relationship,
-                        title: draft.title || undefined,
+                        title: draft.title,
                         tier: draft.tier,
                         lastContactedAt: draft.lastContactedAt || null,
                       })
@@ -126,6 +143,7 @@ export function PeopleCircles({
                         </span>
                         <input
                           value={draft.relationship}
+                          maxLength={CONTACT_LIMITS.relationship}
                           onChange={(event) =>
                             updateDraft('relationship', event.target.value)
                           }
@@ -138,6 +156,7 @@ export function PeopleCircles({
                         </span>
                         <input
                           value={draft.title}
+                          maxLength={CONTACT_LIMITS.title}
                           onChange={(event) =>
                             updateDraft('title', event.target.value)
                           }
@@ -233,6 +252,7 @@ export function PeopleCircles({
                 >
                   <input
                     value={newGroup}
+                    maxLength={CONTACT_LIMITS.group}
                     onChange={(e) => setNewGroup(e.target.value)}
                     placeholder="New circle name"
                     className="h-11 flex-1 rounded-lg border border-border bg-card px-3 text-sm outline-none focus-visible:border-primary"
@@ -245,6 +265,74 @@ export function PeopleCircles({
                     Add
                   </button>
                 </form>
+
+                {onDeleteContact &&
+                  (confirmDeleteId === contact.id ? (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+                      <p className="text-sm font-medium text-foreground">
+                        Remove {contact.name} from FollowApp?
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        This removes their FollowApp details, reminders, circles,
+                        and learned context. It does not delete a contact from
+                        your phone.
+                      </p>
+                      {deleteError && (
+                        <p className="mt-2 text-xs font-medium text-destructive">
+                          {deleteError}
+                        </p>
+                      )}
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={deletingId === contact.id}
+                          onClick={async () => {
+                            setDeletingId(contact.id)
+                            setDeleteError(null)
+                            try {
+                              await onDeleteContact(contact.id)
+                              setOpenId(null)
+                              setDraft(null)
+                              setConfirmDeleteId(null)
+                            } catch {
+                              setDeleteError(
+                                'Removed here. Its cloud copy is waiting to retry from Back up & sync.',
+                              )
+                            } finally {
+                              setDeletingId(null)
+                            }
+                          }}
+                          className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-destructive px-3 text-sm font-semibold text-destructive-foreground disabled:opacity-60"
+                        >
+                          <Trash2 className="size-4" />
+                          {deletingId === contact.id ? 'Removing…' : 'Remove person'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingId === contact.id}
+                          onClick={() => {
+                            setConfirmDeleteId(null)
+                            setDeleteError(null)
+                          }}
+                          className="glass-button min-h-11 flex-1 rounded-xl px-3 text-sm font-medium disabled:opacity-60"
+                        >
+                          Keep person
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmDeleteId(contact.id)
+                        setDeleteError(null)
+                      }}
+                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium text-destructive"
+                    >
+                      <Trash2 className="size-4" />
+                      Remove from FollowApp
+                    </button>
+                  ))}
               </div>
             )}
           </li>

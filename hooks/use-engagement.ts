@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { toDateInputValue } from '@/lib/contact-dates'
 
 const STORAGE_KEY = 'nudge.engagement.v1'
 
@@ -17,6 +18,10 @@ interface EngagementState {
   reachedTodayIds: string[]
   /** contactId -> epoch ms the snooze expires. */
   snoozed: Record<string, number>
+  /** Set only after the user explicitly grants local reminder permission. */
+  remindersEnabled: boolean
+  /** contactId -> local YYYY-MM-DD currently registered with iOS. */
+  scheduledReminders: Record<string, string>
 }
 
 const DEFAULT_STATE: EngagementState = {
@@ -25,10 +30,12 @@ const DEFAULT_STATE: EngagementState = {
   reachDateKey: null,
   reachedTodayIds: [],
   snoozed: {},
+  remindersEnabled: false,
+  scheduledReminders: {},
 }
 
 function todayKey(d = new Date()): string {
-  return d.toISOString().slice(0, 10)
+  return toDateInputValue(d)
 }
 
 function isYesterday(prev: string | null): boolean {
@@ -70,6 +77,22 @@ function pruneSnoozes(snoozed: Record<string, number>): {
   return { next, changed }
 }
 
+function normalizeScheduledReminders(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const normalized: Record<string, string> = {}
+  for (const [contactId, date] of Object.entries(value)) {
+    if (
+      contactId &&
+      contactId.length <= 200 &&
+      typeof date === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ) {
+      normalized[contactId] = date
+    }
+  }
+  return normalized
+}
+
 export function useEngagement() {
   const [state, setState] = useState<EngagementState>(DEFAULT_STATE)
   const [hydrated, setHydrated] = useState(false)
@@ -78,9 +101,18 @@ export function useEngagement() {
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY)
-      const loaded = raw ? (JSON.parse(raw) as EngagementState) : DEFAULT_STATE
+      const loaded = raw
+        ? (JSON.parse(raw) as Partial<EngagementState>)
+        : DEFAULT_STATE
       const { next } = pruneSnoozes(loaded.snoozed ?? {})
-      setState({ ...DEFAULT_STATE, ...loaded, snoozed: next })
+      setState({
+        ...DEFAULT_STATE,
+        ...loaded,
+        snoozed: next,
+        scheduledReminders: normalizeScheduledReminders(
+          loaded.scheduledReminders,
+        ),
+      })
     } catch (error) {
       console.error('Failed to load engagement state:', error)
     } finally {
@@ -97,6 +129,22 @@ export function useEngagement() {
       console.error('Failed to save engagement state:', error)
     }
   }, [state, hydrated])
+
+  // A long-lived native WebView must wake snoozed people without requiring a
+  // full app reload. Re-arm the timer whenever the earliest deadline changes.
+  useEffect(() => {
+    if (!hydrated) return
+    const deadlines = Object.values(state.snoozed).filter((value) => value > Date.now())
+    if (deadlines.length === 0) return
+    const delay = Math.max(0, Math.min(...deadlines) - Date.now() + 50)
+    const timer = window.setTimeout(() => {
+      setState((previous) => ({
+        ...previous,
+        snoozed: pruneSnoozes(previous.snoozed).next,
+      }))
+    }, Math.min(delay, 2_147_000_000))
+    return () => window.clearTimeout(timer)
+  }, [hydrated, state.snoozed])
 
   const recordReachOut = useCallback((contactId: string) => {
     setState((prev) => {
@@ -144,6 +192,47 @@ export function useEngagement() {
     })
   }, [])
 
+  const refreshTimeState = useCallback(() => {
+    setState((previous) => ({
+      ...previous,
+      snoozed: pruneSnoozes(previous.snoozed).next,
+    }))
+  }, [])
+
+  const enableReminders = useCallback(() => {
+    setState((previous) => ({ ...previous, remindersEnabled: true }))
+  }, [])
+
+  const disableReminders = useCallback(() => {
+    setState((previous) => ({ ...previous, remindersEnabled: false }))
+  }, [])
+
+  const markReminderScheduled = useCallback(
+    (contactId: string, date: string) => {
+      setState((previous) => ({
+        ...previous,
+        scheduledReminders: {
+          ...previous.scheduledReminders,
+          [contactId]: date,
+        },
+      }))
+    },
+    [],
+  )
+
+  const clearScheduledReminder = useCallback((contactId: string) => {
+    setState((previous) => {
+      if (!(contactId in previous.scheduledReminders)) return previous
+      const scheduledReminders = { ...previous.scheduledReminders }
+      delete scheduledReminders[contactId]
+      return { ...previous, scheduledReminders }
+    })
+  }, [])
+
+  const clearAllScheduledReminders = useCallback(() => {
+    setState((previous) => ({ ...previous, scheduledReminders: {} }))
+  }, [])
+
   const today = todayKey()
   const reachedToday =
     state.reachDateKey === today ? state.reachedTodayIds.length : 0
@@ -153,8 +242,16 @@ export function useEngagement() {
     streak: state.lastReachOutDate === today || isYesterday(state.lastReachOutDate) ? state.streak : 0,
     reachedToday,
     snoozedIds: Object.keys(state.snoozed),
+    remindersEnabled: state.remindersEnabled,
+    scheduledReminderDates: state.scheduledReminders,
     recordReachOut,
     snooze,
     unsnooze,
+    refreshTimeState,
+    enableReminders,
+    disableReminders,
+    markReminderScheduled,
+    clearScheduledReminder,
+    clearAllScheduledReminders,
   }
 }

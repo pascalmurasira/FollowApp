@@ -1,6 +1,7 @@
 import { requireUserId } from '@/lib/server/chat-core'
 import { matchContactToUser, getLink } from '@/lib/server/links'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { logServerError } from '@/lib/server/error-metadata'
 import { z } from 'zod'
 
 export const maxDuration = 10
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
         : null,
     })
   } catch (error) {
-    console.error('[v0] chat/match failed:', error)
+    logServerError('[v0] chat/match failed', error)
     return Response.json({ matched: false, reason: 'error' }, { status: 500 })
   }
 }
