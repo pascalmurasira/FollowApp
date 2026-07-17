@@ -8,8 +8,11 @@ import {
   Newspaper,
   Check,
   MessageCircle,
+  Copy,
+  Plus,
 } from 'lucide-react'
 import type { Contact, EnrichmentHook } from '@/lib/types'
+import type { ContactUpdateInput } from '@/lib/contacts-store'
 import { ContactAvatar } from '@/components/contact-avatar'
 import { ChannelIcon } from '@/components/channel-icon'
 import { ChannelSwitcher } from '@/components/channel-switcher'
@@ -23,7 +26,10 @@ import {
   resolveChannel,
   channelLabel,
   canDeliver,
+  toWhatsAppNumber,
 } from '@/lib/channels'
+import { copyText } from '@/lib/native'
+import { isDeliverableEmail } from '@/lib/contact-validation'
 import { InvitePrompt } from '@/components/invite-prompt'
 import { InAppChat } from '@/components/in-app-chat'
 import { useContactMatch } from '@/hooks/use-contact-match'
@@ -34,11 +40,15 @@ export function ConversationView({
   voice,
   onBack,
   onSend,
+  onUpdateContact,
 }: {
   contact: Contact
   voice: string
   onBack: () => void
   onSend: (text: string) => Promise<void>
+  onUpdateContact: (
+    updates: Pick<ContactUpdateInput, 'phone' | 'email'>,
+  ) => void
 }) {
   // Per-contact preference (if set) wins; otherwise the smart default applies,
   // with automatic fallback. Never a hard dependency on any one channel.
@@ -47,7 +57,8 @@ export function ConversationView({
   // link is accepted we replace the demo composer with the live thread.
   const { match, requestChat } = useContactMatch(contact)
   const linkStatus = match?.link?.status ?? null
-  const chatLive = linkStatus === 'accepted' && !!match
+  const chatLive =
+    linkStatus === 'accepted' && !!match?.otherUserId
   const channel = resolveChannel(contact, preferred)
   const canSend = canDeliver(contact)
   // WhatsApp send wears WhatsApp green so the channel handoff is recognizable.
@@ -82,6 +93,8 @@ export function ConversationView({
 
   const [draft, setDraft] = useState('')
   const [showInvite, setShowInvite] = useState(false)
+  const [showDestinationEditor, setShowDestinationEditor] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -104,6 +117,29 @@ export function ConversationView({
       markInvited(contact.id)
       setShowInvite(true)
     }
+  }
+
+  const copyDraft = async (text: string) => {
+    const value = text.trim()
+    if (!value) return
+    // Keep the draft selectable even if a browser blocks clipboard access.
+    setDraft(value)
+    setCopyStatus('idle')
+    try {
+      await copyText(value)
+      setCopyStatus('copied')
+    } catch (error) {
+      console.error('[v0] Copy draft failed:', error)
+      setCopyStatus('error')
+    }
+  }
+
+  const handleSuggestion = (text: string) => {
+    if (canSend) {
+      submit(text)
+      return
+    }
+    void copyDraft(text)
   }
 
   return (
@@ -130,14 +166,37 @@ export function ConversationView({
                 : `Cadence: ${cadenceLabel} · ${driftLabel(contact.daysSinceContact)}`}
           </p>
         </div>
-        <ChannelSwitcher
-          contact={contact}
-          preferred={preferred}
-          onChange={setPreferred}
-        />
+        {canSend || chatLive ? (
+          <ChannelSwitcher
+            contact={contact}
+            preferred={preferred}
+            onChange={setPreferred}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowDestinationEditor((value) => !value)}
+            aria-expanded={showDestinationEditor}
+            className="primary-action pressable flex min-h-11 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold"
+          >
+            <Plus className="size-3.5" />
+            Add phone/email
+          </button>
+        )}
       </header>
 
-      {chatLive && match ? (
+      {!canSend && !chatLive && showDestinationEditor && (
+        <DestinationEditor
+          contact={contact}
+          onSave={(updates) => {
+            onUpdateContact(updates)
+            setShowDestinationEditor(false)
+          }}
+          onCancel={() => setShowDestinationEditor(false)}
+        />
+      )}
+
+      {chatLive && match?.otherUserId ? (
         <InAppChat otherUserId={match.otherUserId} otherName={match.otherName} />
       ) : (
         <>
@@ -148,7 +207,7 @@ export function ConversationView({
         <div className="mx-auto my-2 w-fit rounded-full border border-[var(--hairline)] bg-white/20 px-3 py-1 text-center text-[11px] text-[var(--ink-secondary)] backdrop-blur">
           {canSend
             ? `Sent from your own ${channelLabel(channel)} · replies arrive in ${channelLabel(channel)}, not here`
-            : 'Add a phone number or email before sending'}
+            : 'Your draft is usable now — add a phone/email to send, or copy it anywhere'}
         </div>
 
         {contact.messages.map((message) => {
@@ -248,12 +307,16 @@ export function ConversationView({
                       <button
                         key={`${suggestion.text}-${i}`}
                         type="button"
-                        onClick={() => submit(suggestion.text)}
-                        disabled={!canSend}
+                        onClick={() => handleSuggestion(suggestion.text)}
+                        aria-label={
+                          canSend
+                            ? `Send draft: ${suggestion.text}`
+                            : `Copy draft: ${suggestion.text}`
+                        }
                         className="glass-card pressable flex h-[72px] w-[82%] shrink-0 snap-start flex-col justify-center rounded-xl px-4 py-2 text-left"
                       >
                         <span className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
-                          {suggestion.tone}
+                          {canSend ? suggestion.tone : `${suggestion.tone} · tap to copy`}
                         </span>
                         <span className="line-clamp-2 text-sm leading-snug text-[var(--ink-body)]">
                           {suggestion.text}
@@ -269,36 +332,159 @@ export function ConversationView({
             <form
               onSubmit={(e) => {
                 e.preventDefault()
-                submit(draft)
+                if (canSend) submit(draft)
+                else void copyDraft(draft)
               }}
               className="flex items-center gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2"
             >
               <input
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Or write your own…"
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  setCopyStatus('idle')
+                }}
+                placeholder={canSend ? 'Or write your own…' : 'Edit or paste your draft…'}
                 aria-label="Message"
                 className="glass-card h-11 flex-1 rounded-full px-4 text-base text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-tertiary)] focus-visible:border-[var(--action-bg)]"
               />
               <button
                 type="submit"
-                disabled={!draft.trim() || !canSend}
-                aria-label={`Send via ${channelLabel(channel)}`}
+                disabled={!draft.trim()}
+                aria-label={
+                  canSend ? `Send via ${channelLabel(channel)}` : 'Copy draft'
+                }
                 className={cn(
                   'pressable flex size-11 items-center justify-center rounded-full disabled:opacity-40',
-                  isWhatsApp
+                  canSend && isWhatsApp
                     ? 'bg-whatsapp text-whatsapp-foreground'
                     : 'bg-primary text-primary-foreground',
                 )}
               >
-                <ChannelIcon channel={channel} className="size-5" />
+                {canSend ? (
+                  <ChannelIcon channel={channel} className="size-5" />
+                ) : copyStatus === 'copied' ? (
+                  <Check className="size-5" />
+                ) : (
+                  <Copy className="size-5" />
+                )}
               </button>
             </form>
+            {!canSend && copyStatus !== 'idle' && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-center text-[12px] text-[var(--ink-secondary)]"
+              >
+                {copyStatus === 'copied'
+                  ? 'Draft copied — paste it wherever you reach out.'
+                  : 'Clipboard was unavailable. The draft is still selected above for manual copying.'}
+              </p>
+            )}
           </>
       </div>
         </>
       )}
     </div>
+  )
+}
+
+function DestinationEditor({
+  contact,
+  onSave,
+  onCancel,
+}: {
+  contact: Contact
+  onSave: (updates: Pick<ContactUpdateInput, 'phone' | 'email'>) => void
+  onCancel: () => void
+}) {
+  const [phone, setPhone] = useState(contact.phone ?? '')
+  const [email, setEmail] = useState(contact.email ?? '')
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    const nextPhone = phone.trim()
+    const nextEmail = email.trim().toLowerCase()
+    const phoneValid = !nextPhone || toWhatsAppNumber(nextPhone) !== null
+    const emailValid = !nextEmail || isDeliverableEmail(nextEmail)
+
+    if (!nextPhone && !nextEmail) {
+      setError('Add a phone number or email to continue.')
+      return
+    }
+    if (!phoneValid || !emailValid) {
+      setError(
+        !phoneValid
+          ? 'Use a complete phone number, including the country code.'
+          : 'Check that the email address is complete.',
+      )
+      return
+    }
+
+    onSave({
+      phone: nextPhone || undefined,
+      email: nextEmail || undefined,
+    })
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="relative z-[2] border-b border-[var(--hairline)] bg-white/30 px-4 py-3 backdrop-blur-xl"
+    >
+      <div className="mx-auto max-w-xl">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[13px] font-semibold text-[var(--ink-strong)]">
+              Where should this follow-up go?
+            </p>
+            <p className="mt-0.5 text-[11px] text-[var(--ink-secondary)]">
+              Add either one. For WhatsApp, include the country code.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="pressable min-h-11 rounded-full px-2 text-[12px] font-semibold text-[var(--ink-secondary)]"
+          >
+            Cancel
+          </button>
+        </div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            placeholder="Phone, e.g. +31…"
+            aria-label="Phone number"
+            className="glass-card h-11 rounded-2xl px-3 text-base text-[var(--ink-body)] outline-none focus-visible:border-[var(--action-bg)]"
+          />
+          <input
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email address"
+            aria-label="Email address"
+            className="glass-card h-11 rounded-2xl px-3 text-base text-[var(--ink-body)] outline-none focus-visible:border-[var(--action-bg)]"
+          />
+        </div>
+        {error && (
+          <p role="alert" className="mt-2 text-[12px] text-destructive">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="primary-action pressable mt-2 min-h-11 w-full rounded-full px-4 text-sm font-semibold"
+        >
+          Save sending details
+        </button>
+      </div>
+    </form>
   )
 }
 

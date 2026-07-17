@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Smartphone, ArrowRight } from 'lucide-react'
 import type { CardData } from '@/lib/card'
-import { saveToPhone } from '@/lib/card'
+import { saveContactToPhone } from '@/lib/native'
 
 /**
  * Client actions for the public card page: save the card to the visitor's
@@ -18,9 +18,12 @@ export function CardActions({ card }: { card: CardData }) {
     <div className="flex flex-col gap-3">
       <button
         type="button"
-        onClick={() => {
-          saveToPhone(card)
-          setSaved(true)
+        onClick={async () => {
+          try {
+            setSaved(await saveContactToPhone(card))
+          } catch (err) {
+            console.error('[v0] Save to Contacts failed:', err)
+          }
         }}
         className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold"
       >

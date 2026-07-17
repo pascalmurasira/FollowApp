@@ -2,6 +2,7 @@ import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { withRetry } from '@/lib/with-retry'
 import { TEXT_MODEL } from '@/lib/ai'
+import { protectExpensiveRequest } from '@/lib/server/api-protection'
 
 export const maxDuration = 30
 
@@ -29,8 +30,41 @@ interface ReqContact {
   lastMessage?: string
 }
 
+const requestSchema = z.object({
+  voice: z.string().trim().min(1).max(500),
+  contacts: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(200),
+        name: z.string().trim().min(1).max(200),
+        relationship: z.string().max(500),
+        context: z.string().max(4_000),
+        interests: z.array(z.string().max(300)).max(30),
+        daysSinceContact: z.number().finite().min(0).max(100_000),
+        lastMessage: z.string().max(2_000).optional(),
+      }),
+    )
+    .max(50),
+})
+
 export async function POST(req: Request) {
-  const { contacts, voice } = (await req.json()) as {
+  const blocked = await protectExpensiveRequest(req, 'nudges', {
+    limit: 20,
+    windowMs: 60_000,
+  })
+  if (blocked) return blocked
+
+  let input: unknown
+  try {
+    input = await req.json()
+  } catch {
+    return Response.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  const parsed = requestSchema.safeParse(input)
+  if (!parsed.success) {
+    return Response.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  const { contacts, voice } = parsed.data as {
     contacts: ReqContact[]
     voice: string
   }

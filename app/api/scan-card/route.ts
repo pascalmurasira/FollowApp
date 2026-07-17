@@ -1,6 +1,7 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { VISION_MODEL } from '@/lib/ai'
+import { protectExpensiveRequest } from '@/lib/server/api-protection'
 
 export const maxDuration = 30
 
@@ -44,18 +45,29 @@ function isRateLimitOrUnavailable(error: unknown): boolean {
   )
 }
 
-interface RequestBody {
-  image?: string // data URL (JPEG/PNG)
-}
+const requestSchema = z.object({ image: z.string() })
 
 export async function POST(req: Request) {
-  let body: RequestBody
+  const blocked = await protectExpensiveRequest(req, 'scan-card', {
+    limit: 10,
+    windowMs: 10 * 60_000,
+  })
+  if (blocked) return blocked
+
+  let input: unknown
   try {
-    body = (await req.json()) as RequestBody
+    input = await req.json()
   } catch {
     return Response.json({ status: 'error', message: 'Invalid request body.' }, { status: 400 })
   }
-  const image = body.image?.trim()
+  const parsed = requestSchema.safeParse(input)
+  if (!parsed.success) {
+    return Response.json(
+      { status: 'error', message: 'Invalid request body.' },
+      { status: 400 },
+    )
+  }
+  const image = parsed.data.image.trim()
 
   if (!image || !image.startsWith('data:image/')) {
     return Response.json({ status: 'error', message: 'No image provided.' }, { status: 400 })

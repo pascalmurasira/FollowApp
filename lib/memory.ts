@@ -1,6 +1,6 @@
 import 'server-only'
 import { desc, eq } from 'drizzle-orm'
-import { db } from '@/lib/db'
+import { db, type DbExecutor } from '@/lib/db'
 import { memorySignals, type MemorySignal } from '@/lib/db/schema'
 
 export type SignalKind =
@@ -19,8 +19,12 @@ export interface IncomingSignal {
 }
 
 /** Persist a single interaction signal for a device. */
-export async function recordSignal(deviceId: string, signal: IncomingSignal) {
-  await db.insert(memorySignals).values({
+export async function recordSignal(
+  deviceId: string,
+  signal: IncomingSignal,
+  executor: DbExecutor = db,
+) {
+  await executor.insert(memorySignals).values({
     deviceId,
     contactId: signal.contactId ?? null,
     kind: signal.kind,
@@ -30,8 +34,11 @@ export async function recordSignal(deviceId: string, signal: IncomingSignal) {
 }
 
 /** Permanently delete every learned signal for a device. */
-export async function clearMemory(deviceId: string): Promise<void> {
-  await db.delete(memorySignals).where(eq(memorySignals.deviceId, deviceId))
+export async function clearMemory(
+  deviceId: string,
+  executor: DbExecutor = db,
+): Promise<void> {
+  await executor.delete(memorySignals).where(eq(memorySignals.deviceId, deviceId))
 }
 
 export interface UserLearnings {
@@ -47,10 +54,13 @@ export interface UserLearnings {
  * this is phrased for the human and always returns the raw count so the UI can
  * show an honest empty state.
  */
-export async function buildUserLearnings(deviceId: string): Promise<UserLearnings> {
+export async function buildUserLearnings(
+  deviceId: string,
+  executor: DbExecutor = db,
+): Promise<UserLearnings> {
   let signals: MemorySignal[]
   try {
-    signals = await recentSignals(deviceId)
+    signals = await recentSignals(deviceId, 120, executor)
   } catch (error) {
     console.error('[v0] buildUserLearnings failed to read signals:', error)
     return { count: 0, insights: [] }
@@ -113,8 +123,12 @@ export async function buildUserLearnings(deviceId: string): Promise<UserLearning
 }
 
 /** Most recent signals for a device, newest first. */
-async function recentSignals(deviceId: string, limit = 120): Promise<MemorySignal[]> {
-  return db
+async function recentSignals(
+  deviceId: string,
+  limit = 120,
+  executor: DbExecutor = db,
+): Promise<MemorySignal[]> {
+  return executor
     .select()
     .from(memorySignals)
     .where(eq(memorySignals.deviceId, deviceId))
@@ -140,10 +154,11 @@ function topEntries(counts: Record<string, number>, n: number): string[] {
 export async function buildVoiceProfile(
   deviceId: string,
   contactId?: string,
+  executor: DbExecutor = db,
 ): Promise<string> {
   let signals: MemorySignal[]
   try {
-    signals = await recentSignals(deviceId)
+    signals = await recentSignals(deviceId, 120, executor)
   } catch (error) {
     console.error('[v0] buildVoiceProfile failed to read signals:', error)
     return ''

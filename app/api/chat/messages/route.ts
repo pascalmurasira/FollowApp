@@ -1,7 +1,13 @@
 import { requireUserId } from '@/lib/server/chat-core'
 import { getThread, sendMessage } from '@/lib/server/messages'
+import { z } from 'zod'
 
 export const maxDuration = 10
+
+const sendSchema = z.object({
+  recipientUserId: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(4_000),
+})
 
 /**
  * Poll the thread with another user. `?with=<userId>&since=<lastId>` returns
@@ -42,18 +48,23 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let payload: { recipientUserId?: string; body?: string }
+  let input: unknown
   try {
-    payload = (await req.json()) as { recipientUserId?: string; body?: string }
+    input = await req.json()
   } catch {
     return Response.json({ error: 'Invalid body' }, { status: 400 })
   }
-  if (!payload.recipientUserId || !payload.body?.trim()) {
+  const parsed = sendSchema.safeParse(input)
+  if (!parsed.success) {
     return Response.json({ error: 'Missing recipientUserId or body' }, { status: 400 })
   }
 
   try {
-    const id = await sendMessage(userId, payload.recipientUserId, payload.body)
+    const id = await sendMessage(
+      userId,
+      parsed.data.recipientUserId,
+      parsed.data.body,
+    )
     return Response.json({ id })
   } catch (error) {
     console.error('[v0] chat/thread POST failed:', error)

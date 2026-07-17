@@ -1,4 +1,8 @@
 import { inferCompanyFromEmail, type NewContactInput } from '@/lib/contacts-store'
+export {
+  importedContactId,
+  importedContactIdentityKey,
+} from '@/lib/contact-import-utils'
 
 /**
  * Dependency-free contact import. Parses CSV exports (LinkedIn, Google
@@ -270,6 +274,7 @@ export function toNewContactInput(
     title,
     tier,
     phone: c.phone,
+    email: c.email,
     context,
     interests: [],
   }

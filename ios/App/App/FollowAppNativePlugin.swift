@@ -1,18 +1,22 @@
 import Capacitor
 import UIKit
 import AVFoundation
+import Contacts
+import ContactsUI
 
 @objc(FollowAppNativePlugin)
-public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerControllerDelegate, UINavigationControllerDelegate, CNContactViewControllerDelegate {
     public let identifier = "FollowAppNativePlugin"
     public let jsName = "FollowAppNative"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cameraStatus", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "takeBusinessCardPhoto", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "takeBusinessCardPhoto", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveContact", returnType: CAPPluginReturnPromise)
     ]
 
     private var photoCall: CAPPluginCall?
+    private var contactCall: CAPPluginCall?
 
     @objc func openSettings(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -78,6 +82,64 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
         }
     }
 
+    @objc func saveContact(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard self.contactCall == nil else {
+                call.reject("Contact editor is already open.", "CONTACT_BUSY")
+                return
+            }
+            guard let name = call.getString("n")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty else {
+                call.reject("A contact name is required.", "INVALID_CONTACT")
+                return
+            }
+            guard let viewController = self.bridge?.viewController,
+                  let presenter = self.topViewController(from: viewController) else {
+                call.reject("Contacts could not be opened.", "CONTACT_UNAVAILABLE")
+                return
+            }
+
+            let contact = CNMutableContact()
+            let components = PersonNameComponentsFormatter().personNameComponents(from: name)
+            contact.givenName = components?.givenName ?? name
+            contact.middleName = components?.middleName ?? ""
+            contact.familyName = components?.familyName ?? ""
+            contact.jobTitle = call.getString("t") ?? ""
+            contact.organizationName = call.getString("co") ?? ""
+            if let phone = call.getString("p"), !phone.isEmpty {
+                contact.phoneNumbers = [
+                    CNLabeledValue(
+                        label: CNLabelPhoneNumberMobile,
+                        value: CNPhoneNumber(stringValue: phone)
+                    )
+                ]
+            }
+            if let email = call.getString("e"), !email.isEmpty {
+                contact.emailAddresses = [
+                    CNLabeledValue(label: CNLabelWork, value: email as NSString)
+                ]
+            }
+
+            let editor = CNContactViewController(forNewContact: contact)
+            editor.delegate = self
+            let navigationController = UINavigationController(rootViewController: editor)
+            navigationController.modalPresentationStyle = .formSheet
+            self.contactCall = call
+            presenter.present(navigationController, animated: true)
+        }
+    }
+
+    public func contactViewController(
+        _ viewController: CNContactViewController,
+        didCompleteWith contact: CNContact?
+    ) {
+        let call = contactCall
+        contactCall = nil
+        viewController.navigationController?.dismiss(animated: true) {
+            call?.resolve(["saved": contact != nil])
+        }
+    }
+
     private func presentCamera(_ call: CAPPluginCall) {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             call.reject("Camera is unavailable on this device.", "CAMERA_UNAVAILABLE")
@@ -107,6 +169,19 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
 
         photoCall = call
         presenter.present(picker, animated: true)
+        // UIKit can decline a presentation without invoking a useful error
+        // callback (for example while another controller is transitioning).
+        // Never leave the JavaScript promise — and its Opening camera state —
+        // pending forever.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self, weak picker] in
+            guard let self,
+                  self.photoCall === call,
+                  picker?.presentingViewController == nil else {
+                return
+            }
+            self.photoCall = nil
+            call.reject("Camera could not be opened.", "CAMERA_UNAVAILABLE")
+        }
     }
 
     private func topViewController(from root: UIViewController?) -> UIViewController? {
@@ -140,16 +215,25 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
         let call = photoCall
         photoCall = nil
 
-        guard let image = info[.originalImage] as? UIImage,
-              let dataUrl = image.businessCardDataUrl() else {
+        guard let image = info[.originalImage] as? UIImage else {
             picker.dismiss(animated: true) {
                 call?.reject("Photo could not be read.", "PHOTO_UNREADABLE")
             }
             return
         }
 
-        picker.dismiss(animated: true) {
-            call?.resolve(["dataUrl": dataUrl])
+        // Give the camera back immediately. Resize/JPEG/base64 work is sizable
+        // on modern photos and should not freeze the picker on the main thread.
+        picker.dismiss(animated: true)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let dataUrl = image.businessCardDataUrl()
+            DispatchQueue.main.async {
+                if let dataUrl {
+                    call?.resolve(["dataUrl": dataUrl])
+                } else {
+                    call?.reject("Photo could not be read.", "PHOTO_UNREADABLE")
+                }
+            }
         }
     }
 }

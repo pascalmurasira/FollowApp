@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { X, ShieldCheck, MailCheck } from 'lucide-react'
 import { signIn } from '@/lib/auth-client'
+import { accountSyncCallbackURL } from '@/lib/account-sync-flow'
+import { getDeviceId } from '@/lib/device-id'
 
 /**
  * The "Secure your Nudge" magic-link sheet. Collects an email, sends a sign-in
@@ -37,7 +39,11 @@ export function SecureNudgeSheet({
     try {
       const { error } = await signIn.magicLink({
         email: email.trim(),
-        callbackURL: '/welcome-back',
+        // Carry the anonymous capability that is being secured through the
+        // one-time magic-link flow. If the email is opened on another device,
+        // /welcome-back claims this source first and then merges the device
+        // that opened the link into the same canonical account dataset.
+        callbackURL: accountSyncCallbackURL(getDeviceId()),
       })
       if (error) throw new Error(error.message)
       setStatus('sent')
@@ -101,10 +107,9 @@ export function SecureNudgeSheet({
           ) : (
             <>
               <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
-                Right now your network, circles, and follow-ups live only on
-                this device — switch phones or clear your browser and
-                they&apos;re gone. Add your email and we&apos;ll keep them safe
-                and synced everywhere. No password needed.
+                FollowApp keeps a device-scoped backup for this installation.
+                Add your email to securely sync your network and follow-ups
+                across devices. No password needed.
               </p>
 
               <label className="flex flex-col gap-1.5">

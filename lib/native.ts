@@ -1,3 +1,9 @@
+import type { CardData } from '@/lib/card'
+import {
+  isNativeCameraAdapterUnavailableError,
+  isNativeMethodUnavailableError,
+} from '@/lib/native-bridge'
+
 export async function isNativeRuntime(): Promise<boolean> {
   if (typeof window === 'undefined') return false
   try {
@@ -54,15 +60,22 @@ export type NativePermissionState =
   | 'prompt'
   | 'prompt-with-rationale'
 
+function nativeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string') return message
+  }
+  return String(error)
+}
+
 export function isNativeUserCancelError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return /cancel(?:led|ed|)?/i.test(message)
+  return /cancel(?:led|ed|)?/i.test(nativeErrorMessage(error))
 }
 
 export function isNativePermissionDeniedError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
   return /(denied|not authorized|not authorised|permission|privacy|restricted|access)/i.test(
-    message,
+    nativeErrorMessage(error),
   )
 }
 
@@ -112,108 +125,55 @@ export async function captureImageDataUrl(): Promise<string | null> {
 
   try {
     const native = await followAppNativePlugin()
-    const status = await withTimeout(
-      native.cameraStatus(),
-      1800,
-      'FollowApp native camera status',
-    )
-    if (!status.available) throw new Error('Camera is unavailable on this device.')
-    if (status.permission === 'denied' || status.permission === 'restricted') {
-      throw new Error('Camera permission denied.')
-    }
-
+    // The Swift method already checks availability and requests permission.
+    // Calling it directly removes a redundant bridge round-trip (previously up
+    // to 1.8 seconds) from the user's tap-to-camera path.
     const photo = await native.takeBusinessCardPhoto()
     if (photo.dataUrl) return photo.dataUrl
+    throw new Error('Camera returned no photo.')
   } catch (error) {
     if (isNativeUserCancelError(error) || isNativePermissionDeniedError(error)) {
       throw error
     }
+    if (!isNativeCameraAdapterUnavailableError(error)) throw error
     console.warn('[v0] FollowApp native camera failed, trying Capacitor Camera:', error)
   }
 
-  const {
-    Camera,
-    CameraDirection,
-    CameraResultType,
-    CameraSource,
-    EncodingType,
-  } = await import('@capacitor/camera')
-
-  try {
-    const photo = await Camera.getPhoto({
-      quality: 82,
-      width: 1600,
-      height: 1600,
-      allowEditing: false,
-      correctOrientation: true,
-      resultType: CameraResultType.DataUrl,
-      source: CameraSource.Camera,
-      promptLabelHeader: 'Scan business card',
-      promptLabelPhoto: 'Take photo',
-    })
-    return photo.dataUrl ?? null
-  } catch (error) {
-    if (isNativeUserCancelError(error) || isNativePermissionDeniedError(error)) {
-      throw error
-    }
-    console.warn('[v0] Native getPhoto failed, trying takePhoto:', error)
-  }
-
-  const photo = await Camera.takePhoto({
+  const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
+  const photo = await Camera.getPhoto({
     quality: 82,
-    targetWidth: 1600,
-    targetHeight: 1600,
+    width: 1600,
+    height: 1600,
+    allowEditing: false,
     correctOrientation: true,
-    encodingType: EncodingType.JPEG,
-    cameraDirection: CameraDirection.Rear,
-    editable: 'no',
-    presentationStyle: 'fullscreen',
-    saveToGallery: false,
+    resultType: CameraResultType.DataUrl,
+    source: CameraSource.Camera,
+    promptLabelHeader: 'Scan business card',
+    promptLabelPhoto: 'Take photo',
   })
-
-  return mediaResultToDataUrl(photo.thumbnail, photo.uri)
+  return photo.dataUrl ?? null
 }
 
-async function followAppNativePlugin(): Promise<{
+interface FollowAppNativePlugin {
   openSettings(): Promise<void>
   cameraStatus(): Promise<{
     available?: boolean
     permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
   }>
   takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
-}> {
-  const { registerPlugin } = await import('@capacitor/core')
-  return registerPlugin<{
-    openSettings(): Promise<void>
-    cameraStatus(): Promise<{
-      available?: boolean
-      permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
-    }>
-    takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
-  }>('FollowAppNative')
+  saveContact(card: CardData): Promise<{ saved?: boolean }>
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  label: string,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(
-      () => reject(new Error(`${label} timed out.`)),
-      timeoutMs,
+let followAppNativePluginPromise: Promise<FollowAppNativePlugin> | null = null
+
+async function followAppNativePlugin(): Promise<FollowAppNativePlugin> {
+  if (!followAppNativePluginPromise) {
+    followAppNativePluginPromise = import('@capacitor/core').then(
+      ({ registerPlugin }) =>
+        registerPlugin<FollowAppNativePlugin>('FollowAppNative'),
     )
-    promise.then(
-      (value) => {
-        window.clearTimeout(timeout)
-        resolve(value)
-      },
-      (error) => {
-        window.clearTimeout(timeout)
-        reject(error)
-      },
-    )
-  })
+  }
+  return followAppNativePluginPromise
 }
 
 export async function chooseImageDataUrl(): Promise<string | null> {
@@ -232,7 +192,7 @@ export async function chooseImageDataUrl(): Promise<string | null> {
     })
     const photo = result.results[0]
     if (!photo) return null
-    return mediaResultToDataUrl(photo.thumbnail, photo.uri)
+    return mediaResultToDataUrl(photo.webPath, photo.uri, photo.thumbnail)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (/cancel/i.test(message)) throw error
@@ -255,14 +215,48 @@ export async function chooseImageDataUrl(): Promise<string | null> {
 }
 
 async function mediaResultToDataUrl(
-  thumbnail?: string,
+  webPath?: string,
   uri?: string,
+  thumbnail?: string,
 ): Promise<string | null> {
-  if (thumbnail) return base64ToJpegDataUrl(thumbnail)
-  if (!uri) return null
-  const response = await fetch(uri)
-  const blob = await response.blob()
-  return blobToDataUrl(blob)
+  const { Capacitor } = await import('@capacitor/core')
+  const candidates = [webPath, uri ? Capacitor.convertFileSrc(uri) : undefined]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    try {
+      const response = await fetch(candidate)
+      if (!response.ok) continue
+      return blobToDataUrl(await response.blob())
+    } catch {
+      // Fall through to the next WebView-safe representation.
+    }
+  }
+  return thumbnail ? base64ToJpegDataUrl(thumbnail) : null
+}
+
+export async function saveContactToPhone(card: CardData): Promise<boolean> {
+  if (await isNativeRuntime()) {
+    try {
+      const result = await (await followAppNativePlugin()).saveContact(card)
+      // The current iOS editor resolves false when the user cancels. Preserve
+      // that outcome instead of unexpectedly opening a second save flow.
+      return result.saved ?? false
+    } catch (error) {
+      if (
+        isNativeUserCancelError(error) ||
+        !isNativeMethodUnavailableError(error)
+      ) {
+        throw error
+      }
+      console.warn(
+        '[v0] Native contact bridge unavailable, using vCard fallback:',
+        error,
+      )
+    }
+  }
+  const { saveToPhone } = await import('@/lib/card')
+  saveToPhone(card)
+  return true
 }
 
 function base64ToJpegDataUrl(value: string): string {

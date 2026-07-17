@@ -9,6 +9,7 @@ import {
   type ParsedContact,
 } from '@/lib/import-contacts'
 import type { Tier } from '@/lib/types'
+import { savedCountFromImportError } from '@/lib/contact-import-utils'
 import { cn } from '@/lib/utils'
 
 const SOURCE_LABEL: Record<ImportSource, string> = {
@@ -110,12 +111,62 @@ export function ImportContactsSheet({
 
   const confirm = async () => {
     if (!parsed) return
-    const chosen = parsed.filter((_, i) => included[i])
-    if (chosen.length === 0) return
+    const chosen = parsed
+      .map((contact, index) => ({ contact, index }))
+      .filter(({ index }) => included[index])
+    if (chosen.length === 0 || saving) return
+    setError(null)
     setSaving(true)
-    await onImport(chosen, tier)
-    setSaving(false)
-    close()
+
+    const keepRemaining = (savedCount: number) => {
+      const savedIndexes = new Set(
+        chosen.slice(0, savedCount).map(({ index }) => index),
+      )
+      const nextParsed: ParsedContact[] = []
+      const nextIncluded: Record<number, boolean> = {}
+      parsed.forEach((contact, oldIndex) => {
+        if (savedIndexes.has(oldIndex)) return
+        const nextIndex = nextParsed.length
+        nextParsed.push(contact)
+        nextIncluded[nextIndex] = Boolean(included[oldIndex])
+      })
+      setParsed(nextParsed)
+      setIncluded(nextIncluded)
+    }
+
+    try {
+      const savedCount = await onImport(
+        chosen.map(({ contact }) => contact),
+        tier,
+      )
+      if (savedCount === chosen.length) {
+        close()
+        return
+      }
+
+      const confirmed = Number.isFinite(savedCount)
+        ? Math.max(0, Math.min(chosen.length, Math.floor(savedCount)))
+        : 0
+      keepRemaining(confirmed)
+      setError(
+        confirmed > 0
+          ? `${confirmed} imported. The remaining contacts were not saved — try them again.`
+          : 'No contacts were imported. Check your connection and try again.',
+      )
+    } catch (importError) {
+      const confirmed = Math.min(
+        chosen.length,
+        savedCountFromImportError(importError),
+      )
+      if (confirmed > 0) keepRemaining(confirmed)
+      setError(
+        confirmed > 0
+          ? `${confirmed} imported. The remaining contacts were not saved — try them again.`
+          : 'No contacts were imported. Check your connection and try again.',
+      )
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -224,6 +275,14 @@ export function ImportContactsSheet({
             </>
           ) : (
             <div className="flex flex-col gap-4">
+              {error && (
+                <p
+                  role="alert"
+                  className="rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive"
+                >
+                  {error}
+                </p>
+              )}
               <div className="flex items-center justify-between">
                 <p className="text-[13px] text-muted-foreground">
                   Found{' '}

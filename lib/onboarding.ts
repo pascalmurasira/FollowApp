@@ -62,10 +62,34 @@ export function labelForTone(toneId: string): string {
 
 export interface OnboardingState {
   completed: boolean
-  /** IDs of the demo contacts the user chose to prioritize. */
+  /** IDs of contacts the user chose or created during activation. */
   selectedContactIds: string[]
   /** Chosen tone id, maps to an AI voice. */
   toneId: string
+  /** Samples are opt-in and disappear as soon as the user adds a real person. */
+  sampleMode?: boolean
+}
+
+/**
+ * New users may preview samples, but real relationship data must never be mixed
+ * with fictional people. Undefined preserves the legacy sample experience only
+ * for existing installs that have no real contacts yet.
+ */
+export function shouldShowSampleContacts(
+  state: OnboardingState | null,
+  realContactCount: number,
+): boolean {
+  if (realContactCount > 0) return false
+  if (!state?.completed) return true
+  return state.sampleMode !== false
+}
+
+/** Real relationship data is itself proof that first-run activation happened. */
+export function shouldEnterApp(
+  state: OnboardingState | null,
+  realContactCount: number,
+): boolean {
+  return state?.completed === true || realContactCount > 0
 }
 
 export function loadOnboarding(): OnboardingState | null {
