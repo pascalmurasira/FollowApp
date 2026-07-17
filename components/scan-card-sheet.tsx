@@ -34,6 +34,13 @@ import {
 } from '@/lib/native'
 import { todayDateInputValue } from '@/lib/contact-dates'
 import { isDeliverableEmail } from '@/lib/contact-validation'
+import {
+  beginCameraLaunch,
+  cancelCameraLaunch,
+  createCameraLaunchState,
+  finishCameraLaunch,
+  isCameraLaunchActive,
+} from '@/lib/camera-launch'
 import { cn } from '@/lib/utils'
 
 interface ScannedCard {
@@ -164,12 +171,17 @@ export function ScanCardSheet({
   const photoFileRef = useRef<HTMLInputElement>(null)
   const cameraButtonRef = useRef<HTMLButtonElement>(null)
   const didAutoLaunchRef = useRef(false)
+  const cameraLaunchRef = useRef(createCameraLaunchState())
   const scanAbortRef = useRef<AbortController | null>(null)
   const operationRef = useRef(0)
   const openRef = useRef(open)
   useEffect(() => {
     openRef.current = open
-    if (!open) operationRef.current += 1
+    if (!open) {
+      operationRef.current += 1
+      cancelCameraLaunch(cameraLaunchRef.current)
+      setIsOpeningCamera(false)
+    }
   }, [open])
 
   useEffect(() => {
@@ -178,6 +190,7 @@ export function ScanCardSheet({
 
   const reset = () => {
     operationRef.current += 1
+    cancelCameraLaunch(cameraLaunchRef.current)
     scanAbortRef.current?.abort()
     scanAbortRef.current = null
     setStage('capture')
@@ -304,8 +317,10 @@ export function ScanCardSheet({
     ) {
       return
     }
+    const cameraButton = cameraButtonRef.current
+    if (!cameraButton) return
     didAutoLaunchRef.current = true
-    cameraButtonRef.current?.click()
+    cameraButton.click()
   }, [autoLaunchCamera, open, portalRoot])
 
   if (!open || !portalRoot) return null
@@ -434,10 +449,6 @@ export function ScanCardSheet({
   }
 
   const handleNativeCamera = async () => {
-    const operation = ++operationRef.current
-    const startedAt = performance.now()
-    setError(null)
-    setCameraHelp(null)
     const native = Capacitor.isNativePlatform()
     if (!native) {
       // Browser/iOS Safari requires the file picker to be opened directly from
@@ -447,6 +458,15 @@ export function ScanCardSheet({
       return
     }
 
+    // Effects and taps can arrive in the same render frame. React state is not
+    // a synchronous mutex, so keep a ref-backed gate around the entire native
+    // call. One user action must never create two competing camera controllers.
+    const cameraAttempt = beginCameraLaunch(cameraLaunchRef.current)
+    if (cameraAttempt === null) return
+    const operation = ++operationRef.current
+    const startedAt = performance.now()
+    setError(null)
+    setCameraHelp(null)
     setIsOpeningCamera(true)
     try {
       // Camera presentation owns the hot path. Avoid a competing haptics bridge
@@ -477,13 +497,17 @@ export function ScanCardSheet({
         setStage('capture')
       }
     } finally {
-      if (openRef.current && operationRef.current === operation) {
-        setIsOpeningCamera(false)
+      // Camera ownership is independent from scan/upload operations. Clearing
+      // the spinner against the generic operation token caused the old UI to
+      // remain stuck whenever another action changed that token mid-launch.
+      if (finishCameraLaunch(cameraLaunchRef.current, cameraAttempt)) {
+        if (openRef.current) setIsOpeningCamera(false)
       }
     }
   }
 
   const handleChoosePhoto = async () => {
+    if (isCameraLaunchActive(cameraLaunchRef.current)) return
     const operation = ++operationRef.current
     setError(null)
     setCameraHelp(null)
@@ -524,6 +548,7 @@ export function ScanCardSheet({
   }
 
   const handleManualEntry = async () => {
+    if (isCameraLaunchActive(cameraLaunchRef.current)) return
     await tapFeedback()
     setError(null)
     setCameraHelp(null)
@@ -709,6 +734,7 @@ export function ScanCardSheet({
               {cameraHelp ? (
                 <CameraPermissionCard
                   kind={cameraHelp}
+                  busy={isOpeningCamera}
                   onRetryCamera={handleNativeCamera}
                   onOpenSettings={handleOpenSettings}
                   onChoosePhoto={handleChoosePhoto}
@@ -739,7 +765,8 @@ export function ScanCardSheet({
                   <button
                     type="button"
                     onClick={handleChoosePhoto}
-                    className="glass-button pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-strong)]"
+                    disabled={isOpeningCamera}
+                    className="glass-button pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-strong)] disabled:opacity-50"
                   >
                     Choose a photo
                   </button>
@@ -750,7 +777,8 @@ export function ScanCardSheet({
                 <button
                   type="button"
                   onClick={handleManualEntry}
-                  className="pressable min-h-11 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-secondary)]"
+                  disabled={isOpeningCamera}
+                  className="pressable min-h-11 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-50"
                 >
                   Enter manually
                 </button>
@@ -758,7 +786,8 @@ export function ScanCardSheet({
                   <button
                     type="button"
                     onClick={onTrySample}
-                    className="pressable min-h-11 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-secondary)]"
+                    disabled={isOpeningCamera}
+                    className="pressable min-h-11 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-50"
                   >
                     Try with a sample
                   </button>
@@ -950,7 +979,8 @@ export function ScanCardSheet({
                 <button
                   type="button"
                   onClick={handleNativeCamera}
-                  className="pressable flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)]"
+                  disabled={isOpeningCamera}
+                  className="pressable flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-50"
                 >
                   <RotateCcw className="size-3.5" />
                   {reviewSource === 'manual' ? 'Scan instead' : 'Rescan'}
@@ -981,11 +1011,13 @@ export function ScanCardSheet({
 
 function CameraPermissionCard({
   kind,
+  busy,
   onRetryCamera,
   onOpenSettings,
   onChoosePhoto,
 }: {
   kind: Exclude<CameraPermissionHelp, null>
+  busy: boolean
   onRetryCamera: () => void
   onOpenSettings: () => void
   onChoosePhoto: () => void
@@ -1022,7 +1054,8 @@ function CameraPermissionCard({
         <button
           type="button"
           onClick={blocked ? onOpenSettings : onRetryCamera}
-          className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold"
+          disabled={busy}
+          className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-[var(--r-button)] px-4 text-sm font-semibold disabled:opacity-50"
         >
           {blocked ? (
             <Settings className="size-4" />
@@ -1034,7 +1067,8 @@ function CameraPermissionCard({
         <button
           type="button"
           onClick={onChoosePhoto}
-          className="glass-button pressable flex min-h-11 items-center justify-center rounded-[var(--r-button)] px-4 text-sm font-semibold text-[var(--ink-strong)]"
+          disabled={busy}
+          className="glass-button pressable flex min-h-11 items-center justify-center rounded-[var(--r-button)] px-4 text-sm font-semibold text-[var(--ink-strong)] disabled:opacity-50"
         >
           Choose photo
         </button>

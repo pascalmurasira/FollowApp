@@ -1,8 +1,5 @@
 import type { CardData } from '@/lib/card'
-import {
-  isNativeCameraAdapterUnavailableError,
-  isNativeMethodUnavailableError,
-} from '@/lib/native-bridge'
+import { isNativeMethodUnavailableError } from '@/lib/native-bridge'
 
 export async function isNativeRuntime(): Promise<boolean> {
   if (typeof window === 'undefined') return false
@@ -123,45 +120,35 @@ export async function openAppSettings(): Promise<void> {
 export async function captureImageDataUrl(): Promise<string | null> {
   if (!(await isNativeRuntime())) return null
 
-  try {
-    const native = await followAppNativePlugin()
-    // The Swift method already checks availability and requests permission.
-    // Calling it directly removes a redundant bridge round-trip (previously up
-    // to 1.8 seconds) from the user's tap-to-camera path.
-    const photo = await native.takeBusinessCardPhoto()
-    if (photo.dataUrl) return photo.dataUrl
-    throw new Error('Camera returned no photo.')
-  } catch (error) {
-    if (isNativeUserCancelError(error) || isNativePermissionDeniedError(error)) {
-      throw error
-    }
-    if (!isNativeCameraAdapterUnavailableError(error)) throw error
-    console.warn('[v0] FollowApp native camera failed, trying Capacitor Camera:', error)
-  }
-
-  const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
-  const photo = await Camera.getPhoto({
+  // Capacitor 8's maintained takePhoto implementation owns the camera hot
+  // path. The previous custom UIImagePickerController bridge could leave its
+  // promise pending when iOS declined or interrupted presentation, which kept
+  // the sheet on "Opening camera…" forever. takePhoto also gives us one camera
+  // implementation per tap instead of attempting a second picker after an
+  // ambiguous native failure.
+  const { Camera, CameraDirection, EncodingType } = await import(
+    '@capacitor/camera'
+  )
+  const photo = await Camera.takePhoto({
     quality: 82,
-    width: 1600,
-    height: 1600,
-    allowEditing: false,
+    targetWidth: 1600,
+    targetHeight: 1600,
     correctOrientation: true,
-    resultType: CameraResultType.DataUrl,
-    source: CameraSource.Camera,
-    promptLabelHeader: 'Scan business card',
-    promptLabelPhoto: 'Take photo',
+    encodingType: EncodingType.JPEG,
+    saveToGallery: false,
+    cameraDirection: CameraDirection.Rear,
+    editable: 'no',
+    presentationStyle: 'fullscreen',
   })
-  return photo.dataUrl ?? null
+  return mediaResultToDataUrl(photo.webPath, photo.uri, photo.thumbnail)
 }
 
 interface FollowAppNativePlugin {
   openSettings(): Promise<void>
-  prepareBusinessCardCamera(): Promise<{ prepared?: boolean }>
   cameraStatus(): Promise<{
     available?: boolean
     permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
   }>
-  takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
   saveContact(card: CardData): Promise<{ saved?: boolean }>
 }
 
@@ -175,28 +162,6 @@ async function followAppNativePlugin(): Promise<FollowAppNativePlugin> {
     )
   }
   return followAppNativePluginPromise
-}
-
-/**
- * Loads the native bridge and lets iOS allocate an unpresented camera picker.
- * The native method never requests permission or presents UI, so callers may
- * safely run this while the app is idle. A later user tap remains the only
- * action that can open the camera or trigger the permission prompt.
- */
-export async function prewarmBusinessCardCamera(): Promise<void> {
-  if (!(await isNativeRuntime())) return
-
-  try {
-    const native = await followAppNativePlugin()
-    await native.prepareBusinessCardCamera()
-  } catch (error) {
-    // Prewarming is an optional latency optimization. Older native shells do
-    // not expose this method and must continue to capture through the normal
-    // user-initiated path without surfacing an error.
-    if (!isNativeMethodUnavailableError(error)) {
-      console.debug('[v0] Native camera prewarm was skipped:', error)
-    }
-  }
 }
 
 export async function chooseImageDataUrl(): Promise<string | null> {
