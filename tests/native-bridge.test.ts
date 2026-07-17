@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isNativeMethodUnavailableError } from '../lib/native-bridge.ts'
+import {
+  isNativeCameraAdapterUnavailableError,
+  isNativeMethodUnavailableError,
+} from '../lib/native-bridge.ts'
 
 test('older or absent native contact methods are eligible for fallback', () => {
   assert.equal(
@@ -40,6 +43,44 @@ test('cancellation and real contact errors do not look like a missing bridge', (
     isNativeMethodUnavailableError({
       code: 'CONTACT_BUSY',
       message: 'Contact editor is already open.',
+    }),
+    false,
+  )
+})
+
+test('camera fallback is limited to an unavailable adapter', () => {
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'CAMERA_UNAVAILABLE',
+      message: 'Camera could not be opened.',
+    }),
+    true,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'UNIMPLEMENTED',
+      message: 'FollowAppNative camera method is not implemented',
+    }),
+    true,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'CAMERA_BUSY',
+      message: 'Camera is already open.',
+    }),
+    false,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'USER_CANCELLED',
+      message: 'User cancelled camera.',
+    }),
+    false,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'PERMISSION_DENIED',
+      message: 'Camera permission denied.',
     }),
     false,
   )

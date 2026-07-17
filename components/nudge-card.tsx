@@ -22,7 +22,6 @@ import { cn } from '@/lib/utils'
 export function NudgeCard({
   contact,
   nudge,
-  loading,
   pinned = false,
   featured = false,
   onOpen,
@@ -31,7 +30,6 @@ export function NudgeCard({
 }: {
   contact: Contact
   nudge?: Nudge
-  loading: boolean
   pinned?: boolean
   featured?: boolean
   onOpen: () => void
@@ -143,7 +141,7 @@ export function NudgeCard({
 
       {/* Opener — the hero. No nested box; it breathes on the card. */}
       <div className="relative mt-5">
-        {loading || !nudge ? (
+        {!nudge ? (
           <div className="space-y-2.5 py-1">
             <div className="h-3 w-[88%] animate-pulse rounded-full bg-[var(--hairline)]" />
             <div className="h-3 w-[64%] animate-pulse rounded-full bg-[var(--hairline)]" />
@@ -186,17 +184,19 @@ export function NudgeCard({
         <div className="mt-5 flex items-center gap-2">
           <button
             type="button"
-            onClick={handleSend}
-            disabled={loading || !nudge || sending || !canSend}
+            onClick={canSend ? handleSend : onOpen}
+            disabled={sending || (canSend && !nudge)}
             className={cn(
               'primary-action pressable flex min-h-[46px] flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold disabled:opacity-40',
-              isWhatsApp
+              canSend && isWhatsApp
                 ? 'bg-whatsapp text-whatsapp-foreground shadow-sm'
                 : 'bg-primary text-primary-foreground shadow-sm',
             )}
           >
             {sending ? (
               <Check className="size-[18px]" />
+            ) : !canSend ? (
+              <Pencil className="size-[18px]" />
             ) : (
               <ChannelIcon channel={channel} className="size-[18px]" />
             )}

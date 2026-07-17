@@ -12,7 +12,7 @@ const SNOOZE_DAYS = 5
  * so it never pops the instant they finish an action (e.g. adding a contact).
  * It appears a beat later, or on their next visit.
  */
-const SETTLE_MS = 4000
+const SETTLE_MS = 30_000
 
 /**
  * Decides when to surface the "Secure your Nudge" magic-link prompt.

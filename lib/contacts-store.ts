@@ -10,10 +10,15 @@ import {
   confirmedImportCount,
   contactImportBatches,
 } from '@/lib/contact-import-utils'
+import { serializeContactWrite } from '@/lib/contact-write-queue'
 
 export { ContactImportError } from '@/lib/contact-import-utils'
 
 const HUES: Contact['avatarHue'][] = ['coral', 'teal', 'amber', 'rose', 'sage']
+
+function contactWriteKey(deviceId: string, contactId: string): string {
+  return `${deviceId}:${contactId}`
+}
 
 /** Pick a stable-ish avatar hue so new contacts get varied colors. */
 function pickHue(seed: number): Contact['avatarHue'] {
@@ -190,6 +195,11 @@ function readLocalPeople(): PeopleResponse {
   }
 }
 
+/** Synchronous first-paint data; remote reconciliation happens in background. */
+export function loadLocalPeople(): PeopleResponse {
+  return readLocalPeople()
+}
+
 function writeLocalPeople(people: PeopleResponse): void {
   if (typeof window === 'undefined') return
   try {
@@ -233,13 +243,15 @@ export async function fetchPeople(
   _syncRemote = false,
 ): Promise<PeopleResponse> {
   void _syncRemote
-  const local = readLocalPeople()
   try {
     const res = await fetch('/api/contacts', {
       headers: { 'X-FollowApp-Device-Id': deviceId },
     })
     if (!res.ok) throw new Error(`Contacts fetch failed: ${res.status}`)
     const data = (await res.json()) as PeopleResponse
+    // Re-read after the request so a contact added while sync was in flight is
+    // merged rather than overwritten by the older snapshot.
+    const local = readLocalPeople()
     const merged = {
       contacts: upsertContacts(
         (data.contacts ?? []).map(refreshContactFreshness),
@@ -251,7 +263,7 @@ export async function fetchPeople(
     return merged
   } catch (error) {
     console.error('[v0] Failed to load people:', error)
-    return local
+    return readLocalPeople()
   }
 }
 
@@ -334,21 +346,23 @@ export async function apiUpdateContact(
     })
   }
 
-  try {
-    const res = await fetch('/api/contacts', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deviceId,
-        contactId,
-        action: 'update',
-        updates,
-      }),
-    })
-    if (!res.ok) throw new Error(`Contact update failed: ${res.status}`)
-  } catch (error) {
-    console.error('[v0] Failed to update contact:', error)
-  }
+  await serializeContactWrite(contactWriteKey(deviceId, contactId), async () => {
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId,
+          contactId,
+          action: 'update',
+          updates,
+        }),
+      })
+      if (!res.ok) throw new Error(`Contact update failed: ${res.status}`)
+    } catch (error) {
+      console.error('[v0] Failed to update contact:', error)
+    }
+  })
 }
 
 export async function apiTouchContact(
@@ -358,16 +372,18 @@ export async function apiTouchContact(
 ): Promise<void> {
   void _syncRemote
   touchLocalContact(contactId)
-  try {
-    const res = await fetch('/api/contacts', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, contactId, action: 'touch' }),
-    })
-    if (!res.ok) throw new Error(`Contact touch failed: ${res.status}`)
-  } catch (error) {
-    console.error('[v0] Failed to update last contact date:', error)
-  }
+  await serializeContactWrite(contactWriteKey(deviceId, contactId), async () => {
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, contactId, action: 'touch' }),
+      })
+      if (!res.ok) throw new Error(`Contact touch failed: ${res.status}`)
+    } catch (error) {
+      console.error('[v0] Failed to update last contact date:', error)
+    }
+  })
 }
 
 /** Persist a contact locally and to the anonymous device-scoped server copy. */
@@ -382,16 +398,18 @@ export async function apiAddContact(
     ...local,
     contacts: upsertContacts(local.contacts, [contact]),
   })
-  try {
-    const res = await fetch('/api/contacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, contact }),
-    })
-    if (!res.ok) throw new Error(`Contact save failed: ${res.status}`)
-  } catch (error) {
-    console.error('[v0] Failed to add contact:', error)
-  }
+  await serializeContactWrite(contactWriteKey(deviceId, contact.id), async () => {
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, contact }),
+      })
+      if (!res.ok) throw new Error(`Contact save failed: ${res.status}`)
+    } catch (error) {
+      console.error('[v0] Failed to add contact:', error)
+    }
+  })
 }
 
 /** Persist a batch of imported contacts for this device. Returns count saved. */
@@ -447,14 +465,16 @@ export async function apiSetCircle(
   if (circle) circles[contactId] = [circle]
   else delete circles[contactId]
   writeLocalPeople({ ...local, circles })
-  try {
-    const res = await fetch('/api/contacts', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, contactId, circle }),
-    })
-    if (!res.ok) throw new Error(`Circle save failed: ${res.status}`)
-  } catch (error) {
-    console.error('[v0] Failed to set circle:', error)
-  }
+  await serializeContactWrite(contactWriteKey(deviceId, contactId), async () => {
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, contactId, circle }),
+      })
+      if (!res.ok) throw new Error(`Circle save failed: ${res.status}`)
+    } catch (error) {
+      console.error('[v0] Failed to set circle:', error)
+    }
+  })
 }

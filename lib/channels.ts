@@ -1,5 +1,6 @@
 import type { Contact } from './types'
 import { copyText, openExternalUrl, tapFeedback } from './native'
+import { isDeliverableEmail } from './contact-validation'
 
 export type ChannelId = 'whatsapp' | 'email'
 
@@ -112,7 +113,7 @@ const whatsapp: Channel = {
 
 const email: Channel = {
   id: 'email',
-  canSend: (c) => !!c.email && c.email.trim().length > 0,
+  canSend: (c) => isDeliverableEmail(c.email),
   open: (c, text) => {
     void tapFeedback()
     const address = (c.email ?? '').trim()

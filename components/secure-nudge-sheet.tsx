@@ -107,10 +107,9 @@ export function SecureNudgeSheet({
           ) : (
             <>
               <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
-                Right now your network, circles, and follow-ups live only on
-                this device — switch phones or clear your browser and
-                they&apos;re gone. Add your email and we&apos;ll keep them safe
-                and synced everywhere. No password needed.
+                FollowApp keeps a device-scoped backup for this installation.
+                Add your email to securely sync your network and follow-ups
+                across devices. No password needed.
               </p>
 
               <label className="flex flex-col gap-1.5">

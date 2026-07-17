@@ -27,3 +27,22 @@ export function isNativeMethodUnavailableError(error: unknown): boolean {
     )
   )
 }
+
+/**
+ * Only adapter-availability failures may fall through to Capacitor Camera.
+ * Permission, cancellation, busy, and capture errors must stay single-path so
+ * one tap can never open multiple camera implementations in sequence.
+ */
+export function isNativeCameraAdapterUnavailableError(error: unknown): boolean {
+  if (isNativeMethodUnavailableError(error)) return true
+  const candidate =
+    typeof error === 'object'
+      ? (error as { code?: unknown; message?: unknown })
+      : null
+  const code =
+    typeof candidate?.code === 'string' ? candidate.code.toUpperCase() : ''
+  if (code === 'CAMERA_UNAVAILABLE') return true
+  const message =
+    typeof candidate?.message === 'string' ? candidate.message : String(error)
+  return /camera (?:is unavailable|could not be opened)/i.test(message)
+}

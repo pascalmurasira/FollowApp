@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X,
   Camera,
@@ -16,10 +17,12 @@ import {
   Search,
   ShieldCheck,
   Settings,
+  ChevronDown,
+  ScanLine,
 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import type { NewContactInput } from '@/lib/contacts-store'
-import type { EnrichmentHook, Tier } from '@/lib/types'
+import type { Contact, EnrichmentHook, Tier } from '@/lib/types'
 import {
   captureImageDataUrl,
   chooseImageDataUrl,
@@ -30,6 +33,7 @@ import {
   tapFeedback,
 } from '@/lib/native'
 import { todayDateInputValue } from '@/lib/contact-dates'
+import { isDeliverableEmail } from '@/lib/contact-validation'
 import { cn } from '@/lib/utils'
 
 interface ScannedCard {
@@ -115,10 +119,6 @@ async function normalizeDataUrl(dataUrl: string, max = 1600): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.85)
 }
 
-function looksLikeEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
-}
-
 function looksLikePhone(value: string): boolean {
   const digits = value.replace(/\D/g, '')
   return digits.length >= 8
@@ -128,10 +128,18 @@ export function ScanCardSheet({
   open,
   onClose,
   onAdd,
+  onOpenContact,
+  onTrySample,
+  autoLaunchCamera = false,
+  variant = 'standard',
 }: {
   open: boolean
   onClose: () => void
-  onAdd: (input: NewContactInput) => void
+  onAdd: (input: NewContactInput) => Contact | void
+  onOpenContact?: (contactId: string) => void
+  onTrySample?: () => void
+  autoLaunchCamera?: boolean
+  variant?: 'standard' | 'onboarding'
 }) {
   const [stage, setStage] = useState<Stage>('capture')
   const [card, setCard] = useState<ScannedCard>(EMPTY)
@@ -145,9 +153,18 @@ export function ScanCardSheet({
   const [cameraHelp, setCameraHelp] = useState<CameraPermissionHelp>(null)
   const [isOpeningCamera, setIsOpeningCamera] = useState(false)
   const [showScanDetails, setShowScanDetails] = useState(false)
+  const [showReviewDetails, setShowReviewDetails] = useState(false)
   const [reviewSource, setReviewSource] = useState<ReviewSource>('scan')
+  const [addedContactId, setAddedContactId] = useState<string | null>(null)
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const modalRootRef = useRef<HTMLDivElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
   const cameraFileRef = useRef<HTMLInputElement>(null)
   const photoFileRef = useRef<HTMLInputElement>(null)
+  const cameraButtonRef = useRef<HTMLButtonElement>(null)
+  const didAutoLaunchRef = useRef(false)
+  const scanAbortRef = useRef<AbortController | null>(null)
   const operationRef = useRef(0)
   const openRef = useRef(open)
   useEffect(() => {
@@ -155,10 +172,14 @@ export function ScanCardSheet({
     if (!open) operationRef.current += 1
   }, [open])
 
-  if (!open) return null
+  useEffect(() => {
+    setPortalRoot(document.body)
+  }, [])
 
   const reset = () => {
     operationRef.current += 1
+    scanAbortRef.current?.abort()
+    scanAbortRef.current = null
     setStage('capture')
     setCard(EMPTY)
     setTier('network')
@@ -171,7 +192,9 @@ export function ScanCardSheet({
     setCameraHelp(null)
     setIsOpeningCamera(false)
     setShowScanDetails(false)
+    setShowReviewDetails(false)
     setReviewSource('scan')
+    setAddedContactId(null)
     if (cameraFileRef.current) cameraFileRef.current.value = ''
     if (photoFileRef.current) photoFileRef.current.value = ''
   }
@@ -180,6 +203,113 @@ export function ScanCardSheet({
     reset()
     onClose()
   }
+
+  // A portaled modal must own both visual and keyboard focus. Inerting the app
+  // behind it also keeps screen readers from wandering into hidden controls.
+  useEffect(() => {
+    if (!open || !portalRoot || !modalRootRef.current) return
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+
+    const modalRoot = modalRootRef.current
+    const background = Array.from(document.body.children).filter(
+      (element): element is HTMLElement =>
+        element instanceof HTMLElement && element !== modalRoot,
+    )
+    const backgroundState = background.map((element) => ({
+      element,
+      inert: element.inert,
+      ariaHidden: element.getAttribute('aria-hidden'),
+    }))
+    for (const { element } of backgroundState) {
+      element.inert = true
+      element.setAttribute('aria-hidden', 'true')
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => dialogRef.current?.focus())
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        close()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]):not([aria-hidden="true"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialogRef.current.focus()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (
+        event.shiftKey &&
+        (active === dialogRef.current ||
+          active === first ||
+          !dialogRef.current.contains(active))
+      ) {
+        event.preventDefault()
+        last.focus()
+      } else if (
+        !event.shiftKey &&
+        (active === dialogRef.current ||
+          active === last ||
+          !dialogRef.current.contains(active))
+      ) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', onKeyDown)
+      for (const { element, inert, ariaHidden } of backgroundState) {
+        element.inert = inert
+        if (ariaHidden === null) element.removeAttribute('aria-hidden')
+        else element.setAttribute('aria-hidden', ariaHidden)
+      }
+      previousFocusRef.current?.focus()
+      previousFocusRef.current = null
+    }
+    // Focus ownership follows the open lifecycle; state changes inside the
+    // dialog should not tear down and recreate the accessibility boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, portalRoot])
+
+  // Returning users get a genuine one-tap scan from the home action. Native
+  // camera presentation does not require the browser file-picker gesture, while
+  // the web path deliberately keeps its explicit second tap for Safari safety.
+  useEffect(() => {
+    if (!open) {
+      didAutoLaunchRef.current = false
+      return
+    }
+    if (
+      !autoLaunchCamera ||
+      !portalRoot ||
+      didAutoLaunchRef.current ||
+      !Capacitor.isNativePlatform()
+    ) {
+      return
+    }
+    didAutoLaunchRef.current = true
+    const frame = window.requestAnimationFrame(() => cameraButtonRef.current?.click())
+    return () => window.cancelAnimationFrame(frame)
+  }, [autoLaunchCamera, open, portalRoot])
+
+  if (!open || !portalRoot) return null
 
   const findContext = async (scanned: ScannedCard, operation: number) => {
     if (!scanned.name.trim()) {
@@ -245,11 +375,16 @@ export function ScanCardSheet({
     setError(null)
     setReviewSource('scan')
     setStage('reading')
+    scanAbortRef.current?.abort()
+    const controller = new AbortController()
+    scanAbortRef.current = controller
+    const timeout = window.setTimeout(() => controller.abort(), 15_000)
     try {
       const res = await fetch('/api/scan-card', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image }),
+        signal: controller.signal,
       })
       const data = (await res.json()) as Partial<ScannedCard> & { status?: string }
       if (!openRef.current || operationRef.current !== operation) return
@@ -278,20 +413,30 @@ export function ScanCardSheet({
         setError("Couldn't read much — check the details below.")
       }
       setStage('review')
-      void findContext(scanned, operation)
+      // Public enrichment is optional detail, not part of the critical path.
+      // It starts only if the user expands More details and explicitly asks.
+      setContextStatus('idle')
     } catch (err) {
       if (!openRef.current || operationRef.current !== operation) return
       console.error('[v0] Card capture failed:', err)
-      setError("Something went wrong reading the photo — add the details by hand.")
+      setError(
+        err instanceof DOMException && err.name === 'AbortError'
+          ? 'Reading took too long. Add the essentials now, or rescan.'
+          : 'Something went wrong reading the photo — add the details by hand.',
+      )
       setCard(EMPTY)
       setReviewSource('manual')
       setStage('review')
       setContextStatus('empty')
+    } finally {
+      window.clearTimeout(timeout)
+      if (scanAbortRef.current === controller) scanAbortRef.current = null
     }
   }
 
   const handleNativeCamera = async () => {
     const operation = ++operationRef.current
+    const startedAt = performance.now()
     setError(null)
     setCameraHelp(null)
     const native = Capacitor.isNativePlatform()
@@ -309,10 +454,16 @@ export function ScanCardSheet({
       const image = await captureImageDataUrl()
       if (!openRef.current || operationRef.current !== operation) return
       if (!image) {
-        cameraFileRef.current?.click()
-        return
+        throw new Error('Camera returned no photo.')
       }
-      await readCardImage(await normalizeDataUrl(image), operation)
+      // Native adapters already return a bounded JPEG. Change the visible state
+      // before any upload work so users never remain stuck on “Opening camera”.
+      setStage('reading')
+      console.info('[followapp:scan]', {
+        event: 'camera_capture_returned',
+        elapsedMs: Math.round(performance.now() - startedAt),
+      })
+      await readCardImage(image, operation)
     } catch (err) {
       if (!openRef.current || operationRef.current !== operation) return
       if (isNativePermissionDeniedError(err)) {
@@ -417,7 +568,7 @@ export function ScanCardSheet({
       note.trim(),
       ...acceptedNotes.map((item) => `${item.text} (${item.source})`),
     ].filter(Boolean)
-    onAdd({
+    const added = onAdd({
       name: card.name,
       relationship,
       title: titleAndCompany || undefined,
@@ -428,11 +579,24 @@ export function ScanCardSheet({
       context: contextParts.join('\n') || undefined,
       interests: [],
     })
+    setAddedContactId(added?.id ?? null)
     setStage('added')
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+  const finishAdded = () => {
+    const contactId = addedContactId
+    close()
+    if (contactId) onOpenContact?.(contactId)
+  }
+
+  const hasDeliveryChannel =
+    looksLikePhone(card.phone) || isDeliverableEmail(card.email)
+
+  return createPortal(
+    <div
+      ref={modalRootRef}
+      className="fixed inset-0 z-50 flex items-end justify-center"
+    >
       <button
         type="button"
         aria-label="Close"
@@ -440,22 +604,55 @@ export function ScanCardSheet({
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
-      <div className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scan-card-sheet-title"
+        aria-describedby="scan-card-sheet-announcement"
+        tabIndex={-1}
+        className="relative isolate flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] text-[var(--ink-body)] shadow-xl"
+        style={{ background: 'var(--field-bg)' }}
+      >
+        <p
+          id="scan-card-sheet-announcement"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {stage === 'reading'
+            ? 'Reading the business card and preparing a follow-up.'
+            : stage === 'review'
+              ? 'Card details are ready for review.'
+              : stage === 'added'
+                ? `${hasDeliveryChannel ? 'Follow-up' : 'Draft'} for ${card.name || 'this contact'} is ready.`
+                : 'Choose how to add a business card.'}
+        </p>
         <span className="field-grain" aria-hidden />
         <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
           <div>
-            <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
+            <h2
+              id="scan-card-sheet-title"
+              className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
+            >
               {stage === 'review'
                 ? reviewSource === 'manual'
                   ? 'Add contact details'
-                  : 'Confirm contact'
-                : 'Scan a business card'}
+                  : 'Check the essentials'
+                : stage === 'added'
+                  ? hasDeliveryChannel
+                    ? 'Follow-up ready'
+                    : 'Draft ready'
+                  : variant === 'onboarding'
+                    ? 'Turn a card into a follow-up'
+                    : 'Scan a business card'}
             </h2>
             {stage === 'review' && (
               <p className="mt-0.5 text-[12px] text-[var(--ink-secondary)]">
                 {reviewSource === 'manual'
                   ? 'Enter what you know — you can fill in the rest later'
-                  : 'Parsed from card · check anything uncertain'}
+                  : 'Correct anything uncertain. Everything else can wait.'}
               </p>
             )}
           </div>
@@ -492,29 +689,21 @@ export function ScanCardSheet({
 
         <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-5">
           {stage === 'capture' && (
-            <div className="flex flex-col items-center gap-5 py-2 text-center">
-              <div className="glass-hero w-full p-4">
-                <div className="relative mx-auto flex h-[170px] max-w-[18rem] items-center justify-center overflow-hidden rounded-[14px] bg-[oklch(0.24_0.03_255)] text-white shadow-inner">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,oklch(0_0_0_/_0.42))]" />
-                  <div className="absolute left-8 top-8 size-8 border-l-2 border-t-2 border-white/75" />
-                  <div className="absolute right-8 top-8 size-8 border-r-2 border-t-2 border-white/75" />
-                  <div className="absolute bottom-8 left-8 size-8 border-b-2 border-l-2 border-white/75" />
-                  <div className="absolute bottom-8 right-8 size-8 border-b-2 border-r-2 border-white/75" />
-                  <div className="absolute h-px w-4/5 animate-[nudge-sheen_2.6s_ease-in-out_infinite] bg-white/55 shadow-[0_0_18px_white]" />
-                  <div className="relative h-20 w-36 rotate-[-4deg] rounded-xl bg-white/90 p-3 text-left text-slate-700 shadow-2xl">
-                    <div className="h-2 w-20 rounded-full bg-slate-700/80" />
-                    <div className="mt-3 h-1.5 w-24 rounded-full bg-slate-400" />
-                    <div className="mt-1.5 h-1.5 w-16 rounded-full bg-slate-300" />
-                  </div>
+            <div className="flex flex-col items-center gap-4 py-1 text-center">
+              <div className="glass-hero flex w-full items-center gap-4 rounded-3xl p-4 text-left">
+                <div className="primary-action flex size-14 shrink-0 items-center justify-center rounded-2xl shadow-card">
+                  <ScanLine className="size-6" />
                 </div>
-                <p className="mt-3 text-[14px] font-semibold text-[var(--ink-strong)]">
-                  Align the card inside the frame
-                </p>
+                <div className="min-w-0">
+                  <p className="font-heading text-[17px] font-semibold tracking-[-0.02em] text-[var(--ink-strong)]">
+                    Point, snap, done.
+                  </p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
+                    We capture the details and prepare a follow-up. You approve
+                    everything first.
+                  </p>
+                </div>
               </div>
-
-              <p className="max-w-[18rem] text-pretty text-[15px] font-semibold leading-relaxed text-[var(--ink-strong)]">
-                We’ll read the card. You approve before saving.
-              </p>
 
               {cameraHelp ? (
                 <CameraPermissionCard
@@ -532,6 +721,7 @@ export function ScanCardSheet({
               {cameraHelp !== 'blocked' && cameraHelp !== 'unavailable' && (
                 <div className="flex w-full flex-col gap-3">
                   <button
+                    ref={cameraButtonRef}
                     type="button"
                     onClick={handleNativeCamera}
                     disabled={isOpeningCamera}
@@ -543,19 +733,19 @@ export function ScanCardSheet({
                     ) : (
                       <Camera className="size-4" />
                     )}
-                    {isOpeningCamera ? 'Opening camera…' : 'Open camera'}
+                    {isOpeningCamera ? 'Opening camera…' : 'Scan a card'}
                   </button>
                   <button
                     type="button"
                     onClick={handleChoosePhoto}
                     className="glass-button pressable min-h-11 w-full rounded-full text-sm font-semibold text-[var(--ink-strong)]"
                   >
-                    Choose photo
+                    Choose a photo
                   </button>
                 </div>
               )}
 
-              <div className="flex w-full flex-col items-center gap-2">
+              <div className="flex w-full flex-col items-center gap-1">
                 <button
                   type="button"
                   onClick={handleManualEntry}
@@ -563,6 +753,15 @@ export function ScanCardSheet({
                 >
                   Enter manually
                 </button>
+                {onTrySample && (
+                  <button
+                    type="button"
+                    onClick={onTrySample}
+                    className="pressable min-h-11 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-secondary)]"
+                  >
+                    Try with a sample
+                  </button>
+                )}
                 {!cameraHelp && (
                   <div className="w-full">
                     <button
@@ -572,12 +771,13 @@ export function ScanCardSheet({
                       className="pressable mx-auto flex min-h-11 items-center justify-center gap-1.5 rounded-full px-4 text-[12px] font-semibold text-[var(--ink-tertiary)]"
                     >
                       <ShieldCheck className="size-3.5" />
-                      Why we ask
+                      Your privacy
                     </button>
                     {showScanDetails && (
                       <p className="rounded-2xl border border-[var(--hairline)] bg-white/20 px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
-                        Camera opens only when you tap. The card is read so you
-                        can approve every field before anything is saved.
+                        Camera opens only when you tap. The card photo is securely
+                        sent to the scanning service to extract its details. No
+                        contact is added until you review and approve it.
                       </p>
                     )}
                   </div>
@@ -590,10 +790,10 @@ export function ScanCardSheet({
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <Loader2 className="size-7 animate-spin text-[var(--ink-strong)]" />
               <p className="text-[14px] font-medium text-[var(--ink-strong)]">
-                Reading the card…
+                Creating the contact…
               </p>
               <p className="text-[12px] text-[var(--ink-secondary)]">
-                Pulling out the details. This can take a moment.
+                Reading the details and preparing the first follow-up.
               </p>
             </div>
           )}
@@ -605,18 +805,21 @@ export function ScanCardSheet({
               </div>
               <div>
                 <p className="text-lg font-semibold text-[var(--ink-strong)]">
-                  {card.name.trim()} is in FollowApp
+                  {hasDeliveryChannel ? 'Your follow-up to' : 'Your draft for'}{' '}
+                  {card.name.trim().split(' ')[0]} is ready
                 </p>
                 <p className="mt-1 text-pretty text-sm text-[var(--ink-secondary)]">
-                  We’ll use the card details to draft a warmer first follow-up.
+                  {hasDeliveryChannel
+                    ? 'We used the card details to prepare an editable message.'
+                    : 'Add a phone or email next, or copy the draft anywhere.'}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={close}
+                onClick={finishAdded}
                 className="primary-action pressable mt-2 flex min-h-12 w-full items-center justify-center rounded-full px-4 text-[15px] font-semibold"
               >
-                Done — view follow-ups
+                Open the draft
               </button>
               <button
                 type="button"
@@ -642,61 +845,107 @@ export function ScanCardSheet({
                 manual={reviewSource === 'manual'}
               />
 
-              <ContextNotesCard
-                status={contextStatus}
-                notes={contextNotes}
-                manualNote={note}
-                onManualNoteChange={setNote}
-                onToggle={toggleContext}
-                manualEntry={reviewSource === 'manual'}
-              />
+              <button
+                type="button"
+                onClick={() => setShowReviewDetails((value) => !value)}
+                aria-expanded={showReviewDetails}
+                className="glass-button pressable flex min-h-11 w-full items-center justify-between rounded-2xl px-4 text-left text-[13px] font-semibold text-[var(--ink-secondary)]"
+              >
+                <span>Add context, cadence or save to phone</span>
+                <ChevronDown
+                  className={cn(
+                    'size-4 transition-transform',
+                    showReviewDetails && 'rotate-180',
+                  )}
+                />
+              </button>
 
-              <section className="glass-card rounded-3xl p-4">
-                <label className="block">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
-                    Last spoke or met
-                  </span>
-                  <div className="relative mt-2">
-                    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
-                    <input
-                      type="date"
-                      value={lastContactedAt}
-                      max={todayDateInputValue()}
-                      onChange={(event) => setLastContactedAt(event.target.value)}
-                      className="h-11 w-full rounded-2xl border border-[var(--hairline)] bg-white/25 pl-10 pr-4 text-base text-[var(--ink-body)] outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
-                    />
-                  </div>
-                  <span className="mt-1.5 block text-[12px] leading-relaxed text-[var(--ink-secondary)]">
-                    Leave blank if this is a brand-new contact. They will show
-                    as due now.
-                  </span>
-                </label>
+              {showReviewDetails && (
+                <>
+                  <ContextNotesCard
+                    status={contextStatus}
+                    notes={contextNotes}
+                    manualNote={note}
+                    onManualNoteChange={setNote}
+                    onToggle={toggleContext}
+                    onLookup={() =>
+                      void findContext(card, operationRef.current)
+                    }
+                    manualEntry={reviewSource === 'manual'}
+                  />
 
-                <div className="mt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
-                    Stay in touch
-                  </p>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
-                    {TIER_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setTier(opt.value)}
-                        className={cn(
-                          'pressable min-h-11 rounded-2xl border px-2 text-xs font-semibold transition-all',
-                          tier === opt.value
-                            ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)] shadow-card'
-                            : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </section>
+                  <section className="glass-card rounded-3xl p-4">
+                    <label className="block">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
+                        Last spoke or met
+                      </span>
+                      <div className="relative mt-2">
+                        <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+                        <input
+                          type="date"
+                          value={lastContactedAt}
+                          max={todayDateInputValue()}
+                          onChange={(event) => setLastContactedAt(event.target.value)}
+                          className="h-11 w-full rounded-2xl border border-[var(--hairline)] bg-white/25 pl-10 pr-4 text-base text-[var(--ink-body)] outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+                        />
+                      </div>
+                      <span className="mt-1.5 block text-[12px] leading-relaxed text-[var(--ink-secondary)]">
+                        Leave blank for a new contact. They will be ready to
+                        follow up now.
+                      </span>
+                    </label>
 
-              <div className="flex items-center justify-between">
+                    <div className="mt-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
+                        Stay in touch
+                      </p>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {TIER_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setTier(opt.value)}
+                            className={cn(
+                              'pressable min-h-11 rounded-2xl border px-2 text-xs font-semibold transition-all',
+                              tier === opt.value
+                                ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)] shadow-card'
+                                : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!card.name.trim()) return
+                        try {
+                          const saved = await saveContactToPhone({
+                            n: card.name,
+                            t: card.title || undefined,
+                            co: card.company || undefined,
+                            p: card.phone || undefined,
+                            e: card.email || undefined,
+                          })
+                          setSavedToPhone(saved)
+                        } catch (err) {
+                          console.error('[v0] Save to Contacts failed:', err)
+                        }
+                      }}
+                      disabled={!card.name.trim()}
+                      className="pressable mt-3 flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
+                    >
+                      <Smartphone className="size-3.5" />
+                      {savedToPhone ? 'Opened Contacts' : 'Save to phone'}
+                    </button>
+                  </section>
+                </>
+              )}
+
+              <div className="flex items-center justify-start">
                 <button
                   type="button"
                   onClick={handleNativeCamera}
@@ -704,29 +953,6 @@ export function ScanCardSheet({
                 >
                   <RotateCcw className="size-3.5" />
                   {reviewSource === 'manual' ? 'Scan instead' : 'Rescan'}
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!card.name.trim()) return
-                    try {
-                      const saved = await saveContactToPhone({
-                        n: card.name,
-                        t: card.title || undefined,
-                        co: card.company || undefined,
-                        p: card.phone || undefined,
-                        e: card.email || undefined,
-                      })
-                      setSavedToPhone(saved)
-                    } catch (err) {
-                      console.error('[v0] Save to Contacts failed:', err)
-                    }
-                  }}
-                  disabled={!card.name.trim()}
-                  className="pressable flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
-                >
-                  <Smartphone className="size-3.5" />
-                  {savedToPhone ? 'Opened Contacts' : 'Save to phone'}
                 </button>
               </div>
             </div>
@@ -742,18 +968,13 @@ export function ScanCardSheet({
               className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
             >
               <Check className="size-4" />
-              <span>
-                Save with {contextNotes.filter((item) => item.accepted).length}{' '}
-                context{' '}
-                {contextNotes.filter((item) => item.accepted).length === 1
-                  ? 'note'
-                  : 'notes'}
-              </span>
+              <span>{hasDeliveryChannel ? 'Create follow-up' : 'Create draft'}</span>
             </button>
           </footer>
         )}
       </div>
-    </div>
+    </div>,
+    portalRoot,
   )
 }
 
@@ -875,7 +1096,7 @@ function ParsedSummary({
         label="Email"
         value={card.email}
         placeholder="Email address"
-        sure={looksLikeEmail(card.email)}
+        sure={isDeliverableEmail(card.email)}
         showConfidence={!manual && Boolean(card.email.trim())}
         type="email"
         inputMode="email"
@@ -959,6 +1180,7 @@ function ContextNotesCard({
   manualNote,
   onManualNoteChange,
   onToggle,
+  onLookup,
   manualEntry,
 }: {
   status: ContextStatus
@@ -966,6 +1188,7 @@ function ContextNotesCard({
   manualNote: string
   onManualNoteChange: (value: string) => void
   onToggle: (id: string) => void
+  onLookup: () => void
   manualEntry: boolean
 }) {
   const showManual = status === 'empty' || status === 'error'
@@ -982,6 +1205,17 @@ function ContextNotesCard({
           </span>
         )}
       </div>
+
+      {status === 'idle' && (
+        <button
+          type="button"
+          onClick={onLookup}
+          className="pressable mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--hairline)] bg-white/20 px-4 text-[13px] font-semibold text-[var(--ink-secondary)]"
+        >
+          <Search className="size-4" />
+          Find optional public context
+        </button>
+      )}
 
       {status === 'loading' && (
         <div className="mt-3 space-y-2">

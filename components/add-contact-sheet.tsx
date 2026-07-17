@@ -178,34 +178,26 @@ export function AddContactSheet({
           )}
 
           {onScan && (
-            <section className="glass-hero mb-4 p-4 text-center">
-              <div className="relative mx-auto flex h-[170px] max-w-[18rem] items-center justify-center overflow-hidden rounded-[14px] bg-[oklch(0.24_0.03_255)] text-white shadow-inner">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,oklch(0_0_0_/_0.42))]" />
-                <div className="absolute left-8 top-8 size-8 border-l-2 border-t-2 border-white/75" />
-                <div className="absolute right-8 top-8 size-8 border-r-2 border-t-2 border-white/75" />
-                <div className="absolute bottom-8 left-8 size-8 border-b-2 border-l-2 border-white/75" />
-                <div className="absolute bottom-8 right-8 size-8 border-b-2 border-r-2 border-white/75" />
-                <div className="absolute h-px w-4/5 animate-[nudge-sheen_2.6s_ease-in-out_infinite] bg-white/55 shadow-[0_0_18px_white]" />
-                <div className="relative h-20 w-36 rotate-[-4deg] rounded-xl bg-white/90 p-3 text-left text-slate-700 shadow-2xl">
-                  <div className="h-2 w-20 rounded-full bg-slate-700/80" />
-                  <div className="mt-3 h-1.5 w-24 rounded-full bg-slate-400" />
-                  <div className="mt-1.5 h-1.5 w-16 rounded-full bg-slate-300" />
-                </div>
-              </div>
-              <p className="mt-3 text-[14px] font-semibold text-[var(--ink-strong)]">
-                Align the card inside the frame
-              </p>
+            <section className="glass-hero mb-4 flex items-center gap-3 rounded-3xl p-3.5 text-left">
+              <span className="primary-action flex size-11 shrink-0 items-center justify-center rounded-2xl">
+                <ScanLine className="size-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-semibold text-[var(--ink-strong)]">
+                  Have a business card?
+                </span>
+                <span className="mt-0.5 block text-[12px] leading-relaxed text-[var(--ink-secondary)]">
+                  Scan it and jump straight to a follow-up.
+                </span>
+              </span>
               <button
                 type="button"
                 onClick={onScan}
-                className="primary-action pressable mt-3 flex min-h-12 w-full items-center justify-center gap-2 px-4 text-[15px] font-semibold"
+                aria-label="Scan card with camera"
+                className="primary-action pressable flex size-11 shrink-0 items-center justify-center rounded-full"
               >
                 <ScanLine className="size-4" />
-                Scan card with camera
               </button>
-              <p className="mt-2 text-[12px] text-[var(--ink-secondary)]">
-                You review every field before anything is saved.
-              </p>
             </section>
           )}
 

@@ -98,7 +98,6 @@ export function NudgeFeed({
           <NudgeCard
             contact={dailyPick}
             nudge={nudges[dailyPick.id]}
-            loading={loading && !nudges[dailyPick.id]}
             pinned={pinnedIds.includes(dailyPick.id)}
             featured
             onOpen={() => onOpen(dailyPick.id)}
@@ -124,7 +123,6 @@ export function NudgeFeed({
                 key={contact.id}
                 contact={contact}
                 nudge={nudges[contact.id]}
-                loading={loading && !nudges[contact.id]}
                 pinned={pinnedIds.includes(contact.id)}
                 onOpen={() => onOpen(contact.id)}
                 onSend={(text) => onSend(contact.id, text)}

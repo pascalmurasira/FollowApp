@@ -169,6 +169,19 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
 
         photoCall = call
         presenter.present(picker, animated: true)
+        // UIKit can decline a presentation without invoking a useful error
+        // callback (for example while another controller is transitioning).
+        // Never leave the JavaScript promise — and its Opening camera state —
+        // pending forever.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self, weak picker] in
+            guard let self,
+                  self.photoCall === call,
+                  picker?.presentingViewController == nil else {
+                return
+            }
+            self.photoCall = nil
+            call.reject("Camera could not be opened.", "CAMERA_UNAVAILABLE")
+        }
     }
 
     private func topViewController(from root: UIViewController?) -> UIViewController? {
@@ -202,16 +215,25 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
         let call = photoCall
         photoCall = nil
 
-        guard let image = info[.originalImage] as? UIImage,
-              let dataUrl = image.businessCardDataUrl() else {
+        guard let image = info[.originalImage] as? UIImage else {
             picker.dismiss(animated: true) {
                 call?.reject("Photo could not be read.", "PHOTO_UNREADABLE")
             }
             return
         }
 
-        picker.dismiss(animated: true) {
-            call?.resolve(["dataUrl": dataUrl])
+        // Give the camera back immediately. Resize/JPEG/base64 work is sizable
+        // on modern photos and should not freeze the picker on the main thread.
+        picker.dismiss(animated: true)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let dataUrl = image.businessCardDataUrl()
+            DispatchQueue.main.async {
+                if let dataUrl {
+                    call?.resolve(["dataUrl": dataUrl])
+                } else {
+                    call?.reject("Photo could not be read.", "PHOTO_UNREADABLE")
+                }
+            }
         }
     }
 }
