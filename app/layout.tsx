@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { NativeAuthLinkHandler } from '@/components/native-auth-link-handler'
+import { ProductAnalytics } from '@/components/product-analytics'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -39,6 +40,7 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <NativeAuthLinkHandler />
         {children}
+        <ProductAnalytics />
       </body>
     </html>
   )

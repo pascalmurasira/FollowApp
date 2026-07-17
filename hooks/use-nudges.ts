@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Contact } from '@/lib/types'
 import { fallbackNudge } from '@/lib/fallback'
 
@@ -24,10 +24,15 @@ export function useNudges(contacts: Contact[], voice: string) {
   const [nudges, setNudges] = useState<NudgeMap>({})
   const [loading, setLoading] = useState(true)
   const [usedFallback, setUsedFallback] = useState(false)
-
-  const ids = contacts.map((c) => c.id).join(',')
+  const requestSequence = useRef(0)
+  const activeController = useRef<AbortController | null>(null)
 
   const fetchNudges = useCallback(async () => {
+    const sequence = requestSequence.current + 1
+    requestSequence.current = sequence
+    activeController.current?.abort()
+    const controller = new AbortController()
+    activeController.current = controller
     if (!contacts.length) {
       setNudges({})
       setLoading(false)
@@ -59,12 +64,14 @@ export function useNudges(contacts: Contact[], voice: string) {
             lastMessage: c.messages[c.messages.length - 1]?.text,
           })),
         }),
+        signal: controller.signal,
       })
 
       const data = (await res.json()) as {
         nudges?: { contactId: string; tone: string; text: string }[]
       }
 
+      if (requestSequence.current !== sequence) return
       if (data.nudges?.length) {
         const map: NudgeMap = {}
         for (const n of data.nudges) {
@@ -81,17 +88,20 @@ export function useNudges(contacts: Contact[], voice: string) {
         setUsedFallback(true)
       }
     } catch (err) {
+      if (controller.signal.aborted || requestSequence.current !== sequence) {
+        return
+      }
       console.error('Nudge generation failed, using fallback:', err)
       setNudges(buildFallbackMap(contacts, voice))
       setUsedFallback(true)
     } finally {
-      setLoading(false)
+      if (requestSequence.current === sequence) setLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ids, voice])
+  }, [contacts, voice])
 
   useEffect(() => {
-    fetchNudges()
+    void fetchNudges()
+    return () => activeController.current?.abort()
   }, [fetchNudges])
 
   return { nudges, loading, usedFallback, refresh: fetchNudges }

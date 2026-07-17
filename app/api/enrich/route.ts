@@ -2,6 +2,10 @@ import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { TEXT_MODEL, SEARCH_MODEL } from '@/lib/ai'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import {
+  logServerError,
+  operationalErrorMetadata,
+} from '@/lib/server/error-metadata'
 
 export const maxDuration = 30
 
@@ -42,14 +46,11 @@ const requestSchema = z.object({
 })
 
 function isRateLimitOrUnavailable(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const e = error as { statusCode?: number; type?: string; name?: string }
+  const { category } = operationalErrorMetadata(error)
   return (
-    e.statusCode === 429 ||
-    e.statusCode === 402 ||
-    e.statusCode === 403 ||
-    e.type === 'rate_limit_exceeded' ||
-    e.name === 'GatewayRateLimitError'
+    category === 'rate_limited' ||
+    category === 'quota_exhausted' ||
+    category === 'access_denied'
   )
 }
 
@@ -95,10 +96,13 @@ export async function POST(req: Request) {
     research = result.text
   } catch (error) {
     if (isRateLimitOrUnavailable(error)) {
-      console.error('[v0] Enrich retrieval unavailable (rate limit / access):', error)
+      logServerError(
+        '[v0] Enrich retrieval unavailable (rate limit / access)',
+        error,
+      )
       return Response.json({ hooks: [], status: 'unavailable' })
     }
-    console.error('[v0] Enrich retrieval failed:', error)
+    logServerError('[v0] Enrich retrieval failed', error)
     return Response.json({ hooks: [], status: 'unavailable' })
   }
 
@@ -123,7 +127,7 @@ Rules:
     })
     return Response.json({ ...result.output, status: 'ok' })
   } catch (error) {
-    console.error('[v0] Enrich structuring failed:', error)
+    logServerError('[v0] Enrich structuring failed', error)
     return Response.json({ hooks: [], status: 'unavailable' })
   }
 }

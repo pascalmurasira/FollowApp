@@ -19,33 +19,41 @@ import { ChannelSwitcher } from '@/components/channel-switcher'
 import { useSuggestions } from '@/hooks/use-suggestions'
 import { useEnrichment } from '@/hooks/use-enrichment'
 import { useChannelPref } from '@/hooks/use-channel-pref'
-import { driftLabel, clockTime } from '@/lib/format'
-import { hasInvited, markInvited } from '@/lib/invite'
+import { cadenceLabel, clockTime, clockTimeAt, driftLabel } from '@/lib/format'
 import {
-  deliver,
   resolveChannel,
   channelLabel,
   canDeliver,
+  sendActionLabel,
   toWhatsAppNumber,
+  type ChannelId,
 } from '@/lib/channels'
 import { copyText } from '@/lib/native'
 import { isDeliverableEmail } from '@/lib/contact-validation'
-import { InvitePrompt } from '@/components/invite-prompt'
 import { InAppChat } from '@/components/in-app-chat'
 import { useContactMatch } from '@/hooks/use-contact-match'
 import { cn } from '@/lib/utils'
+import {
+  formatFollowUpDate,
+  nextFollowUpForContact,
+} from '@/lib/contact-dates'
+import { trackProductEvent } from '@/lib/product-analytics'
 
 export function ConversationView({
   contact,
   voice,
+  initialDraft,
+  clearDraftRevision,
   onBack,
-  onSend,
+  onHandoff,
   onUpdateContact,
 }: {
   contact: Contact
   voice: string
+  initialDraft?: string
+  clearDraftRevision: number
   onBack: () => void
-  onSend: (text: string) => Promise<void>
+  onHandoff: (text: string, preferred?: ChannelId) => void
   onUpdateContact: (
     updates: Pick<ContactUpdateInput, 'phone' | 'email'>,
   ) => void
@@ -64,12 +72,8 @@ export function ConversationView({
   // WhatsApp send wears WhatsApp green so the channel handoff is recognizable.
   const isWhatsApp = channel === 'whatsapp'
   const firstName = contact.name.split(' ')[0]
-  const cadenceLabel =
-    contact.tier === 'key'
-      ? 'every 3 weeks'
-      : contact.tier === 'casual'
-        ? 'quarterly'
-        : 'monthly'
+  const cadence = cadenceLabel(contact.tier).toLowerCase()
+  const nextFollowUp = nextFollowUpForContact(contact)
   // The lookup is most useful when reconnecting after a gap (or a blank thread).
   const isColdOpen =
     contact.messages.length === 0 || contact.daysSinceContact >= 14
@@ -91,11 +95,25 @@ export function ConversationView({
     enrichment: chosenHooks,
   })
 
-  const [draft, setDraft] = useState('')
-  const [showInvite, setShowInvite] = useState(false)
+  const [draft, setDraft] = useState(initialDraft ?? '')
   const [showDestinationEditor, setShowDestinationEditor] = useState(false)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const draftRef = useRef<HTMLInputElement>(null)
+  const handledClearRevision = useRef(clearDraftRevision)
+
+  useEffect(() => {
+    if (!initialDraft?.trim()) return
+    setDraft(initialDraft)
+    window.requestAnimationFrame(() => draftRef.current?.focus())
+  }, [contact.id, initialDraft])
+
+  useEffect(() => {
+    if (handledClearRevision.current === clearDraftRevision) return
+    handledClearRevision.current = clearDraftRevision
+    setDraft('')
+    setCopyStatus('idle')
+  }, [clearDraftRevision])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -104,19 +122,9 @@ export function ConversationView({
     })
   }, [contact.messages.length])
 
-  const submit = (text: string) => {
+  const openComposer = (text: string) => {
     if (!text.trim() || !canSend) return
-    const deliveredVia = deliver(contact, text, preferred)
-    if (!deliveredVia) return
-    setDraft('')
-    // Compose in Nudge, deliver through the channel they already use.
-    void onSend(text)
-    // The sent message is the viral moment — offer to bring this person onto
-    // Nudge, but only once per contact so it never feels spammy.
-    if (!hasInvited(contact.id)) {
-      markInvited(contact.id)
-      setShowInvite(true)
-    }
+    onHandoff(text.trim(), preferred)
   }
 
   const copyDraft = async (text: string) => {
@@ -135,11 +143,13 @@ export function ConversationView({
   }
 
   const handleSuggestion = (text: string) => {
-    if (canSend) {
-      submit(text)
-      return
-    }
-    void copyDraft(text)
+    setDraft(text)
+    setCopyStatus('idle')
+    trackProductEvent('draft_selected', {
+      source: 'suggestion',
+      channel_available: canSend,
+    })
+    window.requestAnimationFrame(() => draftRef.current?.focus())
   }
 
   return (
@@ -160,10 +170,10 @@ export function ConversationView({
           </p>
           <p className="truncate text-xs text-[var(--ink-secondary)]">
             {contact.lastContactedAt === null
-              ? `Cadence: ${cadenceLabel} · never contacted`
+              ? `Cadence: ${cadence} · due now`
               : contact.daysSinceContact === 0
-              ? 'Cadence: active · last contact today'
-                : `Cadence: ${cadenceLabel} · ${driftLabel(contact.daysSinceContact)}`}
+                ? `Cadence: ${cadence} · next ${formatFollowUpDate(nextFollowUp)}`
+                : `Cadence: ${cadence} · ${driftLabel(contact.daysSinceContact)} · next ${formatFollowUpDate(nextFollowUp)}`}
           </p>
         </div>
         {canSend || chatLive ? (
@@ -234,7 +244,9 @@ export function ConversationView({
                       : 'text-muted-foreground/70',
                   )}
                 >
-                  {clockTime(message.minutesAgo)}
+                  {message.sentAt
+                    ? clockTimeAt(message.sentAt)
+                    : clockTime(message.minutesAgo)}
                 </span>
               </div>
             </div>
@@ -253,15 +265,6 @@ export function ConversationView({
       )}
 
       <div className="border-t border-[var(--hairline)] bg-white/20 backdrop-blur-xl">
-        <>
-            {showInvite ? (
-              <InvitePrompt
-                contact={contact}
-                channelLabel={channelLabel(channel)}
-                onDismiss={() => setShowInvite(false)}
-              />
-            ) : (
-              <>
                 {isColdOpen && (
                   <EnrichmentBar
                     firstName={firstName}
@@ -308,15 +311,11 @@ export function ConversationView({
                         key={`${suggestion.text}-${i}`}
                         type="button"
                         onClick={() => handleSuggestion(suggestion.text)}
-                        aria-label={
-                          canSend
-                            ? `Send draft: ${suggestion.text}`
-                            : `Copy draft: ${suggestion.text}`
-                        }
+                        aria-label={`Use draft: ${suggestion.text}`}
                         className="glass-card pressable flex h-[72px] w-[82%] shrink-0 snap-start flex-col justify-center rounded-xl px-4 py-2 text-left"
                       >
                         <span className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
-                          {canSend ? suggestion.tone : `${suggestion.tone} · tap to copy`}
+                          {`${suggestion.tone} · tap to edit`}
                         </span>
                         <span className="line-clamp-2 text-sm leading-snug text-[var(--ink-body)]">
                           {suggestion.text}
@@ -326,18 +325,17 @@ export function ConversationView({
                   )}
                 </div>
               </div>
-              </>
-            )}
 
             <form
               onSubmit={(e) => {
                 e.preventDefault()
-                if (canSend) submit(draft)
+                if (canSend) openComposer(draft)
                 else void copyDraft(draft)
               }}
               className="flex items-center gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2"
             >
               <input
+                ref={draftRef}
                 value={draft}
                 onChange={(e) => {
                   setDraft(e.target.value)
@@ -351,21 +349,24 @@ export function ConversationView({
                 type="submit"
                 disabled={!draft.trim()}
                 aria-label={
-                  canSend ? `Send via ${channelLabel(channel)}` : 'Copy draft'
+                  canSend ? sendActionLabel(channel) : 'Copy draft'
                 }
                 className={cn(
-                  'pressable flex size-11 items-center justify-center rounded-full disabled:opacity-40',
+                  'pressable flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-semibold disabled:opacity-40',
                   canSend && isWhatsApp
                     ? 'bg-whatsapp text-whatsapp-foreground'
                     : 'bg-primary text-primary-foreground',
                 )}
               >
                 {canSend ? (
-                  <ChannelIcon channel={channel} className="size-5" />
+                  <>
+                    <ChannelIcon channel={channel} className="size-4" />
+                    <span>{sendActionLabel(channel)}</span>
+                  </>
                 ) : copyStatus === 'copied' ? (
-                  <Check className="size-5" />
+                  <><Check className="size-4" /><span>Copied</span></>
                 ) : (
-                  <Copy className="size-5" />
+                  <><Copy className="size-4" /><span>Copy</span></>
                 )}
               </button>
             </form>
@@ -380,7 +381,6 @@ export function ConversationView({
                   : 'Clipboard was unavailable. The draft is still selected above for manual copying.'}
               </p>
             )}
-          </>
       </div>
         </>
       )}

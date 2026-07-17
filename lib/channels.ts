@@ -1,8 +1,9 @@
-import type { Contact } from './types'
+import type { Contact, OutreachChannel } from './types'
 import { copyText, openExternalUrl, tapFeedback } from './native'
 import { isDeliverableEmail } from './contact-validation'
+import { toInternationalWhatsAppNumber } from './phone'
 
-export type ChannelId = 'whatsapp' | 'email'
+export type ChannelId = OutreachChannel
 
 /** Mobile devices, where native app deep links (WhatsApp app, Messages) work best. */
 function isMobile(): boolean {
@@ -11,74 +12,12 @@ function isMobile(): boolean {
 }
 
 /**
- * Common region (ISO 3166-1 alpha-2) → country calling code. Used to turn a
- * bare national number into the full international form WhatsApp requires.
- */
-const DIALING_CODES: Record<string, string> = {
-  US: '1', CA: '1', GB: '44', IE: '353', AU: '61', NZ: '64', IN: '91',
-  DE: '49', FR: '33', ES: '34', IT: '39', NL: '31', BE: '32', CH: '41',
-  AT: '43', SE: '46', NO: '47', DK: '45', FI: '358', PT: '351', PL: '48',
-  CZ: '420', GR: '30', RO: '40', HU: '36', BR: '55', MX: '52', AR: '54',
-  CL: '56', CO: '57', PE: '51', ZA: '27', NG: '234', KE: '254', EG: '20',
-  AE: '971', SA: '966', IL: '972', TR: '90', SG: '65', HK: '852', JP: '81',
-  KR: '82', CN: '86', ID: '62', MY: '60', PH: '63', TH: '66', VN: '84',
-}
-
-/** Best-effort device region from the browser locale, e.g. "en-GB" → "GB". */
-function deviceRegion(): string | null {
-  if (typeof navigator === 'undefined') return null
-  const locales =
-    navigator.languages && navigator.languages.length
-      ? navigator.languages
-      : [navigator.language]
-  for (const loc of locales) {
-    if (!loc) continue
-    try {
-      const region = new Intl.Locale(loc).maximize().region
-      if (region) return region.toUpperCase()
-    } catch {
-      const m = /[-_]([A-Za-z]{2})\b/.exec(loc)
-      if (m) return m[1].toUpperCase()
-    }
-  }
-  return null
-}
-
-function defaultDialingCode(): string | null {
-  const region = deviceRegion()
-  return region ? (DIALING_CODES[region] ?? null) : null
-}
-
-/**
  * Turn a stored phone into a wa.me-acceptable number: full international digits,
- * no '+', no '00', no leading zero. Handles E.164 ('+...'), the '00' intl prefix,
- * and bare national numbers (prepends the device-locale country code, stripping a
- * trunk '0'). Returns null when it can't form a number WhatsApp could route — in
- * which case the caller falls through to SMS.
+ * no '+', no '00', no leading zero. Only explicit international forms are safe:
+ * silently guessing a country from the device locale can message the wrong person.
  */
 export function toWhatsAppNumber(phone?: string): string | null {
-  const raw = (phone ?? '').trim()
-  if (!raw) return null
-
-  // E.164: already carries a country code.
-  if (raw.startsWith('+')) {
-    const d = raw.replace(/\D/g, '')
-    return d.length >= 8 ? d : null
-  }
-
-  // '00' international dialing prefix → drop it, the rest is the full number.
-  if (raw.startsWith('00')) {
-    const d = raw.replace(/\D/g, '').replace(/^0+/, '')
-    return d.length >= 8 ? d : null
-  }
-
-  // Bare national number — needs a country code to route on WhatsApp.
-  const national = raw.replace(/\D/g, '').replace(/^0+/, '')
-  if (!national) return null
-  const cc = defaultDialingCode()
-  if (cc) return `${cc}${national}`
-  // No country context: only trust it if it's long enough to already include one.
-  return national.length >= 11 ? national : null
+  return toInternationalWhatsAppNumber(phone)
 }
 
 interface Channel {
@@ -185,10 +124,10 @@ export function channelLabel(id: ChannelId): string {
   return 'Email'
 }
 
-/** Primary CTA label for sending via a channel. */
+/** Primary CTA label for the explicit handoff into an external composer. */
 export function sendActionLabel(id: ChannelId): string {
-  if (id === 'whatsapp') return 'Send on WhatsApp'
-  return 'Send via Email'
+  if (id === 'whatsapp') return 'Open WhatsApp'
+  return 'Open Email'
 }
 
 /** Post-send confirmation label for a channel. */

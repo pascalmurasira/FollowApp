@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { X, UserPlus, Check, Link2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { X, UserPlus, Check, Link2, Loader2 } from 'lucide-react'
 import type { Contact } from '@/lib/types'
 import { shareInvite } from '@/lib/invite'
 
@@ -15,17 +15,38 @@ export function InvitePrompt({
   onDismiss: () => void
 }) {
   const [state, setState] = useState<'idle' | 'shared' | 'copied'>('idle')
+  const [sharing, setSharing] = useState(false)
+  const inFlightRef = useRef(false)
+  const mountedRef = useRef(true)
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const firstName = contact.name.split(' ')[0]
 
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current)
+    }
+  }, [])
+
   const handleInvite = async () => {
-    const result = await shareInvite(contact, channelLabel)
-    if (result === 'shared') {
-      setState('shared')
-      // Give a beat to register, then close.
-      setTimeout(onDismiss, 900)
-    } else if (result === 'copied') {
-      setState('copied')
-      setTimeout(onDismiss, 1600)
+    if (inFlightRef.current || state !== 'idle') return
+    inFlightRef.current = true
+    setSharing(true)
+    try {
+      const result = await shareInvite(contact, channelLabel)
+      if (!mountedRef.current) return
+      if (result === 'shared' || result === 'copied') {
+        setState(result)
+        // Give the truthful outcome a beat to register, then close.
+        dismissTimerRef.current = setTimeout(
+          onDismiss,
+          result === 'shared' ? 900 : 1600,
+        )
+      }
+    } finally {
+      if (mountedRef.current) setSharing(false)
+      inFlightRef.current = false
     }
   }
 
@@ -39,6 +60,8 @@ export function InvitePrompt({
             <Link2 className="size-[18px]" />
           ) : done ? (
             <Check className="size-[18px]" strokeWidth={2.5} />
+          ) : sharing ? (
+            <Loader2 className="size-[18px] animate-spin" />
           ) : (
             <UserPlus className="size-[18px]" />
           )}
@@ -49,13 +72,15 @@ export function InvitePrompt({
             {state === 'copied'
               ? 'Invite link copied'
               : state === 'shared'
-                ? 'Invite sent'
-                : `Sent to ${firstName} on ${channelLabel}`}
+                ? 'Shared'
+                : sharing
+                  ? 'Opening share options…'
+                : `Share FollowApp with ${firstName}`}
           </p>
           <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground text-pretty">
             {done
-              ? `If ${firstName} likes FollowApp, they can keep their own network warm too.`
-              : `Think ${firstName} would like FollowApp for their own network? Pass it on.`}
+              ? `${firstName} can decide whether FollowApp is useful for their own network.`
+              : `Only share if it feels natural after your conversation.`}
           </p>
         </div>
 
@@ -63,9 +88,10 @@ export function InvitePrompt({
           <button
             type="button"
             onClick={handleInvite}
+            disabled={sharing}
             className="primary-action pressable shrink-0 rounded-full px-4 py-2 text-[13px] font-semibold"
           >
-            Share
+            {sharing ? 'Opening…' : 'Share'}
           </button>
         )}
 

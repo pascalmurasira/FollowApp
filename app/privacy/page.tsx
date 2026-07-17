@@ -18,7 +18,7 @@ export default function PrivacyPage() {
         Privacy Policy
       </h1>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-        Last updated 5 July 2026. FollowApp is designed to keep you in control:
+        Last updated 17 July 2026. FollowApp is designed to keep you in control:
         nothing is sent to another person until you review and send it yourself.
       </p>
 
@@ -29,8 +29,10 @@ export default function PrivacyPage() {
         <p>
           FollowApp stores the people, circles, profile details, follow-up
           signals, and preferences you add so the app can remind you who to
-          reach and draft better openers. Anonymous use is scoped to a generated
-          device id. If you sign in, that data can sync across your devices.
+          reach and draft better openers. Anonymous use has a local browser copy
+          and a cloud copy scoped to a randomly generated installation ID. If
+          you sign in, that data is linked to your account so it can be restored
+          securely.
         </p>
 
         <h2 className="font-heading text-xl font-semibold text-foreground">
@@ -45,22 +47,63 @@ export default function PrivacyPage() {
         </p>
 
         <h2 className="font-heading text-xl font-semibold text-foreground">
+          Card scanning and phone contacts
+        </h2>
+        <p>
+          A business-card image is processed only after you choose to scan or
+          upload it. FollowApp shows the extracted details for review before it
+          creates a person. Saving someone to Apple Contacts is a separate,
+          explicit action: iOS shows its contact editor and you decide whether
+          to add or cancel it.
+        </p>
+
+        <h2 className="font-heading text-xl font-semibold text-foreground">
+          Account links and device sync
+        </h2>
+        <p>
+          Magic links sign in the installation where you open them. For an
+          existing anonymous network, open the link on that same device so its
+          installation can be linked safely. Opening the email elsewhere never
+          transfers or takes control of the original installation&apos;s anonymous
+          ID.
+        </p>
+
+        <h2 className="font-heading text-xl font-semibold text-foreground">
           Service providers
         </h2>
         <p>
           FollowApp uses Neon for database storage, Vercel for hosting and AI
-          Gateway access, and Resend for magic-link sign-in emails. These
-          providers process data only as needed to run the app.
+          Gateway access, product analytics, and performance measurement, and
+          Resend for magic-link sign-in emails. These providers process data
+          only as needed to run and improve the app.
+        </p>
+
+        <h2 className="font-heading text-xl font-semibold text-foreground">
+          Product analytics
+        </h2>
+        <p>
+          FollowApp measures high-level actions such as opening the scanner,
+          reaching a review screen, confirming a handoff, or encountering an
+          error. Event properties are filtered so names, email addresses, phone
+          numbers, message text, draft text, relationship notes, companies, and
+          shared URLs are not attached to product events. Analytics never decides
+          who you should contact and is not used to send messages on your behalf.
         </p>
 
         <h2 className="font-heading text-xl font-semibold text-foreground">
           Your control
         </h2>
         <p>
-          You can edit or remove people from your device data, clear what
-          FollowApp has learned about your style, and choose whether to sign in
-          for sync. Replies happen in the channel you send through, such as
-          WhatsApp or email, not automatically inside FollowApp.
+          You can edit or remove individual people, clear what FollowApp has
+          learned about your style, and choose whether to sign in for sync. In
+          the You tab, signed-out users can delete this installation&apos;s local and
+          cloud data; signed-in users can sign out or permanently delete their
+          account and its FollowApp data. A failed deletion leaves the current
+          data in place and shows an error so you can retry. External handoffs
+          open only the channel you choose, such as WhatsApp or email. If two
+          signed-in users explicitly accept a FollowApp connection, FollowApp
+          also stores their in-app message bodies, sender/recipient identifiers,
+          timestamps, and read status so that conversation works.
         </p>
 
         <h2 className="font-heading text-xl font-semibold text-foreground">

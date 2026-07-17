@@ -1,4 +1,4 @@
-import type { Profile } from '@/lib/types'
+import type { Profile } from './types'
 
 /**
  * The compact card payload carried inside a FollowApp QR / card link. Keys are
@@ -22,6 +22,23 @@ export interface CardData {
 
 /** Conservative ceiling that keeps screen-scanned QR codes reasonably sparse. */
 export const MAX_CARD_QR_URL_BYTES = 900
+/**
+ * A public card may also be opened from an older link rather than a QR, so its
+ * decode ceiling is intentionally wider than the reliable-QR ceiling. It is
+ * still finite: decoding an attacker-controlled multi-megabyte fragment should
+ * never allocate an equally large base64 and JSON payload in the browser.
+ */
+export const MAX_CARD_TOKEN_CHARS = 8_192
+const CARD_FORMAT_VERSION = 1
+const CARD_ORIGIN = 'https://followapp.chat'
+const CARD_FIELD_LIMITS = {
+  n: 200,
+  t: 300,
+  co: 300,
+  p: 100,
+  e: 320,
+} as const
+const SINGLE_LINE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
 
 // --- URL-safe base64 (isomorphic: btoa/atob exist in modern browsers + Node) -
 
@@ -41,7 +58,10 @@ function fromBase64Url(input: string): Uint8Array {
 
 /** Encode a profile's card fields into a URL-safe token. */
 export function encodeCard(profile: Pick<Profile, 'name' | 'title' | 'company' | 'phone' | 'email'>): string {
-  const card: CardData = { n: profile.name }
+  const card: CardData & { v: typeof CARD_FORMAT_VERSION } = {
+    v: CARD_FORMAT_VERSION,
+    n: profile.name,
+  }
   if (profile.title) card.t = profile.title
   if (profile.company) card.co = profile.company
   if (profile.phone) card.p = profile.phone
@@ -51,18 +71,63 @@ export function encodeCard(profile: Pick<Profile, 'name' | 'title' | 'company' |
 
 /** Decode a card token back into structured data, or null if malformed. */
 export function decodeCard(token: string): CardData | null {
+  if (
+    !token ||
+    token.length > MAX_CARD_TOKEN_CHARS ||
+    !/^[A-Za-z0-9_-]+$/.test(token)
+  ) {
+    return null
+  }
   try {
-    const json = new TextDecoder().decode(fromBase64Url(token))
+    const json = new TextDecoder('utf-8', { fatal: true }).decode(
+      fromBase64Url(token),
+    )
     const obj = JSON.parse(json) as unknown
     if (!obj || typeof obj !== 'object') return null
     const data = obj as Record<string, unknown>
-    if (typeof data.n !== 'string' || !data.n.trim()) return null
+    if (data.v !== undefined && data.v !== CARD_FORMAT_VERSION) return null
+
+    const boundedField = <Key extends keyof typeof CARD_FIELD_LIMITS>(
+      key: Key,
+      required = false,
+    ): string | undefined | null => {
+      const value = data[key]
+      if (value === undefined) return required ? null : undefined
+      // Preserve backwards compatibility with early cards that accidentally
+      // carried non-string optional values, while still failing the required
+      // identity field closed.
+      if (typeof value !== 'string') return required ? null : undefined
+      const normalized = value.trim()
+      if (
+        (!normalized && required) ||
+        normalized.length > CARD_FIELD_LIMITS[key] ||
+        SINGLE_LINE_CONTROL_CHARACTERS.test(normalized)
+      ) {
+        return null
+      }
+      return normalized || undefined
+    }
+
+    const name = boundedField('n', true)
+    const title = boundedField('t')
+    const company = boundedField('co')
+    const phone = boundedField('p')
+    const email = boundedField('e')
+    if (
+      name == null ||
+      title === null ||
+      company === null ||
+      phone === null ||
+      email === null
+    ) {
+      return null
+    }
     return {
-      n: data.n,
-      t: typeof data.t === 'string' ? data.t : undefined,
-      co: typeof data.co === 'string' ? data.co : undefined,
-      p: typeof data.p === 'string' ? data.p : undefined,
-      e: typeof data.e === 'string' ? data.e : undefined,
+      n: name,
+      t: title,
+      co: company,
+      p: phone,
+      e: email,
     }
   } catch {
     return null
@@ -82,8 +147,9 @@ export function cardUrl(
   profile: Parameters<typeof encodeCard>[0],
   origin?: string,
 ): string {
-  const base =
-    origin ?? (typeof window !== 'undefined' ? window.location.origin : '')
+  // A canonical origin keeps every shared card scannable and prevents a
+  // preview/local host from becoming a permanent public identity link.
+  const base = origin ?? CARD_ORIGIN
   return `${base}${cardPath(profile)}`
 }
 
@@ -96,23 +162,45 @@ export function cardFitsReliableQr(
 }
 
 /**
- * If a scanned QR string is a FollowApp card URL (or a bare token), return its
- * decoded card; otherwise null. Lets the in-app scanner accept either a full
- * URL or the raw `c` token.
+ * Read only a card link from FollowApp's canonical origin. The payload remains
+ * self-asserted (the UI labels it that way), but an arbitrary QR can no longer
+ * masquerade as a FollowApp card by carrying a bare base64 token or using a
+ * lookalike host. Localhost is accepted solely for development and tests.
  */
 export function readCardFromScan(raw: string): CardData | null {
   const text = raw.trim()
-  // Accept current fragment links and legacy query links already in the wild.
+  // Every card emitted by the app is kept below this ceiling. Reject a larger
+  // scanned URL before URL/base64/JSON parsing so an untrusted QR cannot turn a
+  // camera frame into an unbounded allocation.
+  if (
+    !text ||
+    new TextEncoder().encode(text).byteLength > MAX_CARD_QR_URL_BYTES
+  ) {
+    return null
+  }
   try {
     const url = new URL(text)
+    const localHost =
+      process.env.NODE_ENV !== 'production' &&
+      (url.hostname === 'localhost' ||
+        url.hostname === '127.0.0.1' ||
+        url.hostname === '::1')
+    const productionHost =
+      url.hostname === 'followapp.chat' || url.hostname === 'www.followapp.chat'
+    if (!productionHost && !localHost) return null
+    if (productionHost && url.protocol !== 'https:') return null
+    if (url.username || url.password || (productionHost && url.port)) return null
+    if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/card') {
+      return null
+    }
     const c =
       new URLSearchParams(url.hash.replace(/^#/, '')).get('c') ??
       url.searchParams.get('c')
     if (c) return decodeCard(c)
   } catch {
-    // Not a URL — fall through and treat the whole string as a token.
+    return null
   }
-  return decodeCard(text)
+  return null
 }
 
 // --- vCard (.vcf) ----------------------------------------------------------

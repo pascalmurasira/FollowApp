@@ -1,13 +1,14 @@
 import { createHmac } from 'node:crypto'
+import { logServerError } from './error-metadata.ts'
 
-interface RateLimitOptions {
+export interface RateLimitOptions {
   limit: number
   windowMs: number
   /** Stable authenticated identity; defaults to the caller IP when absent. */
   identity?: string
 }
 
-interface RateLimitDecision {
+export interface RateLimitDecision {
   allowed: boolean
   remaining: number
   resetAt: number
@@ -178,6 +179,24 @@ async function consumePersistentRateLimit(
   }
 }
 
+/** Atomic shared limiter for non-route integrations such as Better Auth. */
+export async function consumeDurableRateLimit(
+  key: string,
+  options: RateLimitOptions,
+  runtime = defaultRuntime(),
+): Promise<RateLimitDecision> {
+  if (!runtime.production) return consumeRateLimit(key, options)
+  if (!runtime.databaseUrl || !runtime.secret || runtime.secret.length < 32) {
+    throw new Error('Durable rate limiting is not configured.')
+  }
+  return consumePersistentRateLimit(
+    key,
+    options,
+    runtime.secret,
+    runtime.query ?? defaultRateLimitQuery,
+  )
+}
+
 function requestClientKey(req: Request): string {
   const forwarded =
     req.headers.get('x-vercel-forwarded-for') ||
@@ -205,7 +224,7 @@ function reportProtectionError(
 ) {
   if (runtime.reportError) runtime.reportError(message, error)
   else if (error === undefined) console.error(message)
-  else console.error(message, error)
+  else logServerError(message, error)
 }
 
 /** Shared production protection for anonymous model-backed endpoints. */

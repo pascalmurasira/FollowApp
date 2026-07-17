@@ -1,7 +1,15 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { VISION_MODEL } from '@/lib/ai'
+import {
+  SCAN_CARD_FIELD_KEYS,
+  SCAN_CARD_MODEL_TIMEOUT_MS,
+} from '@/lib/camera-launch'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import {
+  isScanCardUnavailable,
+  scanCardErrorMetadata,
+} from '@/lib/server/scan-card-error'
 
 export const maxDuration = 30
 
@@ -26,24 +34,23 @@ const cardSchema = z.object({
   website: z
     .string()
     .describe('Website or domain as printed, e.g. "linear.app". Empty if absent.'),
-  confidence: z
-    .number()
-    .min(0)
-    .max(1)
-    .describe('Your overall confidence (0–1) that the card was read correctly.'),
+  needsReview: z
+    .array(z.enum(SCAN_CARD_FIELD_KEYS))
+    .describe(
+      'Non-empty fields containing any ambiguous, obscured, or guessed character. Return an empty array when no specific field needs review.',
+    ),
+  imageQuality: z
+    .enum(['clear', 'usable', 'poor'])
+    .describe(
+      'clear when text is sharp and unobstructed, usable when extraction is still reliable despite minor issues, poor when blur, glare, crop, or distance may affect details.',
+    ),
+  qualityNote: z
+    .string()
+    .max(160)
+    .describe(
+      'A short actionable note only when imageQuality is poor; otherwise an empty string. Never claim a field was verified.',
+    ),
 })
-
-function isRateLimitOrUnavailable(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const e = error as { statusCode?: number; type?: string; name?: string }
-  return (
-    e.statusCode === 429 ||
-    e.statusCode === 402 ||
-    e.statusCode === 403 ||
-    e.type === 'rate_limit_exceeded' ||
-    e.name === 'GatewayRateLimitError'
-  )
-}
 
 const requestSchema = z.object({ image: z.string() })
 
@@ -79,6 +86,16 @@ export async function POST(req: Request) {
     return Response.json({ status: 'error', message: 'Image too large.' }, { status: 413 })
   }
 
+  const scanController = new AbortController()
+  let modelTimedOut = false
+  const abortFromClient = () => scanController.abort(req.signal.reason)
+  if (req.signal.aborted) abortFromClient()
+  else req.signal.addEventListener('abort', abortFromClient, { once: true })
+  const modelTimeout = setTimeout(() => {
+    modelTimedOut = true
+    scanController.abort()
+  }, SCAN_CARD_MODEL_TIMEOUT_MS)
+
   try {
     const result = await generateText({
       model: VISION_MODEL,
@@ -86,8 +103,9 @@ export async function POST(req: Request) {
       // for a guaranteed failure. Fail fast so the UI can drop into manual
       // entry immediately instead of stalling ~8s on doomed retries.
       maxRetries: 0,
+      abortSignal: scanController.signal,
       system:
-        'You read business cards from camera photos. Extract ONLY the information actually printed on the card. Never guess or invent details. If a field is not present or not legible, return an empty string for it. Normalize phone numbers to international format when the country is clear from context (country code, address, or dialing prefix). If the image is rotated, low contrast, or partially cropped, still extract every clearly legible field.',
+        'You read business cards from camera photos. Extract ONLY the information actually printed on the card. Never guess or invent details. If a field is not present or not legible, return an empty string for it. Normalize phone numbers to international format only when the country is clear from context (country code, address, or dialing prefix). Mark every non-empty field with even one ambiguous character in needsReview. Judge blur, glare, crop, and distance honestly in imageQuality. If the image is difficult, still extract every clearly legible field and give one short, actionable qualityNote. Never say that a field is verified.',
       messages: [
         {
           role: 'user',
@@ -104,11 +122,22 @@ export async function POST(req: Request) {
     })
     return Response.json({ ...result.output, status: 'ok' })
   } catch (error) {
-    if (isRateLimitOrUnavailable(error)) {
-      console.error('[v0] Card scan unavailable (rate limit / access):', error)
+    if (modelTimedOut) {
+      console.warn('[v0] Card scan exceeded the model time budget.')
+      return Response.json({ status: 'timeout' })
+    }
+    if (req.signal.aborted) {
+      return Response.json({ status: 'cancelled' }, { status: 408 })
+    }
+    const metadata = scanCardErrorMetadata(error)
+    if (isScanCardUnavailable(metadata)) {
+      console.error('[v0] Card scan unavailable (rate limit / access):', metadata)
       return Response.json({ status: 'unavailable' })
     }
-    console.error('[v0] Card scan failed:', error)
+    console.error('[v0] Card scan failed:', metadata)
     return Response.json({ status: 'unavailable' })
+  } finally {
+    clearTimeout(modelTimeout)
+    req.signal.removeEventListener('abort', abortFromClient)
   }
 }

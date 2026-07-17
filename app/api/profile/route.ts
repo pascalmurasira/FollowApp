@@ -2,6 +2,7 @@ import { getProfile, saveProfile } from '@/lib/server/people'
 import { normalizeDeviceId } from '@/lib/server/device-id'
 import { withDeviceAccess } from '@/lib/server/device-access'
 import { profileInputSchema } from '@/lib/server/input-schemas'
+import { logServerError } from '@/lib/server/error-metadata'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
 import { requestedDeviceId } from '@/lib/server/request-device'
 import { z } from 'zod'
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
     if (!access.ok) return access.response
     return Response.json(access.value)
   } catch (error) {
-    console.error('[v0] Profile GET failed:', error)
+    logServerError('[v0] Profile GET failed', error)
     return Response.json({ name: 'You' })
   }
 }
@@ -69,7 +70,7 @@ export async function PUT(req: Request) {
     if (!access.ok) return access.response
     return Response.json({ ok: true })
   } catch (error) {
-    console.error('[v0] Profile PUT failed:', error)
+    logServerError('[v0] Profile PUT failed', error)
     return Response.json({ error: 'Failed to save profile' }, { status: 500 })
   }
 }

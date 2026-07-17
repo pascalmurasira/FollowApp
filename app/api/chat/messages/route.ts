@@ -1,5 +1,12 @@
 import { requireUserId } from '@/lib/server/chat-core'
-import { getThread, sendMessage } from '@/lib/server/messages'
+import {
+  CHAT_THREAD_PAGE_SIZE,
+  getThread,
+  NoAcceptedLinkError,
+  sendMessage,
+} from '@/lib/server/messages'
+import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { logServerError } from '@/lib/server/error-metadata'
 import { z } from 'zod'
 
 export const maxDuration = 10
@@ -26,15 +33,23 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const otherUserId = url.searchParams.get('with')
   const since = Number(url.searchParams.get('since') ?? '0')
+  const cursor = Number.isFinite(since) ? Math.max(0, Math.floor(since)) : 0
   if (!otherUserId) {
     return Response.json({ error: 'Missing with' }, { status: 400 })
   }
 
   try {
-    const messages = await getThread(userId, otherUserId, Number.isFinite(since) ? since : 0)
-    return Response.json({ messages })
+    const messages = await getThread(
+      userId,
+      otherUserId,
+      cursor,
+    )
+    return Response.json({
+      messages,
+      hasMore: cursor > 0 && messages.length === CHAT_THREAD_PAGE_SIZE,
+    })
   } catch (error) {
-    console.error('[v0] chat/thread GET failed:', error)
+    logServerError('[v0] chat/thread GET failed', error)
     return Response.json({ messages: [] }, { status: 500 })
   }
 }
@@ -47,6 +62,12 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const blocked = await protectExpensiveRequest(req, 'chat-message', {
+    limit: 120,
+    windowMs: 10 * 60_000,
+    identity: userId,
+  })
+  if (blocked) return blocked
 
   let input: unknown
   try {
@@ -67,10 +88,16 @@ export async function POST(req: Request) {
     )
     return Response.json({ id })
   } catch (error) {
-    console.error('[v0] chat/thread POST failed:', error)
-    const message = error instanceof Error ? error.message : 'Failed to send'
-    // A blocked send (no accepted link) is a 403, not a server error.
-    const status = message.includes('accepted link') ? 403 : 500
-    return Response.json({ error: message }, { status })
+    logServerError('[v0] chat/thread POST failed', error)
+    if (error instanceof NoAcceptedLinkError) {
+      return Response.json(
+        { error: 'This conversation is not available.' },
+        { status: 403 },
+      )
+    }
+    return Response.json(
+      { error: 'The message could not be sent.' },
+      { status: 500 },
+    )
   }
 }

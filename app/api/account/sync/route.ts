@@ -3,6 +3,7 @@ import { pool } from '@/lib/db'
 import { normalizeDeviceId } from '@/lib/server/device-id'
 import {
   DeviceAlreadyClaimedError,
+  DeviceAliasLimitError,
   mergeAndRetireDeviceData,
 } from '@/lib/server/account-sync'
 import {
@@ -13,6 +14,28 @@ import {
 import type { PoolClient } from 'pg'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { logServerError } from '@/lib/server/error-metadata'
+
+async function repairEmptyAccountName(
+  client: PoolClient,
+  userId: string,
+  deviceId: string,
+): Promise<void> {
+  await client.query(
+    `
+      UPDATE "user" AS account
+      SET name = profile.name, "updatedAt" = $3
+      FROM profiles AS profile
+      WHERE account.id = $1
+        AND profile.device_id = $2
+        AND btrim(account.name) = ''
+        AND btrim(profile.name) <> ''
+        AND lower(btrim(profile.name)) <> 'you'
+    `,
+    [userId, deviceId, new Date()],
+  )
+}
 
 /**
  * Reconciles an authenticated account with the anonymous capability currently
@@ -24,6 +47,13 @@ export async function POST(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const blocked = await protectExpensiveRequest(req, 'account-sync', {
+    limit: 60,
+    windowMs: 24 * 60 * 60_000,
+    identity: session.user.id,
+  })
+  if (blocked) return blocked
 
   let rawDeviceId: unknown
   try {
@@ -41,7 +71,7 @@ export async function POST(req: Request) {
   try {
     client = await pool.connect()
   } catch (error) {
-    console.error('[v0] account/sync database unavailable:', error)
+    logServerError('[v0] account/sync database unavailable', error)
     return NextResponse.json({ error: 'Sync unavailable' }, { status: 503 })
   }
   try {
@@ -66,6 +96,7 @@ export async function POST(req: Request) {
           session.user.id,
         )
       }
+      await repairEmptyAccountName(client, session.user.id, existing)
       await client.query('COMMIT')
       return NextResponse.json({ deviceId: existing, adopted: false })
     }
@@ -86,6 +117,11 @@ export async function POST(req: Request) {
         'UPDATE "user" SET "dataDeviceId" = $1, "updatedAt" = $2 WHERE id = $3',
         [ownership.canonicalDeviceId, new Date(), session.user.id],
       )
+      await repairEmptyAccountName(
+        client,
+        session.user.id,
+        ownership.canonicalDeviceId,
+      )
       await client.query('COMMIT')
       return NextResponse.json({
         deviceId: ownership.canonicalDeviceId,
@@ -96,17 +132,30 @@ export async function POST(req: Request) {
       'UPDATE "user" SET "dataDeviceId" = $1, "updatedAt" = $2 WHERE id = $3',
       [currentDeviceId, new Date(), session.user.id],
     )
+    await repairEmptyAccountName(client, session.user.id, currentDeviceId)
     await client.query('COMMIT')
     return NextResponse.json({ deviceId: currentDeviceId, adopted: true })
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined)
     if (error instanceof DeviceAlreadyClaimedError) {
       return NextResponse.json(
-        { error: 'This device data is already secured by another account.' },
+        {
+          error: 'This device data is already secured by another account.',
+          code: 'DEVICE_ACCOUNT_MISMATCH',
+        },
         { status: 409 },
       )
     }
-    console.error('[v0] account/sync failed:', error)
+    if (error instanceof DeviceAliasLimitError) {
+      return NextResponse.json(
+        {
+          error: 'This account has reached its device safety limit.',
+          code: 'DEVICE_LIMIT_REACHED',
+        },
+        { status: 429 },
+      )
+    }
+    logServerError('[v0] account/sync failed', error)
     return NextResponse.json({ error: 'Sync failed' }, { status: 500 })
   } finally {
     client.release()

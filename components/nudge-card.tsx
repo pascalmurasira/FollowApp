@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Clock, Moon, Check, Pencil } from 'lucide-react'
+import { Clock, Moon, Pencil } from 'lucide-react'
 import type { Contact } from '@/lib/types'
 import type { Nudge } from '@/hooks/use-nudges'
 import type { SnoozeDuration } from '@/hooks/use-engagement'
@@ -9,15 +9,18 @@ import { ContactAvatar } from '@/components/contact-avatar'
 import { ChannelIcon } from '@/components/channel-icon'
 import { healthLevel } from '@/lib/format'
 import {
-  deliver,
   resolveChannel,
   canDeliver,
   sendActionLabel,
-  sentConfirmLabel,
+  type ChannelId,
 } from '@/lib/channels'
 import { getChannelPref } from '@/hooks/use-channel-pref'
 import { DEMO_CONTACT_IDS } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
+import {
+  formatFollowUpDate,
+  nextFollowUpForContact,
+} from '@/lib/contact-dates'
 
 export function NudgeCard({
   contact,
@@ -25,18 +28,17 @@ export function NudgeCard({
   pinned = false,
   featured = false,
   onOpen,
-  onSend,
+  onHandoff,
   onSnooze,
 }: {
   contact: Contact
   nudge?: Nudge
   pinned?: boolean
   featured?: boolean
-  onOpen: () => void
-  onSend: (text: string) => Promise<void>
+  onOpen: (draft?: string) => void
+  onHandoff: (text: string, preferred?: ChannelId) => void
   onSnooze?: (duration: SnoozeDuration) => void
 }) {
-  const [sending, setSending] = useState(false)
   const [showSnooze, setShowSnooze] = useState(false)
 
   // Channel-agnostic: respect any per-contact preference, else the smart
@@ -50,16 +52,10 @@ export function NudgeCard({
   const isWhatsApp = channel === 'whatsapp'
   const level = healthLevel(contact.daysSinceContact, contact.tier)
   const isExample = DEMO_CONTACT_IDS.has(contact.id)
-  const neverContacted = contact.lastContactedAt === null
 
-  const handleSend = async () => {
+  const handleHandoff = () => {
     if (!nudge || !canSend) return
-    // Hand off synchronously (within the click) so the deep link isn't blocked.
-    const deliveredVia = deliver(contact, nudge.text, preferred)
-    if (!deliveredVia) return
-    setSending(true)
-    await onSend(nudge.text)
-    onOpen()
+    onHandoff(nudge.text, preferred)
   }
 
   const handleSnooze = (duration: SnoozeDuration) => {
@@ -72,7 +68,7 @@ export function NudgeCard({
       <article className="border-b border-[var(--hairline)] last:border-b-0">
         <button
           type="button"
-          onClick={onOpen}
+          onClick={() => onOpen()}
           className="pressable flex w-full items-center gap-3 px-4 py-3.5 text-left"
         >
           <ContactAvatar contact={contact} size="md" />
@@ -91,8 +87,7 @@ export function NudgeCard({
           </span>
           <StatusBlock
             level={level}
-            days={contact.daysSinceContact}
-            neverContacted={neverContacted}
+            contact={contact}
           />
         </button>
       </article>
@@ -106,7 +101,7 @@ export function NudgeCard({
       {/* Header */}
       <button
         type="button"
-        onClick={onOpen}
+        onClick={() => onOpen()}
         className="pressable flex w-full items-center gap-3 rounded-2xl text-left"
       >
         <ContactAvatar contact={contact} size="lg" />
@@ -134,8 +129,7 @@ export function NudgeCard({
         </div>
         <StatusBlock
           level={level}
-          days={contact.daysSinceContact}
-          neverContacted={neverContacted}
+          contact={contact}
         />
       </button>
 
@@ -184,8 +178,12 @@ export function NudgeCard({
         <div className="mt-5 flex items-center gap-2">
           <button
             type="button"
-            onClick={canSend ? handleSend : onOpen}
-            disabled={sending || (canSend && !nudge)}
+            onClick={
+              canSend
+                ? handleHandoff
+                : () => onOpen(nudge?.text)
+            }
+            disabled={canSend && !nudge}
             className={cn(
               'primary-action pressable flex min-h-[46px] flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold disabled:opacity-40',
               canSend && isWhatsApp
@@ -193,18 +191,12 @@ export function NudgeCard({
                 : 'bg-primary text-primary-foreground shadow-sm',
             )}
           >
-            {sending ? (
-              <Check className="size-[18px]" />
-            ) : !canSend ? (
+            {!canSend ? (
               <Pencil className="size-[18px]" />
             ) : (
               <ChannelIcon channel={channel} className="size-[18px]" />
             )}
-            {sending
-              ? sentConfirmLabel(channel)
-              : canSend
-                ? sendActionLabel(channel)
-                : 'Add phone or email'}
+            {canSend ? sendActionLabel(channel) : 'Add phone or email'}
           </button>
           {onSnooze && (
             <button
@@ -218,7 +210,7 @@ export function NudgeCard({
           )}
           <button
             type="button"
-            onClick={onOpen}
+            onClick={() => onOpen(nudge?.text)}
             aria-label="Edit opener"
             className="glass-button pressable flex size-[46px] items-center justify-center rounded-[var(--r-button)] text-[var(--ink-secondary)]"
           >
@@ -232,15 +224,15 @@ export function NudgeCard({
 
 function statusCopy(
   level: 'on-track' | 'due-soon' | 'overdue',
-  days: number,
-  neverContacted = false,
+  contact: Contact,
 ): { label: string; sublabel: string } {
-  if (neverContacted) {
+  if (contact.lastContactedAt === null) {
     return {
       label: 'Due now',
-      sublabel: 'never contacted',
+      sublabel: 'First follow-up',
     }
   }
+  const date = formatFollowUpDate(nextFollowUpForContact(contact))
   return {
     label:
       level === 'overdue'
@@ -248,20 +240,18 @@ function statusCopy(
         : level === 'due-soon'
           ? 'Due soon'
           : 'On track',
-    sublabel: days <= 0 ? 'today' : `${days} days`,
+    sublabel: `${level === 'on-track' ? 'Next' : 'Due'} ${date}`,
   }
 }
 
 function StatusBlock({
   level,
-  days,
-  neverContacted = false,
+  contact,
 }: {
   level: 'on-track' | 'due-soon' | 'overdue'
-  days: number
-  neverContacted?: boolean
+  contact: Contact
 }) {
-  const status = statusCopy(level, days, neverContacted)
+  const status = statusCopy(level, contact)
   return (
     <span
       aria-label={`${status.label}, ${status.sublabel}`}

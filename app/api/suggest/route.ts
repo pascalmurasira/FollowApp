@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { withRetry } from '@/lib/with-retry'
 import { TEXT_MODEL } from '@/lib/ai'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { logServerError } from '@/lib/server/error-metadata'
 
 export const maxDuration = 30
 
@@ -117,7 +118,7 @@ ${transcript || '(no messages yet)'}${enrichmentBlock}`
 
     return Response.json(output)
   } catch (error) {
-    console.error('Suggest route failed:', error)
+    logServerError('[v0] Suggest route failed', error)
     return Response.json(
       { error: 'Could not generate suggestions right now.' },
       { status: 500 },

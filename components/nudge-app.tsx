@@ -1,13 +1,22 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { QrCode, ScanLine } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Bell, Check, ChevronLeft, QrCode, ScanLine } from 'lucide-react'
+import { App } from '@capacitor/app'
 import { CONTACTS, CURRENT_USER, DEMO_CONTACT_IDS } from '@/lib/mock-data'
-import type { Contact, Message, Tab, Tier } from '@/lib/types'
+import type {
+  Contact,
+  Message,
+  OutreachChannel,
+  Tab,
+  Tier,
+} from '@/lib/types'
 import { BottomNav } from '@/components/bottom-nav'
 import { NudgeFeed } from '@/components/nudge-feed'
 import { ChatList } from '@/components/chat-list'
 import { ChatRequests } from '@/components/chat-requests'
+import { InAppChat } from '@/components/in-app-chat'
+import type { LinkView } from '@/hooks/use-inbox'
 import { ConversationView } from '@/components/conversation-view'
 import { NudgeLogo } from '@/components/nudge-logo'
 import { WelcomeFlow, type WelcomeResult } from '@/components/welcome-flow'
@@ -17,8 +26,7 @@ import { ImportContactsSheet } from '@/components/import-contacts-sheet'
 import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { MyCardSheet } from '@/components/my-card-sheet'
 import { QrScanSheet } from '@/components/qr-scan-sheet'
-import { SecureNudgeSheet } from '@/components/secure-nudge-sheet'
-import { useSyncPrompt } from '@/hooks/use-sync-prompt'
+import { InvitePrompt } from '@/components/invite-prompt'
 import {
   loadOnboarding,
   saveOnboarding,
@@ -34,10 +42,14 @@ import {
   apiAddContact,
   apiImportContacts,
   apiSetCircle,
-  apiTouchContact,
+  apiConfirmOutreach,
+  apiDeleteContact,
   apiUpdateContact,
   applyContactUpdate,
   createContact,
+  normalizeCircleName,
+  refreshContactFreshness,
+  retryPendingContactWrites,
   allGroupNames,
   upsertContacts,
   type GroupTags,
@@ -50,14 +62,97 @@ import {
   toNewContactInput,
   type ParsedContact,
 } from '@/lib/import-contacts'
-import { savedCountFromImportError } from '@/lib/contact-import-utils'
+import {
+  savedCountFromImportError,
+  uniqueContactsById,
+} from '@/lib/contact-import-utils'
 import { getDeviceId } from '@/lib/device-id'
 import { useSession } from '@/lib/auth-client'
 import { useEngagement } from '@/hooks/use-engagement'
+import { deliver, channelLabel, type ChannelId } from '@/lib/channels'
+import {
+  canScheduleReminderDate,
+  formatFollowUpDate,
+  nextFollowUpForContact,
+  nextFollowUpDateInput,
+  normalizeLastContactedAt,
+  todayDateInputValue,
+} from '@/lib/contact-dates'
+import { healthLevel } from '@/lib/format'
+import {
+  isNativeRuntime,
+  cancelAllFollowUpReminders,
+  cancelFollowUpReminder,
+  consumeFollowUpReminderTap,
+  listenForFollowUpReminderTaps,
+  openAppSettings,
+  reminderPermissionStatus,
+  requestReminderPermission,
+  scheduleFollowUpReminder,
+} from '@/lib/native'
+import { trackProductEvent } from '@/lib/product-analytics'
+import {
+  clearContactAccessFailure,
+  getContactSyncState,
+} from '@/lib/contact-sync-recovery'
+import {
+  confirmedOutreachCount,
+  hasInvited,
+  INVITE_AFTER_CONFIRMED_OUTREACH,
+  markInvited,
+} from '@/lib/invite'
 
-let idCounter = 0
-const nextId = () => `local-${idCounter++}`
 const TAB_ORDER: Tab[] = ['nudges', 'chats', 'you']
+const PENDING_OUTREACH_KEY = 'followapp.pending-outreach.v1'
+
+interface PendingOutreach {
+  id: string
+  contactId: string
+  text: string
+  channel: OutreachChannel
+  openedAt: string
+  source: 'feed' | 'conversation'
+}
+
+interface ConfirmedOutreach {
+  contactId: string
+  contactName: string
+  nextDate: string
+  channel: OutreachChannel
+  offerInvite: boolean
+}
+
+type ReminderTarget = Omit<ConfirmedOutreach, 'channel' | 'offerInvite'> & {
+  channel?: OutreachChannel
+}
+
+function persistPendingOutreach(value: PendingOutreach | null) {
+  try {
+    if (value) window.localStorage.setItem(PENDING_OUTREACH_KEY, JSON.stringify(value))
+    else window.localStorage.removeItem(PENDING_OUTREACH_KEY)
+  } catch {
+    // A pending confirmation is still kept in React state when storage is blocked.
+  }
+}
+
+function readPendingOutreach(): PendingOutreach | null {
+  try {
+    const raw = window.localStorage.getItem(PENDING_OUTREACH_KEY)
+    if (!raw) return null
+    const value = JSON.parse(raw) as Partial<PendingOutreach>
+    if (
+      !value.id ||
+      !value.contactId ||
+      !value.text ||
+      (value.channel !== 'whatsapp' && value.channel !== 'email')
+    ) {
+      return null
+    }
+    return value as PendingOutreach
+  } catch {
+    return null
+  }
+}
 
 /** Move the user's chosen contacts to the front, keeping the rest in order. */
 function prioritize(list: Contact[], selectedIds: string[]): Contact[] {
@@ -76,6 +171,9 @@ export function NudgeApp() {
     'forward',
   )
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeCloudChat, setActiveCloudChat] = useState<LinkView | null>(null)
+  const [activeDraft, setActiveDraft] = useState<string | undefined>()
+  const [draftClearRevision, setDraftClearRevision] = useState(0)
   const [voice, setVoice] = useState<string>(CURRENT_USER.voice)
   const [toneLabel, setToneLabel] = useState<string>('low-key & chill')
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
@@ -86,21 +184,220 @@ export function NudgeApp() {
   const [showScan, setShowScan] = useState(false)
   const [showCard, setShowCard] = useState(false)
   const [showScanQr, setShowScanQr] = useState(false)
-  const [showSecure, setShowSecure] = useState(false)
-  const { streak, snoozedIds, recordReachOut, snooze } = useEngagement()
-
-  // Do not interrupt the first saved card. Account sync becomes relevant only
-  // after the user has completed the product's first-value action: reaching out.
-  const invested = streak > 0
-  const { showSyncPrompt, dismissSyncPrompt } = useSyncPrompt(invested)
-
-  // Surface the magic-link sheet when the hook says the moment is right.
-  useEffect(() => {
-    if (showSyncPrompt) setShowSecure(true)
-  }, [showSyncPrompt])
+  const [pendingOutreach, setPendingOutreach] =
+    useState<PendingOutreach | null>(null)
+  const [confirmedOutreach, setConfirmedOutreach] =
+    useState<ConfirmedOutreach | null>(null)
+  const [reminderAvailable, setReminderAvailable] = useState(false)
+  const [reminderState, setReminderState] = useState<
+    'idle' | 'requesting' | 'scheduled' | 'denied' | 'error'
+  >('idle')
+  const {
+    hydrated: engagementHydrated,
+    streak,
+    snoozedIds,
+    remindersEnabled,
+    scheduledReminderDates,
+    recordReachOut,
+    snooze,
+    refreshTimeState,
+    enableReminders,
+    disableReminders,
+    markReminderScheduled,
+    clearScheduledReminder,
+    clearAllScheduledReminders,
+  } = useEngagement()
+  const reminderReconcileRef = useRef(new Set<string>())
 
   // 'pending' until we've checked localStorage, then 'onboarding' or 'app'.
   const [phase, setPhase] = useState<'pending' | 'onboarding' | 'app'>('pending')
+
+  const refreshClock = useCallback(() => {
+    refreshTimeState()
+    setContacts((previous) => previous.map(refreshContactFreshness))
+  }, [refreshTimeState])
+
+  const consumeReminderTarget = useCallback(async () => {
+    const contactId = await consumeFollowUpReminderTap().catch(() => null)
+    if (!contactId) return
+    setActiveDraft(undefined)
+    setDraftClearRevision((revision) => revision + 1)
+    setTab('chats')
+    setActiveId(contactId)
+    clearScheduledReminder(contactId)
+    trackProductEvent('reminder_opened', { surface: 'notification' })
+  }, [clearScheduledReminder])
+
+  const persistNativeReminder = useCallback(
+    async (target: ReminderTarget): Promise<boolean> => {
+      const id = `followapp-follow-up-${target.contactId}`
+      if (!canScheduleReminderDate(target.nextDate)) {
+        await cancelFollowUpReminder(id)
+        clearScheduledReminder(target.contactId)
+        return false
+      }
+      try {
+        const scheduled = await scheduleFollowUpReminder({
+          id,
+          contactId: target.contactId,
+          title: `Follow up with ${target.contactName}`,
+          body: target.channel
+            ? `Your ${channelLabel(target.channel)} follow-up is ready to plan.`
+            : 'Your next follow-up is ready to plan.',
+          date: target.nextDate,
+        })
+        if (scheduled) {
+          markReminderScheduled(target.contactId, target.nextDate)
+        } else {
+          clearScheduledReminder(target.contactId)
+        }
+        return scheduled
+      } catch (error) {
+        await cancelFollowUpReminder(id).catch(() => {})
+        clearScheduledReminder(target.contactId)
+        throw error
+      }
+    },
+    [clearScheduledReminder, markReminderScheduled],
+  )
+
+  const reconcileReminderPermission = useCallback(async () => {
+    if (!engagementHydrated || !(await isNativeRuntime())) return
+    let status: Awaited<ReturnType<typeof reminderPermissionStatus>>
+    try {
+      status = await reminderPermissionStatus()
+    } catch {
+      setReminderAvailable(false)
+      return
+    }
+    setReminderAvailable(status !== 'unsupported')
+    if (status !== 'granted' || !remindersEnabled) {
+      if (status !== 'granted') disableReminders()
+      await cancelAllFollowUpReminders().catch(() => {})
+      clearAllScheduledReminders()
+    }
+  }, [
+    clearAllScheduledReminders,
+    disableReminders,
+    engagementHydrated,
+    remindersEnabled,
+  ])
+
+  useEffect(() => {
+    setPendingOutreach(readPendingOutreach())
+  }, [])
+
+  useEffect(() => {
+    if (engagementHydrated) void consumeReminderTarget()
+  }, [consumeReminderTarget, engagementHydrated])
+
+  useEffect(() => {
+    let active = true
+    let removeListener: (() => void) | undefined
+    void listenForFollowUpReminderTaps(() => {
+      if (engagementHydrated) void consumeReminderTarget()
+    })
+      .then((remove) => {
+        if (active) removeListener = remove
+        else remove()
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+      removeListener?.()
+    }
+  }, [consumeReminderTarget, engagementHydrated])
+
+  useEffect(() => {
+    void reconcileReminderPermission()
+  }, [reconcileReminderPermission])
+
+  // Contact writes can fail from any surface, so recovery belongs at the app
+  // lifecycle rather than behind the You tab. Retry once at startup, again
+  // when connectivity returns, and after auth changes unblock a claimed device.
+  useEffect(() => {
+    let running = false
+    const retryPending = async () => {
+      const pending = getContactSyncState()
+      if (
+        running ||
+        pending.pending === 0 ||
+        (pending.authorizationBlocked && !signedIn)
+      ) {
+        return
+      }
+
+      const deviceId = getDeviceId()
+      if (!deviceId) return
+      running = true
+      try {
+        await retryPendingContactWrites(deviceId)
+        clearContactAccessFailure()
+        trackProductEvent('backup_sync_completed', {
+          surface: 'automatic_retry',
+        })
+      } catch {
+        trackProductEvent('backup_sync_failed', {
+          stage: 'automatic_retry',
+        })
+      } finally {
+        running = false
+      }
+    }
+
+    const onOnline = () => void retryPending()
+    void retryPending()
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [signedIn])
+
+  // Recalculate due dates and expired snoozes whenever the app becomes active,
+  // and at local midnight for users who keep the native WebView alive for days.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshClock()
+        void consumeReminderTarget()
+        void reconcileReminderPermission()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    let active = true
+    let appStateHandle: { remove: () => Promise<void> } | undefined
+    void isNativeRuntime().then((native) => {
+      if (!native || !active) return
+      void App.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) {
+          refreshClock()
+          void consumeReminderTarget()
+          void reconcileReminderPermission()
+        }
+      }).then((handle) => {
+        if (active) appStateHandle = handle
+        else void handle.remove()
+      })
+    })
+
+    let midnightTimer = 0
+    const armMidnight = () => {
+      const now = new Date()
+      const next = new Date(now)
+      next.setHours(24, 0, 1, 0)
+      midnightTimer = window.setTimeout(() => {
+        refreshClock()
+        armMidnight()
+      }, next.getTime() - now.getTime())
+    }
+    armMidnight()
+
+    return () => {
+      active = false
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.clearTimeout(midnightTimer)
+      void appStateHandle?.remove()
+    }
+  }, [consumeReminderTarget, reconcileReminderPermission, refreshClock])
 
   // Paint from local state immediately. Session and remote reconciliation must
   // never hold the scanner behind a blank launch screen.
@@ -214,7 +511,7 @@ export function NudgeApp() {
 
   const addContact = useCallback((input: NewContactInput): Contact => {
     const contact = createContact(input)
-    const group = input.group ?? null
+    const group = normalizeCircleName(input.group)
     const deviceId = getDeviceId()
 
     // Optimistically update the UI, then persist to Neon (keyed by device).
@@ -256,15 +553,17 @@ export function NudgeApp() {
             contact.id,
           ]),
       )
-      const built = rows.map((row, i) => {
-        const contact = createContact(toNewContactInput(row, tier), base + i)
-        return {
-          ...contact,
-          id:
-            existingImportIds.get(importedContactIdentityKey(contact)) ??
-            importedContactId(deviceId ?? 'local', contact),
-        }
-      })
+      const built = uniqueContactsById(
+        rows.map((row, i) => {
+          const contact = createContact(toNewContactInput(row, tier), base + i)
+          return {
+            ...contact,
+            id:
+              existingImportIds.get(importedContactIdentityKey(contact)) ??
+              importedContactId(deviceId ?? 'local', contact),
+          }
+        }),
+      )
 
       const commit = (saved: Contact[]) => {
         if (saved.length === 0) return
@@ -299,19 +598,29 @@ export function NudgeApp() {
   // built-in demo contacts can be sorted into circles too, and persist in Neon.
   const setContactGroup = useCallback(
     (contactId: string, group: string | null) => {
+      const normalizedGroup = normalizeCircleName(group)
       setGroupTags((prev) => {
         const next = { ...prev }
-        if (group) next[contactId] = [group]
+        if (normalizedGroup) next[contactId] = [normalizedGroup]
         else delete next[contactId]
         return next
       })
       setContacts((prev) =>
         prev.map((c) =>
-          c.id === contactId ? { ...c, groups: group ? [group] : [] } : c,
+          c.id === contactId
+            ? { ...c, groups: normalizedGroup ? [normalizedGroup] : [] }
+            : c,
         ),
       )
       const deviceId = getDeviceId()
-      if (deviceId) void apiSetCircle(deviceId, contactId, group, signedIn)
+      if (deviceId) {
+        void apiSetCircle(
+          deviceId,
+          contactId,
+          normalizedGroup,
+          signedIn,
+        )
+      }
     },
     [signedIn],
   )
@@ -333,6 +642,54 @@ export function NudgeApp() {
     [signedIn],
   )
 
+  const deleteContact = useCallback(async (contactId: string) => {
+    const exitsSampleMode = DEMO_CONTACT_IDS.has(contactId)
+    const removedIds = exitsSampleMode
+      ? new Set(DEMO_CONTACT_IDS)
+      : new Set([contactId])
+    if (exitsSampleMode) leaveSampleMode()
+
+    setContacts((previous) =>
+      previous.filter((contact) => !removedIds.has(contact.id)),
+    )
+    setGroupTags((previous) => {
+      const next = { ...previous }
+      for (const id of removedIds) delete next[id]
+      return next
+    })
+    setPinnedIds((previous) =>
+      previous.filter((id) => !removedIds.has(id)),
+    )
+    setActiveId((current) =>
+      current && removedIds.has(current) ? null : current,
+    )
+    if (pendingOutreach && removedIds.has(pendingOutreach.contactId)) {
+      persistPendingOutreach(null)
+    }
+    setPendingOutreach((current) =>
+      current && removedIds.has(current.contactId) ? null : current,
+    )
+    setConfirmedOutreach((current) =>
+      current && removedIds.has(current.contactId) ? null : current,
+    )
+    for (const id of removedIds) clearScheduledReminder(id)
+    void Promise.all(
+      [...removedIds].map((id) =>
+        cancelFollowUpReminder(`followapp-follow-up-${id}`),
+      ),
+    ).catch(() => {})
+    if (exitsSampleMode) {
+      const deviceId = getDeviceId()
+      await Promise.all(
+        [...removedIds].map((id) =>
+          apiSetCircle(deviceId, id, null, signedIn),
+        ),
+      )
+    } else {
+      await apiDeleteContact(getDeviceId(), contactId)
+    }
+  }, [clearScheduledReminder, leaveSampleMode, pendingOutreach, signedIn])
+
   // Every group name currently in use, for the add sheet and feed filter.
   const groups = useMemo(() => allGroupNames(groupTags), [groupTags])
 
@@ -341,42 +698,238 @@ export function NudgeApp() {
     [contacts, activeId],
   )
 
-  const sendMessage = useCallback(
-    async (contactId: string, text: string) => {
+  const openContact = useCallback((contactId: string, draft?: string) => {
+    setActiveDraft(draft)
+    setActiveId(contactId)
+    if (draft?.trim()) {
+      trackProductEvent('draft_selected', {
+        source: 'feed_edit',
+        channel_available: true,
+      })
+    }
+  }, [])
+
+  const beginOutreach = useCallback(
+    (
+      contactId: string,
+      text: string,
+      preferred: ChannelId | undefined,
+      source: PendingOutreach['source'],
+    ) => {
+      const contact = contacts.find((item) => item.id === contactId)
       const trimmed = text.trim()
-      if (!trimmed) return
-
-      const myMessage: Message = {
-        id: nextId(),
-        sender: 'me',
+      if (!contact || !trimmed || pendingOutreach) return
+      const channel = deliver(contact, trimmed, preferred)
+      if (!channel) {
+        openContact(contactId, trimmed)
+        return
+      }
+      const pending: PendingOutreach = {
+        id: `outreach-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        contactId,
         text: trimmed,
-        minutesAgo: 0,
+        channel,
+        openedAt: new Date().toISOString(),
+        source,
       }
-
-      // Optimistically add my message and mark the thread as fresh.
-      setContacts((prev) =>
-        prev.map((c) => {
-          if (c.id !== contactId) return c
-          return {
-            ...c,
-            daysSinceContact: 0,
-            messages: [...c.messages, myMessage],
-          }
-        }),
-      )
-
-      // Reaching out keeps the relationship warm — counts toward the streak.
-      recordReachOut(contactId)
-      if (!DEMO_CONTACT_IDS.has(contactId)) {
-        const deviceId = getDeviceId()
-        if (deviceId) void apiTouchContact(deviceId, contactId, signedIn)
-      }
-
-      // External replies stay in WhatsApp/email. Do not fabricate a response
-      // inside FollowApp; this local entry only records the user's outreach.
+      setPendingOutreach(pending)
+      persistPendingOutreach(pending)
+      trackProductEvent('channel_handoff', { channel, source })
     },
-    [recordReachOut, signedIn],
+    [contacts, openContact, pendingOutreach],
   )
+
+  const scheduleReminderFor = useCallback(
+    async (result: ConfirmedOutreach, prompted: boolean) => {
+      setReminderState('requesting')
+      try {
+        const scheduled = await persistNativeReminder(result)
+        setReminderState(scheduled ? 'scheduled' : 'error')
+        trackProductEvent('reminder_outcome', {
+          outcome: scheduled ? 'scheduled' : 'unavailable',
+          prompted,
+        })
+        return scheduled
+      } catch {
+        setReminderState('error')
+        trackProductEvent('reminder_outcome', {
+          outcome: 'error',
+          prompted,
+        })
+        return false
+      }
+    },
+    [persistNativeReminder],
+  )
+
+  // Keep an existing reminder aligned with manual cadence/date edits. The
+  // persisted registry prevents opt-in from silently expanding to every
+  // contact; only reminders the user already scheduled are reconciled.
+  useEffect(() => {
+    if (phase !== 'app' || !engagementHydrated || !remindersEnabled) return
+    for (const [contactId, scheduledDate] of Object.entries(
+      scheduledReminderDates,
+    )) {
+      const contact = contacts.find((item) => item.id === contactId)
+      const nextDate = contact ? nextFollowUpForContact(contact) : null
+      if (nextDate === scheduledDate) continue
+      if (reminderReconcileRef.current.has(contactId)) continue
+      reminderReconcileRef.current.add(contactId)
+      void (async () => {
+        try {
+          if (!contact || !nextDate) {
+            await cancelFollowUpReminder(`followapp-follow-up-${contactId}`)
+            clearScheduledReminder(contactId)
+            return
+          }
+          await persistNativeReminder({
+            contactId,
+            contactName: contact.name,
+            nextDate,
+          })
+        } catch {
+          clearScheduledReminder(contactId)
+        } finally {
+          reminderReconcileRef.current.delete(contactId)
+        }
+      })()
+    }
+  }, [
+    clearScheduledReminder,
+    contacts,
+    engagementHydrated,
+    persistNativeReminder,
+    phase,
+    remindersEnabled,
+    scheduledReminderDates,
+  ])
+
+  const confirmPendingOutreach = useCallback(() => {
+    if (!pendingOutreach) return
+    const contact = contacts.find((item) => item.id === pendingOutreach.contactId)
+    if (!contact) {
+      persistPendingOutreach(null)
+      setPendingOutreach(null)
+      return
+    }
+    const previousConfirmation = contact.messages.find(
+      (entry) =>
+        entry.id === pendingOutreach.id &&
+        entry.sender === 'me' &&
+        Boolean(entry.sentAt) &&
+        Boolean(entry.channel),
+    )
+    const message: Message = previousConfirmation ?? {
+      id: pendingOutreach.id,
+      sender: 'me',
+      text: pendingOutreach.text,
+      minutesAgo: 0,
+      sentAt: new Date().toISOString(),
+      sentOn: todayDateInputValue(),
+      channel: pendingOutreach.channel,
+    }
+    // A restored confirmation can be replayed after a crash. Keep the first
+    // confirmed date immutable instead of advancing cadence on the second tap.
+    const lastContactedAt = previousConfirmation
+      ? contact.lastContactedAt ??
+        normalizeLastContactedAt(
+          previousConfirmation.sentOn ?? previousConfirmation.sentAt,
+        ) ??
+        todayDateInputValue()
+      : todayDateInputValue()
+    const result: ConfirmedOutreach = {
+      contactId: contact.id,
+      contactName: contact.name,
+      nextDate: nextFollowUpDateInput(lastContactedAt, contact.tier),
+      channel: pendingOutreach.channel,
+      offerInvite:
+        !previousConfirmation &&
+        confirmedOutreachCount(contacts) + 1 >=
+          INVITE_AFTER_CONFIRMED_OUTREACH &&
+        !hasInvited(contact.id),
+    }
+
+    if (!previousConfirmation) {
+      setContacts((previous) =>
+        previous.map((item) =>
+          item.id === contact.id
+            ? {
+                ...item,
+                daysSinceContact: 0,
+                lastContactedAt,
+                messages: [...item.messages, message].slice(-100),
+              }
+            : item,
+        ),
+      )
+      recordReachOut(contact.id)
+    }
+    if (!DEMO_CONTACT_IDS.has(contact.id)) {
+      const deviceId = getDeviceId()
+      if (deviceId) void apiConfirmOutreach(deviceId, contact.id, message, signedIn)
+    }
+    trackProductEvent('outreach_confirmation', {
+      outcome: 'sent',
+      channel: pendingOutreach.channel,
+    })
+    persistPendingOutreach(null)
+    setPendingOutreach(null)
+    setActiveDraft(undefined)
+    setDraftClearRevision((revision) => revision + 1)
+    setConfirmedOutreach(result)
+    setReminderState('idle')
+    if (remindersEnabled) void scheduleReminderFor(result, false)
+  }, [
+    contacts,
+    pendingOutreach,
+    recordReachOut,
+    remindersEnabled,
+    scheduleReminderFor,
+    signedIn,
+  ])
+
+  const rejectPendingOutreach = useCallback(() => {
+    if (!pendingOutreach) return
+    trackProductEvent('outreach_confirmation', {
+      outcome: 'not_yet',
+      channel: pendingOutreach.channel,
+    })
+    openContact(pendingOutreach.contactId, pendingOutreach.text)
+    persistPendingOutreach(null)
+    setPendingOutreach(null)
+  }, [openContact, pendingOutreach])
+
+  const optInToReminder = useCallback(async () => {
+    if (!confirmedOutreach || reminderState === 'requesting') return
+    setReminderState('requesting')
+    trackProductEvent('reminder_opt_in', { action: 'requested' })
+    try {
+      let permission = await reminderPermissionStatus()
+      if (permission === 'prompt') permission = await requestReminderPermission()
+      if (permission !== 'granted') {
+        if (permission === 'denied') setReminderState('denied')
+        else setReminderState('error')
+        trackProductEvent('reminder_outcome', {
+          outcome: permission,
+          prompted: true,
+        })
+        return
+      }
+      enableReminders()
+      await scheduleReminderFor(confirmedOutreach, true)
+    } catch {
+      setReminderState('error')
+      trackProductEvent('reminder_outcome', {
+        outcome: 'error',
+        prompted: true,
+      })
+    }
+  }, [
+    confirmedOutreach,
+    enableReminders,
+    reminderState,
+    scheduleReminderFor,
+  ])
 
   const changeTab = useCallback((next: Tab) => {
     setTab((current) => {
@@ -408,12 +961,50 @@ export function NudgeApp() {
   return (
     <div className="app-field mx-auto flex h-[100dvh] w-full max-w-6xl flex-col lg:my-6 lg:h-[calc(100dvh-3rem)] lg:overflow-hidden lg:rounded-[1.6rem] lg:border lg:border-white/40 lg:shadow-card-lg">
       <span className="field-grain" aria-hidden />
-      {activeContact ? (
+      {activeCloudChat?.otherUserId ? (
+        <div className="relative z-[1] mx-auto flex h-[100dvh] w-full max-w-3xl flex-col lg:h-[calc(100dvh-3rem)] lg:border-x lg:border-white/30">
+          <header className="z-10 flex items-center gap-2 border-b border-[var(--hairline)] px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2.5 text-[var(--ink-strong)] backdrop-blur-xl">
+            <button
+              type="button"
+              onClick={() => setActiveCloudChat(null)}
+              aria-label="Back to chats"
+              className="glass-button pressable flex size-11 items-center justify-center rounded-full text-[var(--ink-strong)]"
+            >
+              <ChevronLeft className="size-6" />
+            </button>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-sm font-semibold text-primary">
+              {(activeCloudChat.otherName.trim() || 'Someone')
+                .slice(0, 1)
+                .toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-heading text-[15.5px] font-semibold leading-tight tracking-[-0.01em]">
+                {activeCloudChat.otherName.trim() || 'Someone'}
+              </p>
+              <p className="truncate text-xs text-[var(--ink-secondary)]">
+                FollowApp chat
+              </p>
+            </div>
+          </header>
+          <InAppChat
+            otherUserId={activeCloudChat.otherUserId}
+            otherName={activeCloudChat.otherName.trim() || 'Someone'}
+          />
+        </div>
+      ) : activeContact ? (
         <ConversationView
+          key={activeContact.id}
           contact={activeContact}
           voice={voice}
-          onBack={() => setActiveId(null)}
-          onSend={(text) => sendMessage(activeContact.id, text)}
+          initialDraft={activeDraft}
+          clearDraftRevision={draftClearRevision}
+          onBack={() => {
+            setActiveId(null)
+            setActiveDraft(undefined)
+          }}
+          onHandoff={(text, preferred) =>
+            beginOutreach(activeContact.id, text, preferred, 'conversation')
+          }
           onUpdateContact={(updates) => updateContact(activeContact.id, updates)}
         />
       ) : (
@@ -426,11 +1017,25 @@ export function NudgeApp() {
                 </span>
                 <div>
                   <h1 className="font-heading text-[26px] font-bold leading-none tracking-[-0.03em] min-[380px]:text-[30px]">
-                    {tab === 'nudges' ? 'Follow-ups' : tab === 'chats' ? 'Chats' : 'You'}
+                    {tab === 'nudges' ? 'Follow-ups' : tab === 'chats' ? 'People' : 'You'}
                   </h1>
                   <p className="mt-1 hidden text-[13px] text-[var(--ink-secondary)] lg:block">
-                    {contacts.filter((c) => c.daysSinceContact < 30).length} on track ·{' '}
-                    {contacts.filter((c) => c.daysSinceContact >= 30).length} overdue
+                    {
+                      contacts.filter(
+                        (contact) =>
+                          healthLevel(contact.daysSinceContact, contact.tier) ===
+                          'on-track',
+                      ).length
+                    }{' '}
+                    on track ·{' '}
+                    {
+                      contacts.filter(
+                        (contact) =>
+                          healthLevel(contact.daysSinceContact, contact.tier) ===
+                          'overdue',
+                      ).length
+                    }{' '}
+                    overdue
                   </p>
                 </div>
               </div>
@@ -439,7 +1044,7 @@ export function NudgeApp() {
                   {tab === 'nudges'
                     ? `${contacts.length} relationships`
                     : tab === 'chats'
-                      ? 'Private conversations'
+                      ? 'Relationships & history'
                       : 'Profile & preferences'}
                 </p>
                 <button
@@ -450,7 +1055,7 @@ export function NudgeApp() {
                   className="glass-button pressable flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--ink-strong)] sm:w-auto sm:px-3.5"
                 >
                   <QrCode className="size-[18px]" />
-                  <span className="ml-2 hidden text-sm font-semibold sm:inline">
+                  <span className="ml-1.5 text-[11px] font-semibold sm:text-sm">
                     My QR
                   </span>
                 </button>
@@ -462,7 +1067,7 @@ export function NudgeApp() {
                   className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold"
                 >
                   <ScanLine className="size-[18px]" />
-                  <span className="hidden sm:inline">Scan card</span>
+                  <span className="text-[11px] sm:text-sm">Scan</span>
                 </button>
               </div>
             </div>
@@ -479,14 +1084,18 @@ export function NudgeApp() {
                   groups={groups}
                   groupFilter={groupFilter}
                   onFilterChange={setGroupFilter}
-                  onOpen={(id) => setActiveId(id)}
-                  onSend={sendMessage}
+                  onOpen={openContact}
+                  onHandoff={(id, text, preferred) =>
+                    beginOutreach(id, text, preferred, 'feed')
+                  }
                   onSnooze={snooze}
+                  onScan={() => setShowScan(true)}
+                  onShowCard={() => setShowCard(true)}
                 />
               ) : tab === 'chats' ? (
                 <div className="flex flex-col">
-                  <ChatRequests />
-                  <ChatList contacts={contacts} onOpen={(id) => setActiveId(id)} />
+                  <ChatRequests onOpenThread={setActiveCloudChat} />
+                  <ChatList contacts={contacts} onOpen={(id) => openContact(id)} />
                 </div>
               ) : (
                 <YouPanel
@@ -497,6 +1106,7 @@ export function NudgeApp() {
                   onAddPerson={() => setShowAddContact(true)}
                   onSetGroup={setContactGroup}
                   onUpdateContact={updateContact}
+                  onDeleteContact={deleteContact}
                   onShowCard={() => setShowCard(true)}
                 />
               )}
@@ -542,7 +1152,7 @@ export function NudgeApp() {
             contactId,
             ...previous.filter((id) => id !== contactId),
           ])
-          setActiveId(contactId)
+          openContact(contactId)
         }}
       />
 
@@ -554,14 +1164,191 @@ export function NudgeApp() {
 
       <MyCardSheet open={showCard} onClose={() => setShowCard(false)} />
 
-      <SecureNudgeSheet
-        open={showSecure}
-        onClose={() => {
-          setShowSecure(false)
-          // Snooze the auto-prompt so it doesn't reappear for a few days.
-          dismissSyncPrompt()
+      <OutreachConfirmation
+        pending={pendingOutreach}
+        contactName={
+          pendingOutreach
+            ? contacts.find((contact) => contact.id === pendingOutreach.contactId)
+                ?.name ?? 'this person'
+            : undefined
+        }
+        confirmed={confirmedOutreach}
+        inviteContact={
+          confirmedOutreach?.offerInvite
+            ? contacts.find(
+                (contact) => contact.id === confirmedOutreach.contactId,
+              ) ?? null
+            : null
+        }
+        reminderAvailable={reminderAvailable}
+        reminderState={reminderState}
+        onConfirm={confirmPendingOutreach}
+        onNotYet={rejectPendingOutreach}
+        onEnableReminder={() => void optInToReminder()}
+        onOpenSettings={() => void openAppSettings()}
+        onDismissInvite={() => {
+          if (!confirmedOutreach) return
+          markInvited(confirmedOutreach.contactId)
+          setConfirmedOutreach((current) =>
+            current ? { ...current, offerInvite: false } : current,
+          )
+        }}
+        onDone={() => {
+          if (confirmedOutreach?.offerInvite) {
+            markInvited(confirmedOutreach.contactId)
+          }
+          setConfirmedOutreach(null)
+          setReminderState('idle')
         }}
       />
+    </div>
+  )
+}
+
+function OutreachConfirmation({
+  pending,
+  contactName,
+  confirmed,
+  inviteContact,
+  reminderAvailable,
+  reminderState,
+  onConfirm,
+  onNotYet,
+  onEnableReminder,
+  onOpenSettings,
+  onDismissInvite,
+  onDone,
+}: {
+  pending: PendingOutreach | null
+  contactName?: string
+  confirmed: ConfirmedOutreach | null
+  inviteContact: Contact | null
+  reminderAvailable: boolean
+  reminderState: 'idle' | 'requesting' | 'scheduled' | 'denied' | 'error'
+  onConfirm: () => void
+  onNotYet: () => void
+  onEnableReminder: () => void
+  onOpenSettings: () => void
+  onDismissInvite: () => void
+  onDone: () => void
+}) {
+  if (!pending && !confirmed) return null
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/45 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="outreach-confirmation-title"
+        className="app-field relative w-full max-w-sm overflow-hidden rounded-[1.75rem] border border-white/40 p-5 shadow-card-lg"
+      >
+        <span className="field-grain" aria-hidden />
+        <div className="relative z-[1]">
+          {pending ? (
+            <>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
+                Back from {channelLabel(pending.channel)}?
+              </p>
+              <h2
+                id="outreach-confirmation-title"
+                className="mt-1 font-heading text-2xl font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
+              >
+                Did you send it?
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--ink-secondary)] text-pretty">
+                Confirm only if you tapped Send to {contactName}. We’ll update the
+                relationship and schedule the next follow-up only after you say yes.
+              </p>
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={onNotYet}
+                  className="glass-button pressable min-h-12 flex-1 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
+                >
+                  Not yet
+                </button>
+                <button
+                  type="button"
+                  onClick={onConfirm}
+                  className="primary-action pressable flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold"
+                >
+                  <Check className="size-4" />
+                  Yes, sent
+                </button>
+              </div>
+            </>
+          ) : confirmed ? (
+            <>
+              <div className="flex size-12 items-center justify-center rounded-full bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
+                <Check className="size-6" />
+              </div>
+              <h2
+                id="outreach-confirmation-title"
+                className="mt-3 font-heading text-2xl font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
+              >
+                Follow-up logged
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--ink-secondary)] text-pretty">
+                {confirmed.contactName} is next due on{' '}
+                <span className="font-semibold text-[var(--ink-strong)]">
+                  {formatFollowUpDate(confirmed.nextDate, { weekday: 'long' })}
+                </span>
+                .
+              </p>
+
+              {reminderAvailable && reminderState !== 'scheduled' && (
+                <button
+                  type="button"
+                  onClick={onEnableReminder}
+                  disabled={reminderState === 'requesting'}
+                  className="glass-button pressable mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)] disabled:opacity-50"
+                >
+                  <Bell className="size-4" />
+                  {reminderState === 'requesting'
+                    ? 'Setting reminder…'
+                    : 'Remind me that morning'}
+                </button>
+              )}
+              {reminderState === 'scheduled' && (
+                <p className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-[var(--status-on-track-tint)] px-3 py-2.5 text-sm font-semibold text-[var(--status-on-track)]">
+                  <Bell className="size-4" /> Reminder set for 9:00
+                </p>
+              )}
+              {(reminderState === 'denied' || reminderState === 'error') && (
+                <p className="mt-3 text-center text-xs leading-relaxed text-[var(--status-overdue)]">
+                  {reminderState === 'denied'
+                    ? 'Notifications are off for FollowApp. Enable them in Settings to get this reminder.'
+                    : 'The reminder could not be scheduled. You can try again.'}
+                  {reminderState === 'denied' && (
+                    <button
+                      type="button"
+                      onClick={onOpenSettings}
+                      className="pressable ml-1 min-h-8 font-semibold underline underline-offset-2"
+                    >
+                      Open Settings
+                    </button>
+                  )}
+                </p>
+              )}
+              {confirmed.offerInvite && inviteContact && (
+                <div className="-mx-4 mt-2">
+                  <InvitePrompt
+                    contact={inviteContact}
+                    channelLabel={channelLabel(confirmed.channel)}
+                    onDismiss={onDismissInvite}
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={onDone}
+                className="primary-action pressable mt-4 min-h-12 w-full rounded-full px-4 text-sm font-semibold"
+              >
+                Done
+              </button>
+            </>
+          ) : null}
+        </div>
+      </section>
     </div>
   )
 }

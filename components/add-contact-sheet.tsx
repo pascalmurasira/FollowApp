@@ -10,11 +10,14 @@ import {
   ScanLine,
   QrCode,
   CalendarDays,
+  ChevronDown,
 } from 'lucide-react'
 import type { NewContactInput } from '@/lib/contacts-store'
 import type { Tier } from '@/lib/types'
 import { todayDateInputValue } from '@/lib/contact-dates'
 import { cn } from '@/lib/utils'
+import { trackProductEvent } from '@/lib/product-analytics'
+import { CONTACT_LIMITS } from '@/lib/persistence-limits'
 
 const TIER_OPTIONS: {
   value: Tier
@@ -60,11 +63,14 @@ export function AddContactSheet({
   const [tier, setTier] = useState<Tier>('network')
   const [lastContactedAt, setLastContactedAt] = useState('')
   const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [note, setNote] = useState('')
   const [interests, setInterests] = useState('')
   const [group, setGroup] = useState('')
   const [newGroup, setNewGroup] = useState('')
   const [pickerSupported, setPickerSupported] = useState(false)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
   // Name of the last person added while keeping the sheet open (quick-add).
   const [justAdded, setJustAdded] = useState<string | null>(null)
 
@@ -81,11 +87,14 @@ export function AddContactSheet({
       setTier('network')
       setLastContactedAt('')
       setPhone('')
+      setEmail('')
       setNote('')
       setInterests('')
       setGroup('')
       setNewGroup('')
       setJustAdded(null)
+      setManualOpen(false)
+      setDetailsOpen(false)
     }
   }, [open])
 
@@ -94,13 +103,16 @@ export function AddContactSheet({
   const pickFromPhone = async () => {
     try {
       // @ts-expect-error - Contact Picker API is not in the standard lib types.
-      const results = await navigator.contacts.select(['name', 'tel'], {
+      const results = await navigator.contacts.select(['name', 'tel', 'email'], {
         multiple: false,
       })
       const picked = results?.[0]
       if (!picked) return
       if (picked.name?.[0]) setName(picked.name[0])
       if (picked.tel?.[0]) setPhone(picked.tel[0])
+      if (picked.email?.[0]) setEmail(picked.email[0])
+      setManualOpen(true)
+      trackProductEvent('contact_entry_selected', { method: 'phone_picker' })
     } catch (error) {
       // User cancelled or denied — nothing to do.
       console.error('[v0] Contact picker cancelled or failed:', error)
@@ -117,6 +129,7 @@ export function AddContactSheet({
       tier,
       lastContactedAt: lastContactedAt || null,
       phone: phone || undefined,
+      email: email || undefined,
       context: note || undefined,
       interests: interests
         ? interests.split(',').map((s) => s.trim()).filter(Boolean)
@@ -133,11 +146,28 @@ export function AddContactSheet({
       setTitle('')
       setLastContactedAt('')
       setPhone('')
+      setEmail('')
       setNote('')
       setInterests('')
     } else {
       onClose()
     }
+    trackProductEvent('manual_contact_saved', {
+      keep_open: keepOpen,
+      has_phone: Boolean(phone.trim()),
+      has_email: Boolean(email.trim()),
+      has_optional_details: Boolean(
+        relationship.trim() || title.trim() || note.trim() || interests.trim(),
+      ),
+    })
+  }
+
+  const openManual = () => {
+    setManualOpen(true)
+    trackProductEvent('contact_entry_selected', { method: 'manual' })
+    requestAnimationFrame(() =>
+      document.getElementById('manual-contact-name')?.focus(),
+    )
   }
 
   return (
@@ -177,7 +207,7 @@ export function AddContactSheet({
             </div>
           )}
 
-          {onScan && (
+          {!manualOpen && onScan && (
             <section className="glass-hero mb-4 flex items-center gap-3 rounded-3xl p-3.5 text-left">
               <span className="primary-action flex size-11 shrink-0 items-center justify-center rounded-2xl">
                 <ScanLine className="size-5" />
@@ -192,7 +222,12 @@ export function AddContactSheet({
               </span>
               <button
                 type="button"
-                onClick={onScan}
+                onClick={() => {
+                  trackProductEvent('contact_entry_selected', {
+                    method: 'business_card',
+                  })
+                  onScan()
+                }}
                 aria-label="Scan card with camera"
                 className="primary-action pressable flex size-11 shrink-0 items-center justify-center rounded-full"
               >
@@ -201,11 +236,14 @@ export function AddContactSheet({
             </section>
           )}
 
-          <div className="glass-card mb-4 overflow-hidden">
+          {!manualOpen && <div className="glass-card mb-4 overflow-hidden">
             {onScanQr && (
               <button
                 type="button"
-                onClick={onScanQr}
+                onClick={() => {
+                  trackProductEvent('contact_entry_selected', { method: 'qr' })
+                  onScanQr()
+                }}
                 className="pressable flex w-full items-center gap-3 border-b border-[var(--hairline)] px-4 py-3.5 text-left"
               >
                 <QrCode className="size-5 text-[var(--ink-secondary)]" />
@@ -224,7 +262,10 @@ export function AddContactSheet({
             <>
               <button
                 type="button"
-                onClick={onImport}
+                onClick={() => {
+                  trackProductEvent('contact_entry_selected', { method: 'import' })
+                  onImport()
+                }}
                 className="pressable flex w-full items-center gap-3 border-b border-[var(--hairline)] px-4 py-3.5 text-left"
               >
                 <Users className="size-5 text-[var(--ink-secondary)]" />
@@ -239,9 +280,9 @@ export function AddContactSheet({
               </button>
             </>
           )}
-            <button
-              type="button"
-              onClick={() => document.getElementById('manual-contact-name')?.focus()}
+              <button
+                type="button"
+                onClick={openManual}
               className="pressable flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
               <UserPlus className="size-5 text-[var(--ink-secondary)]" />
@@ -254,9 +295,9 @@ export function AddContactSheet({
                 </span>
               </span>
             </button>
-          </div>
+          </div>}
 
-          {pickerSupported && (
+          {pickerSupported && !manualOpen && (
             <>
               <button
                 type="button"
@@ -274,10 +315,11 @@ export function AddContactSheet({
             </>
           )}
 
-          <div className="flex flex-col gap-4">
+          {manualOpen && <div className="flex flex-col gap-4">
             <Field label="Name" required>
               <input
                 value={name}
+                maxLength={CONTACT_LIMITS.name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Maya Chen"
                 id="manual-contact-name"
@@ -285,53 +327,8 @@ export function AddContactSheet({
               />
             </Field>
 
-            <Field label="How you know them">
-              <input
-                value={relationship}
-                onChange={(e) => setRelationship(e.target.value)}
-                placeholder="Former manager"
-                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
-              />
-            </Field>
-
-            <Field label="Role & company" hint="Optional">
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Design Lead · Linear"
-                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
-              />
-            </Field>
-
-            <Field label="Priority" hint="Sets your follow-up rhythm">
-              <div className="flex gap-2">
-                {TIER_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setTier(opt.value)}
-                    className={cn(
-                      'pressable flex flex-1 flex-col items-center gap-0.5 rounded-[var(--r-chip)] border px-2 py-2.5 transition-colors',
-                      tier === opt.value
-                        ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)]'
-                        : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
-                    )}
-                  >
-                    <span className="text-sm font-semibold">{opt.label}</span>
-                    <span className="text-[10px] leading-tight">{opt.hint}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1.5 px-1 text-[12px] text-[var(--ink-secondary)]">
-                {`We'll remind you to reach out in ${
-                  TIER_OPTIONS.find((o) => o.value === tier)?.reminder ??
-                  'about 6 weeks'
-                }.`}
-              </p>
-            </Field>
-
             <Field
-              label="Last contacted"
+              label="Last spoke or met"
               hint="Leave blank if never"
             >
               <div className="relative">
@@ -354,6 +351,7 @@ export function AddContactSheet({
             <Field label="Phone number">
               <input
                 value={phone}
+                maxLength={CONTACT_LIMITS.phone}
                 onChange={(e) => setPhone(e.target.value)}
                 inputMode="tel"
                 placeholder="+1 415 555 0142"
@@ -361,9 +359,95 @@ export function AddContactSheet({
               />
             </Field>
 
+            <Field label="Email">
+              <input
+                value={email}
+                maxLength={CONTACT_LIMITS.email}
+                onChange={(e) => setEmail(e.target.value)}
+                inputMode="email"
+                autoComplete="email"
+                placeholder="maya@company.com"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+              />
+            </Field>
+
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((open) => !open)}
+              aria-expanded={detailsOpen}
+              className="glass-button pressable flex min-h-12 w-full items-center justify-between rounded-2xl px-4 text-left"
+            >
+              <span>
+                <span className="block text-sm font-semibold text-[var(--ink-strong)]">
+                  Add optional details
+                </span>
+                <span className="block text-[12px] text-[var(--ink-secondary)]">
+                  {`Follow up ${lastContactedAt ? 'on your rhythm' : 'now'}, then ${
+                    TIER_OPTIONS.find((option) => option.value === tier)?.hint ??
+                    'every ~6 weeks'
+                  }`}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  'size-5 text-[var(--ink-tertiary)] transition-transform',
+                  detailsOpen && 'rotate-180',
+                )}
+              />
+            </button>
+
+            {detailsOpen && <div className="flex flex-col gap-4 rounded-2xl border border-[var(--hairline)] bg-white/10 p-3.5">
+            <Field label="How you know them">
+              <input
+                value={relationship}
+                maxLength={CONTACT_LIMITS.relationship}
+                onChange={(e) => setRelationship(e.target.value)}
+                placeholder="Former manager"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+              />
+            </Field>
+
+            <Field label="Role & company" hint="Optional">
+              <input
+                value={title}
+                maxLength={CONTACT_LIMITS.title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Design Lead · Linear"
+                className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+              />
+            </Field>
+
+            <Field label="Follow-up rhythm">
+              <div className="flex gap-2">
+                {TIER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setTier(opt.value)}
+                    className={cn(
+                      'pressable flex flex-1 flex-col items-center gap-0.5 rounded-[var(--r-chip)] border px-2 py-2.5 transition-colors',
+                      tier === opt.value
+                        ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)]'
+                        : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
+                    )}
+                  >
+                    <span className="text-sm font-semibold">{opt.label}</span>
+                    <span className="text-[10px] leading-tight">{opt.hint}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 px-1 text-[12px] text-[var(--ink-secondary)]">
+                {`FollowApp will offer a reminder in ${
+                  TIER_OPTIONS.find((o) => o.value === tier)?.reminder ??
+                  'about 6 weeks'
+                }.`}
+              </p>
+            </Field>
+
             <Field label="Where you left off" hint="Helps FollowApp write something real">
               <textarea
                 value={note}
+                maxLength={CONTACT_LIMITS.context}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
                 placeholder="Met at the design conf in May, talked about her move to Linear…"
@@ -374,6 +458,9 @@ export function AddContactSheet({
             <Field label="What they care about" hint="Comma separated">
               <input
                 value={interests}
+                maxLength={
+                  CONTACT_LIMITS.interests * (CONTACT_LIMITS.interest + 1)
+                }
                 onChange={(e) => setInterests(e.target.value)}
                 placeholder="design systems, her new role, marathons"
                 className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
@@ -406,6 +493,7 @@ export function AddContactSheet({
                 )}
                 <input
                   value={newGroup}
+                  maxLength={CONTACT_LIMITS.group}
                   onChange={(e) => {
                     setNewGroup(e.target.value)
                     if (e.target.value) setGroup('')
@@ -415,10 +503,11 @@ export function AddContactSheet({
                 />
               </div>
             </Field>
-          </div>
+            </div>}
+          </div>}
         </div>
 
-        <footer className="relative z-[1] flex flex-col gap-2 border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
+        {manualOpen && <footer className="relative z-[1] flex flex-col gap-2 border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
           <button
             type="button"
             onClick={() => submit(false)}
@@ -436,7 +525,7 @@ export function AddContactSheet({
           >
             Save & add another
           </button>
-        </footer>
+        </footer>}
       </div>
     </div>
   )

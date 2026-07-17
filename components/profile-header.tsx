@@ -9,6 +9,7 @@ import {
   saveProfile,
   fileToAvatarDataUrl,
   DEFAULT_PROFILE,
+  isShareableProfile,
 } from '@/lib/profile'
 import { getDeviceId } from '@/lib/device-id'
 import { cn } from '@/lib/utils'
@@ -48,6 +49,10 @@ export function ProfileHeader({
   }, [])
 
   const persist = async (next: Profile) => {
+    if (!isShareableProfile(next)) {
+      setError('Add your real name before saving your digital card.')
+      return
+    }
     // The profile store commits locally before attempting cloud sync, so the
     // visible state must remain consistent with the card and the next launch.
     setProfile(next)
@@ -72,7 +77,11 @@ export function ProfileHeader({
   }
 
   const saveName = () => {
-    const name = draftName.trim() || 'You'
+    const name = draftName.trim()
+    if (!name || name.toLocaleLowerCase() === 'you') {
+      setError('Enter your real name so people know whose card this is.')
+      return
+    }
     persist({ ...profile, name })
     setEditing(false)
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Contact, Suggestion } from '@/lib/types'
 import { enqueue } from '@/lib/request-queue'
 import { fallbackReplies } from '@/lib/fallback'
@@ -17,28 +17,35 @@ export function useSuggestions(
   { enabled = true, enrichment = [] }: Options = {},
 ) {
   // Stable dependency so suggestions refetch when the chosen hooks change.
-  const enrichmentKey = enrichment.join('|')
+  const enrichmentKey = JSON.stringify(enrichment)
+  const enrichmentPayload = useMemo(
+    () => JSON.parse(enrichmentKey) as string[],
+    [enrichmentKey],
+  )
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loading, setLoading] = useState(false)
+  const requestSequence = useRef(0)
+  const activeController = useRef<AbortController | null>(null)
 
   // Re-fetch whenever the latest message changes so suggestions stay relevant.
   const messages = contact.messages
-  const lastMessage = messages[messages.length - 1]
-  const lastMessageId = lastMessage?.id ?? 'none'
-
-  const applyFallback = useCallback(() => {
+  const fallbackSuggestions = useMemo(() => {
     const lastFromThem = [...messages]
       .reverse()
       .find((m) => m.sender === 'them')?.text
     return fallbackReplies(contact, lastFromThem)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contact.id, lastMessageId])
+  }, [contact, messages])
 
   const fetchSuggestions = useCallback(async () => {
+    const sequence = requestSequence.current + 1
+    requestSequence.current = sequence
+    activeController.current?.abort()
+    const controller = new AbortController()
+    activeController.current = controller
     setLoading(true)
     // Seed instant local suggestions so the chips are tappable immediately,
     // then upgrade to AI ones when they arrive.
-    setSuggestions(applyFallback())
+    setSuggestions(fallbackSuggestions)
     try {
       const res = await enqueue(() =>
         fetch('/api/suggest', {
@@ -54,27 +61,37 @@ export function useSuggestions(
             recentMessages: contact.messages
               .slice(-8)
               .map((m) => ({ sender: m.sender, text: m.text })),
-            enrichment,
+            enrichment: enrichmentPayload,
           }),
+          signal: controller.signal,
         }),
       )
       const data = (await res.json()) as { suggestions?: Suggestion[] }
+      if (requestSequence.current !== sequence) return
       if (data.suggestions?.length) {
         setSuggestions(data.suggestions)
       } else {
-        setSuggestions(applyFallback())
+        setSuggestions(fallbackSuggestions)
       }
     } catch (err) {
+      if (controller.signal.aborted || requestSequence.current !== sequence) {
+        return
+      }
       console.error('Suggestion generation failed, using fallback:', err)
-      setSuggestions(applyFallback())
+      setSuggestions(fallbackSuggestions)
     } finally {
-      setLoading(false)
+      if (requestSequence.current === sequence) setLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contact.id, lastMessageId, voice, enrichmentKey, applyFallback])
+  }, [
+    contact,
+    enrichmentPayload,
+    fallbackSuggestions,
+    voice,
+  ])
 
   useEffect(() => {
-    if (enabled) fetchSuggestions()
+    if (enabled) void fetchSuggestions()
+    return () => activeController.current?.abort()
   }, [enabled, fetchSuggestions])
 
   return { suggestions, loading, refresh: fetchSuggestions }

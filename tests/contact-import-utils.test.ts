@@ -8,6 +8,7 @@ import {
   importedContactId,
   importedContactIdentityKey,
   savedCountFromImportError,
+  uniqueContactsById,
 } from '../lib/contact-import-utils.ts'
 
 test('contact imports are split at the server batch limit without losing order', () => {
@@ -26,6 +27,20 @@ test('an import batch requires an exact saved-count confirmation', () => {
   assert.throws(() => confirmedImportCount({}, 500))
   assert.throws(() => confirmedImportCount({ saved: 499 }, 500))
   assert.throws(() => confirmedImportCount({ saved: '500' }, 500))
+})
+
+test('duplicate stable ids are removed before a batch upsert', () => {
+  assert.deepEqual(
+    uniqueContactsById([
+      { id: 'same', name: 'First reviewed row' },
+      { id: 'other', name: 'Another person' },
+      { id: 'same', name: 'Duplicate row' },
+    ]),
+    [
+      { id: 'same', name: 'First reviewed row' },
+      { id: 'other', name: 'Another person' },
+    ],
+  )
 })
 
 test('import ids are stable for retries and isolated between devices', () => {

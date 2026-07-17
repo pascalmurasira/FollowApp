@@ -3,15 +3,25 @@
 import { useMemo } from 'react'
 import type { Contact } from '@/lib/types'
 import { ContactAvatar } from '@/components/contact-avatar'
-import { relativeTime, driftLevel } from '@/lib/format'
+import { relativeTime, driftLevel, messageMinutesAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import {
+  formatFollowUpDate,
+  nextFollowUpForContact,
+} from '@/lib/contact-dates'
 
 function lastMessagePreview(contact: Contact) {
   const last = contact.messages[contact.messages.length - 1]
-  if (!last) return { text: 'No messages yet', minutesAgo: null, mine: false }
+  if (!last) {
+    return {
+      text: `Next follow-up ${formatFollowUpDate(nextFollowUpForContact(contact))}`,
+      minutesAgo: null,
+      mine: false,
+    }
+  }
   return {
-    text: `${last.sender === 'me' ? 'You: ' : ''}${last.text}`,
-    minutesAgo: last.minutesAgo,
+    text: `${last.sender === 'me' ? 'Follow-up: ' : ''}${last.text}`,
+    minutesAgo: messageMinutesAgo(last),
     mine: last.sender === 'me',
   }
 }
@@ -23,12 +33,14 @@ export function ChatList({
   contacts: Contact[]
   onOpen: (id: string) => void
 }) {
-  // Most recently active conversations first.
+  // Most recently confirmed relationship activity first.
   const ordered = useMemo(
     () =>
       [...contacts].sort((a, b) => {
-        const al = a.messages[a.messages.length - 1]?.minutesAgo ?? Infinity
-        const bl = b.messages[b.messages.length - 1]?.minutesAgo ?? Infinity
+        const aLast = a.messages[a.messages.length - 1]
+        const bLast = b.messages[b.messages.length - 1]
+        const al = aLast ? messageMinutesAgo(aLast) : Infinity
+        const bl = bLast ? messageMinutesAgo(bLast) : Infinity
         return al - bl
       }),
     [contacts],
@@ -38,7 +50,7 @@ export function ChatList({
     <ul className="flex flex-col pt-1">
       {ordered.map((contact) => {
         const preview = lastMessagePreview(contact)
-        const level = driftLevel(contact.daysSinceContact)
+        const level = driftLevel(contact.daysSinceContact, contact.tier)
         const time = preview.minutesAgo === null ? '' : relativeTime(preview.minutesAgo)
         return (
           <li key={contact.id}>
@@ -81,7 +93,7 @@ export function ChatList({
                   </p>
                   {level === 'cold' && (
                     <span className="shrink-0 rounded-full bg-primary/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-primary">
-                      Drifting
+                      Overdue
                     </span>
                   )}
                 </div>

@@ -4,6 +4,7 @@ import { withDeviceAccess } from '@/lib/server/device-access'
 import { contactInputSchema } from '@/lib/server/input-schemas'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
 import type { Contact } from '@/lib/types'
+import { logServerError } from '@/lib/server/error-metadata'
 import { z } from 'zod'
 
 export const maxDuration = 15
@@ -63,7 +64,7 @@ export async function POST(req: Request) {
     if (!access.ok) return access.response
     return Response.json({ ok: true, saved: access.value })
   } catch (error) {
-    console.error('[v0] Contacts import failed:', error)
+    logServerError('[v0] Contacts import failed', error)
     return Response.json({ error: 'Failed to import contacts' }, { status: 500 })
   }
 }

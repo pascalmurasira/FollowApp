@@ -8,7 +8,6 @@ import {
   Loader2,
   UserPlus,
   Smartphone,
-  CheckCircle2,
   AlertCircle,
   RotateCcw,
   Plus,
@@ -19,6 +18,7 @@ import {
   Settings,
   ChevronDown,
   ScanLine,
+  ArrowRight,
 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import type { NewContactInput } from '@/lib/contacts-store'
@@ -29,9 +29,9 @@ import {
   isNativePermissionDeniedError,
   isNativeUserCancelError,
   openAppSettings,
-  saveContactToPhone,
   tapFeedback,
 } from '@/lib/native'
+import { NativeContactSaveButton } from '@/components/native-contact-save-button'
 import { todayDateInputValue } from '@/lib/contact-dates'
 import { isDeliverableEmail } from '@/lib/contact-validation'
 import {
@@ -40,7 +40,22 @@ import {
   createCameraLaunchState,
   finishCameraLaunch,
   isCameraLaunchActive,
+  SCAN_CARD_CLIENT_TIMEOUT_MS,
+  SCAN_REVIEW_FIELD_KEYS,
+  countScanReviewCorrections,
+  normalizeScanReviewFields,
+  scanFieldNeedsReview,
+  scanQualityNotice,
+  scanReadingStatus,
+  type ScanCardField,
+  type ScanImageQuality,
 } from '@/lib/camera-launch'
+import { trackProductEvent } from '@/lib/product-analytics'
+import {
+  parseBusinessCardLines,
+  preliminaryBusinessCardFieldCount,
+  recognizeNativeBusinessCard,
+} from '@/lib/native-card-ocr'
 import { cn } from '@/lib/utils'
 
 interface ScannedCard {
@@ -63,6 +78,12 @@ type ContextStatus = 'idle' | 'loading' | 'done' | 'empty' | 'error'
 type CameraPermissionHelp = null | 'blocked' | 'unavailable'
 type ReviewSource = 'scan' | 'manual'
 
+interface ScanReviewMeta {
+  needsReview: ScanCardField[]
+  imageQuality: ScanImageQuality
+  qualityNote: string
+}
+
 const EMPTY: ScannedCard = {
   name: '',
   title: '',
@@ -70,6 +91,12 @@ const EMPTY: ScannedCard = {
   phone: '',
   email: '',
   website: '',
+}
+
+const EMPTY_REVIEW_META: ScanReviewMeta = {
+  needsReview: [],
+  imageQuality: 'unknown',
+  qualityNote: '',
 }
 
 const TIER_OPTIONS: { value: Tier; label: string }[] = [
@@ -155,10 +182,6 @@ export function ScanCardSheet({
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [savedToPhone, setSavedToPhone] = useState(false)
-  const [isSavingToPhone, setIsSavingToPhone] = useState(false)
-  const [saveToPhoneError, setSaveToPhoneError] = useState<string | null>(null)
-  const [contactsPermissionBlocked, setContactsPermissionBlocked] =
-    useState(false)
   const [contextStatus, setContextStatus] = useState<ContextStatus>('idle')
   const [contextNotes, setContextNotes] = useState<ContextNote[]>([])
   const [cameraHelp, setCameraHelp] = useState<CameraPermissionHelp>(null)
@@ -166,6 +189,9 @@ export function ScanCardSheet({
   const [showScanDetails, setShowScanDetails] = useState(false)
   const [showReviewDetails, setShowReviewDetails] = useState(false)
   const [reviewSource, setReviewSource] = useState<ReviewSource>('scan')
+  const [reviewMeta, setReviewMeta] = useState<ScanReviewMeta>(EMPTY_REVIEW_META)
+  const [readingElapsedMs, setReadingElapsedMs] = useState(0)
+  const [cloudScanPending, setCloudScanPending] = useState(false)
   const [addedContactId, setAddedContactId] = useState<string | null>(null)
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -176,7 +202,9 @@ export function ScanCardSheet({
   const cameraButtonRef = useRef<HTMLButtonElement>(null)
   const didAutoLaunchRef = useRef(false)
   const cameraLaunchRef = useRef(createCameraLaunchState())
-  const contactSaveInFlightRef = useRef(false)
+  const originalScanRef = useRef<ScannedCard | null>(null)
+  const editedScanFieldsRef = useRef(new Set<keyof ScannedCard>())
+  const didTrackOpenRef = useRef(false)
   const scanAbortRef = useRef<AbortController | null>(null)
   const operationRef = useRef(0)
   const openRef = useRef(open)
@@ -193,6 +221,32 @@ export function ScanCardSheet({
     setPortalRoot(document.body)
   }, [])
 
+  useEffect(() => {
+    if (!open) {
+      didTrackOpenRef.current = false
+      return
+    }
+    if (didTrackOpenRef.current) return
+    didTrackOpenRef.current = true
+    trackProductEvent('scan_open', {
+      entry_point: variant,
+      auto_launch: autoLaunchCamera,
+      native: Capacitor.isNativePlatform(),
+    })
+  }, [autoLaunchCamera, open, variant])
+
+  useEffect(() => {
+    if (stage !== 'reading') {
+      setReadingElapsedMs(0)
+      return
+    }
+    const startedAt = performance.now()
+    const updateElapsed = () => setReadingElapsedMs(performance.now() - startedAt)
+    updateElapsed()
+    const timer = window.setInterval(updateElapsed, 500)
+    return () => window.clearInterval(timer)
+  }, [stage])
+
   const reset = () => {
     operationRef.current += 1
     cancelCameraLaunch(cameraLaunchRef.current)
@@ -205,10 +259,6 @@ export function ScanCardSheet({
     setNote('')
     setError(null)
     setSavedToPhone(false)
-    setIsSavingToPhone(false)
-    setSaveToPhoneError(null)
-    setContactsPermissionBlocked(false)
-    contactSaveInFlightRef.current = false
     setContextStatus('idle')
     setContextNotes([])
     setCameraHelp(null)
@@ -216,7 +266,12 @@ export function ScanCardSheet({
     setShowScanDetails(false)
     setShowReviewDetails(false)
     setReviewSource('scan')
+    setReviewMeta(EMPTY_REVIEW_META)
+    setReadingElapsedMs(0)
+    setCloudScanPending(false)
     setAddedContactId(null)
+    originalScanRef.current = null
+    editedScanFieldsRef.current.clear()
     if (cameraFileRef.current) cameraFileRef.current.value = ''
     if (photoFileRef.current) photoFileRef.current.value = ''
   }
@@ -393,20 +448,86 @@ export function ScanCardSheet({
     }
   }
 
-  const readCardImage = async (image: string, operation: number) => {
+  const readCardImage = async (
+    image: string,
+    operation: number,
+    captureSource: 'native_camera' | 'camera_file' | 'photo_library',
+  ) => {
     if (!openRef.current || operationRef.current !== operation) return
+    const scanStartedAt = performance.now()
     setError(null)
     setSavedToPhone(false)
-    setIsSavingToPhone(false)
-    setSaveToPhoneError(null)
-    setContactsPermissionBlocked(false)
-    contactSaveInFlightRef.current = false
     setReviewSource('scan')
+    setReviewMeta(EMPTY_REVIEW_META)
+    setCloudScanPending(false)
+    setNote('')
+    originalScanRef.current = null
+    editedScanFieldsRef.current.clear()
     setStage('reading')
+    trackProductEvent('capture', {
+      source: captureSource,
+      approximate_kb: Math.round((image.length * 0.75) / 1024),
+    })
+
+    // Native Vision is a fast preview, not a source of certainty. It runs in
+    // parallel with the cloud extraction and lets users start reviewing while
+    // the richer result is still in flight. Older builds return null here.
+    let preliminaryCard: ScannedCard | null = null
+    let cloudFinished = false
+    let cloudSucceeded = false
+    const preliminaryStartedAt = performance.now()
+    void recognizeNativeBusinessCard(image).then((recognition) => {
+      if (
+        !recognition ||
+        cloudSucceeded ||
+        !openRef.current ||
+        operationRef.current !== operation
+      ) {
+        return
+      }
+      const preview = parseBusinessCardLines(recognition.lines)
+      const fieldCount = preliminaryBusinessCardFieldCount(preview)
+      if (fieldCount === 0) return
+      preliminaryCard = preview
+      const editedFields = new Set(editedScanFieldsRef.current)
+      setCard((current) => {
+        const merged = { ...preview }
+        for (const field of editedFields) merged[field] = current[field]
+        originalScanRef.current = preview
+        return merged
+      })
+      setReviewMeta({
+        needsReview: SCAN_REVIEW_FIELD_KEYS.filter((field) =>
+          preview[field].trim() && !editedFields.has(field),
+        ),
+        imageQuality: 'unknown',
+        qualityNote: '',
+      })
+      setReviewSource('scan')
+      setContextStatus('idle')
+      setCloudScanPending(!cloudFinished)
+      setError(
+        cloudFinished
+          ? 'Quick scan ready. The full check was unavailable, so review the highlighted details.'
+          : null,
+      )
+      setStage('review')
+      trackProductEvent('ocr_preliminary', {
+        outcome: 'success',
+        latency_ms: Math.round(performance.now() - preliminaryStartedAt),
+        filled_field_count: fieldCount,
+        average_confidence: recognition.averageConfidence,
+      })
+    })
+
     scanAbortRef.current?.abort()
     const controller = new AbortController()
     scanAbortRef.current = controller
-    const timeout = window.setTimeout(() => controller.abort(), 15_000)
+    let clientTimedOut = false
+    const timeout = window.setTimeout(() => {
+      clientTimedOut = true
+      controller.abort()
+    }, SCAN_CARD_CLIENT_TIMEOUT_MS)
     try {
       const res = await fetch('/api/scan-card', {
         method: 'POST',
@@ -414,16 +535,39 @@ export function ScanCardSheet({
         body: JSON.stringify({ image }),
         signal: controller.signal,
       })
-      const data = (await res.json()) as Partial<ScannedCard> & { status?: string }
+      const data = (await res.json()) as Partial<ScannedCard> & {
+        status?: string
+        needsReview?: unknown
+        imageQuality?: ScanImageQuality
+        qualityNote?: string
+      }
       if (!openRef.current || operationRef.current !== operation) return
 
       if (data.status !== 'ok') {
-        // Rate-limited or failed: drop into manual review, never a dead end.
-        setError("Couldn't read that one — add the details by hand.")
-        setCard(EMPTY)
-        setReviewSource('manual')
+        cloudFinished = true
+        setCloudScanPending(false)
+        if (preliminaryCard) {
+          setError(
+            'Quick scan ready. The full check was unavailable, so review the highlighted details.',
+          )
+        } else {
+          // Rate-limited or failed: drop into manual review, never a dead end.
+          setError(
+            data.status === 'timeout'
+              ? 'This card took too long to read. Add the essentials now, or rescan.'
+              : "Couldn't read that one — add the details by hand.",
+          )
+          setCard(EMPTY)
+          setReviewMeta(EMPTY_REVIEW_META)
+          setReviewSource('manual')
+          setContextStatus('empty')
+        }
         setStage('review')
-        setContextStatus('empty')
+        trackProductEvent('ocr_result', {
+          outcome: data.status ?? 'unavailable',
+          latency_ms: Math.round(performance.now() - scanStartedAt),
+          source: captureSource,
+        })
         return
       }
 
@@ -435,27 +579,79 @@ export function ScanCardSheet({
         email: data.email ?? '',
         website: data.website ?? '',
       }
-      setCard(scanned)
-      setNote('')
+      const needsReview = normalizeScanReviewFields(data.needsReview)
+      const imageQuality: ScanImageQuality =
+        data.imageQuality === 'clear' ||
+        data.imageQuality === 'usable' ||
+        data.imageQuality === 'poor'
+          ? data.imageQuality
+          : 'unknown'
+      cloudFinished = true
+      cloudSucceeded = true
+      setCloudScanPending(false)
+      const editedFields = new Set(editedScanFieldsRef.current)
+      setCard((current) => {
+        const merged = { ...scanned }
+        const baseline = { ...scanned }
+        if (preliminaryCard) {
+          for (const field of editedFields) {
+            merged[field] = current[field]
+            baseline[field] = preliminaryCard[field]
+          }
+        }
+        originalScanRef.current = baseline
+        return merged
+      })
+      setReviewMeta({
+        needsReview: needsReview.filter((field) => !editedFields.has(field)),
+        imageQuality,
+        qualityNote: data.qualityNote?.trim().slice(0, 160) ?? '',
+      })
       if (!scanned.name && !scanned.company) {
         setError("Couldn't read much — check the details below.")
+      } else {
+        setError(null)
       }
       setStage('review')
       // Public enrichment is optional detail, not part of the critical path.
       // It starts only if the user expands More details and explicitly asks.
       setContextStatus('idle')
+      trackProductEvent('ocr_result', {
+        outcome: 'success',
+        latency_ms: Math.round(performance.now() - scanStartedAt),
+        source: captureSource,
+        image_quality: imageQuality,
+        filled_field_count: SCAN_REVIEW_FIELD_KEYS.filter((field) =>
+          scanned[field].trim(),
+        ).length,
+        review_field_count: needsReview.length,
+      })
     } catch (err) {
       if (!openRef.current || operationRef.current !== operation) return
+      cloudFinished = true
+      setCloudScanPending(false)
       console.error('[v0] Card capture failed:', err)
-      setError(
-        err instanceof DOMException && err.name === 'AbortError'
-          ? 'Reading took too long. Add the essentials now, or rescan.'
-          : 'Something went wrong reading the photo — add the details by hand.',
-      )
-      setCard(EMPTY)
-      setReviewSource('manual')
+      if (preliminaryCard) {
+        setError(
+          'Quick scan ready. The full check was unavailable, so review the highlighted details.',
+        )
+      } else {
+        setError(
+          clientTimedOut
+            ? 'Reading took too long. Add the essentials now, or rescan.'
+            : 'Something went wrong reading the photo — add the details by hand.',
+        )
+        setCard(EMPTY)
+        setReviewMeta(EMPTY_REVIEW_META)
+        setReviewSource('manual')
+        setContextStatus('empty')
+      }
       setStage('review')
-      setContextStatus('empty')
+      trackProductEvent('ocr_result', {
+        outcome: clientTimedOut ? 'client_timeout' : 'error',
+        latency_ms: Math.round(performance.now() - scanStartedAt),
+        source: captureSource,
+      })
     } finally {
       window.clearTimeout(timeout)
       if (scanAbortRef.current === controller) scanAbortRef.current = null
@@ -468,6 +664,10 @@ export function ScanCardSheet({
       // Browser/iOS Safari requires the file picker to be opened directly from
       // the user's tap. If we await the native-camera checks first, the browser
       // can treat it as no longer user-initiated and silently block it.
+      trackProductEvent('camera_visible', {
+        source: 'browser_file_camera',
+        outcome: 'requested',
+      })
       cameraFileRef.current?.click()
       return
     }
@@ -485,7 +685,15 @@ export function ScanCardSheet({
     try {
       // Camera presentation owns the hot path. Avoid a competing haptics bridge
       // call here; the physical camera transition is already clear feedback.
-      const image = await captureImageDataUrl()
+      const capture = captureImageDataUrl()
+      // Capacitor does not expose a first-preview callback. The bridge handoff
+      // is the closest non-invasive signal and avoids another permission call
+      // on the latency-critical camera path.
+      trackProductEvent('camera_visible', {
+        source: 'native_camera',
+        outcome: 'bridge_handoff',
+      })
+      const image = await capture
       if (!openRef.current || operationRef.current !== operation) return
       if (!image) {
         throw new Error('Camera returned no photo.')
@@ -498,13 +706,26 @@ export function ScanCardSheet({
         event: 'camera_capture_round_trip',
         elapsedMs: Math.round(performance.now() - startedAt),
       })
-      await readCardImage(image, operation)
+      trackProductEvent('camera_permission_outcome', {
+        outcome: 'granted',
+      })
+      await readCardImage(image, operation, 'native_camera')
     } catch (err) {
       if (!openRef.current || operationRef.current !== operation) return
       if (isNativePermissionDeniedError(err)) {
+        trackProductEvent('camera_permission_outcome', {
+          outcome: 'denied',
+        })
         setCameraHelp('blocked')
         setStage('capture')
-      } else if (!isNativeUserCancelError(err)) {
+      } else if (isNativeUserCancelError(err)) {
+        trackProductEvent('camera_permission_outcome', {
+          outcome: 'cancelled',
+        })
+      } else {
+        trackProductEvent('camera_permission_outcome', {
+          outcome: 'unavailable',
+        })
         console.error('[v0] Native card capture failed:', err)
         setError('Camera did not open. Try again, or choose a photo instead.')
         setCameraHelp('unavailable')
@@ -539,7 +760,11 @@ export function ScanCardSheet({
         photoFileRef.current?.click()
         return
       }
-      await readCardImage(await normalizeDataUrl(image), operation)
+      await readCardImage(
+        await normalizeDataUrl(image),
+        operation,
+        'photo_library',
+      )
     } catch (err) {
       if (!openRef.current || operationRef.current !== operation) return
       const error = err as { message?: string }
@@ -561,55 +786,40 @@ export function ScanCardSheet({
     await openAppSettings()
   }
 
-  const handleSaveToPhone = async () => {
-    if (
-      !card.name.trim() ||
-      savedToPhone ||
-      contactSaveInFlightRef.current
-    ) {
-      return
-    }
-
-    contactSaveInFlightRef.current = true
-    setIsSavingToPhone(true)
-    setSaveToPhoneError(null)
-    setContactsPermissionBlocked(false)
-    try {
-      const saved = await saveContactToPhone({
-        n: card.name,
-        t: card.title || undefined,
-        co: card.company || undefined,
-        p: card.phone || undefined,
-        e: card.email || undefined,
-      })
-      if (!openRef.current) return
-      setSavedToPhone(saved)
-    } catch (err) {
-      if (!openRef.current) return
-      const permissionBlocked = isNativePermissionDeniedError(err)
-      setContactsPermissionBlocked(permissionBlocked)
-      setSaveToPhoneError(
-        permissionBlocked
-          ? 'Contacts access is off. Enable it in Settings, then try again.'
-          : 'Could not open Contacts. Please try again.',
-      )
-      console.error('[v0] Save to Contacts failed:', err)
-    } finally {
-      contactSaveInFlightRef.current = false
-      if (openRef.current) setIsSavingToPhone(false)
-    }
-  }
-
   const handleManualEntry = async () => {
     if (isCameraLaunchActive(cameraLaunchRef.current)) return
     await tapFeedback()
     setError(null)
     setCameraHelp(null)
     setCard(EMPTY)
+    setReviewMeta(EMPTY_REVIEW_META)
+    setCloudScanPending(false)
+    originalScanRef.current = null
+    editedScanFieldsRef.current.clear()
     setNote('')
     setContextStatus('empty')
     setReviewSource('manual')
     setStage('review')
+  }
+
+  const handleCancelReading = () => {
+    operationRef.current += 1
+    scanAbortRef.current?.abort()
+    scanAbortRef.current = null
+    setCard(EMPTY)
+    setReviewMeta(EMPTY_REVIEW_META)
+    setCloudScanPending(false)
+    originalScanRef.current = null
+    editedScanFieldsRef.current.clear()
+    setNote('')
+    setError('Enter the essentials below. You can rescan at any time.')
+    setContextStatus('empty')
+    setReviewSource('manual')
+    setStage('review')
+    trackProductEvent('ocr_result', {
+      outcome: 'user_cancelled',
+      latency_ms: Math.round(readingElapsedMs),
+    })
   }
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -618,14 +828,27 @@ export function ScanCardSheet({
     const file = e.target.files?.[0]
     if (!file) return
     try {
-      await readCardImage(await downscale(file), operation)
+      await readCardImage(
+        await downscale(file),
+        operation,
+        input === cameraFileRef.current ? 'camera_file' : 'photo_library',
+      )
     } finally {
       input.value = ''
     }
   }
 
-  const update = (key: keyof ScannedCard, value: string) =>
+  const update = (key: keyof ScannedCard, value: string) => {
+    editedScanFieldsRef.current.add(key)
     setCard((prev) => ({ ...prev, [key]: value }))
+    // A previously saved native contact contains the pre-edit values. Let the
+    // user explicitly save the corrected version and keep funnel data honest.
+    setSavedToPhone(false)
+    setReviewMeta((previous) => ({
+      ...previous,
+      needsReview: previous.needsReview.filter((field) => field !== key),
+    }))
+  }
 
   const toggleContext = (id: string) => {
     setContextNotes((prev) =>
@@ -658,18 +881,55 @@ export function ScanCardSheet({
       context: contextParts.join('\n') || undefined,
       interests: [],
     })
-    setAddedContactId(added?.id ?? null)
+    const contactId = added?.id ?? null
+    const correctionCount = countScanReviewCorrections(
+      originalScanRef.current,
+      card,
+    )
+    if (contactId && onOpenContact) {
+      trackProductEvent('draft_open', {
+        source: reviewSource,
+        correction_count: correctionCount,
+        saved_to_contacts: savedToPhone,
+        has_delivery_channel: hasDeliveryChannel,
+      })
+      close()
+      onOpenContact(contactId)
+      return
+    }
+    setAddedContactId(contactId)
     setStage('added')
   }
 
   const finishAdded = () => {
     const contactId = addedContactId
+    trackProductEvent('draft_open', {
+      source: reviewSource,
+      correction_count: countScanReviewCorrections(originalScanRef.current, card),
+      saved_to_contacts: savedToPhone,
+      has_delivery_channel: hasDeliveryChannel,
+    })
     close()
     if (contactId) onOpenContact?.(contactId)
   }
 
   const hasDeliveryChannel =
     looksLikePhone(card.phone) || isDeliverableEmail(card.email)
+  const fieldsNeedingReview = SCAN_REVIEW_FIELD_KEYS.filter((field) =>
+    scanFieldNeedsReview(field, card[field], reviewMeta.needsReview),
+  )
+  const reviewQualityNotice =
+    reviewSource === 'scan'
+      ? scanQualityNotice(
+          reviewMeta.imageQuality,
+          fieldsNeedingReview.length,
+          reviewMeta.qualityNote,
+        )
+      : null
+  const readingStatus = scanReadingStatus(readingElapsedMs)
+  const selectedCadence =
+    TIER_OPTIONS.find((option) => option.value === tier)?.label ??
+    'Every 6 weeks'
 
   return createPortal(
     <div
@@ -678,7 +938,8 @@ export function ScanCardSheet({
     >
       <button
         type="button"
-        aria-label="Close"
+        aria-hidden="true"
+        tabIndex={-1}
         onClick={close}
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
@@ -690,7 +951,7 @@ export function ScanCardSheet({
         aria-labelledby="scan-card-sheet-title"
         aria-describedby="scan-card-sheet-announcement"
         tabIndex={-1}
-        className="relative isolate flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] text-[var(--ink-body)] shadow-xl"
+        className="relative isolate flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] text-[var(--ink-body)] shadow-xl outline-none"
         style={{ background: 'var(--field-bg)' }}
       >
         <p
@@ -778,8 +1039,8 @@ export function ScanCardSheet({
                     Point, snap, done.
                   </p>
                   <p className="mt-1 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
-                    We capture the details and prepare a follow-up. You approve
-                    everything first.
+                    Fill the frame, hold steady, and avoid glare. You review
+                    every detail before anything is saved.
                   </p>
                 </div>
               </div>
@@ -873,11 +1134,20 @@ export function ScanCardSheet({
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <Loader2 className="size-7 animate-spin text-[var(--ink-strong)]" />
               <p className="text-[14px] font-medium text-[var(--ink-strong)]">
-                Creating the contact…
+                {readingStatus.title}
               </p>
               <p className="text-[12px] text-[var(--ink-secondary)]">
-                Reading the details and preparing the first follow-up.
+                {readingStatus.detail}
               </p>
+              {readingStatus.canEnterManually && (
+                <button
+                  type="button"
+                  onClick={handleCancelReading}
+                  className="glass-button pressable mt-2 min-h-11 rounded-full px-5 text-[13px] font-semibold text-[var(--ink-strong)]"
+                >
+                  Enter details instead
+                </button>
+              )}
             </div>
           )}
 
@@ -922,11 +1192,106 @@ export function ScanCardSheet({
                 </p>
               )}
 
+              {cloudScanPending && (
+                <div
+                  role="status"
+                  className="flex items-start gap-2.5 rounded-2xl border border-[var(--hairline)] bg-white/20 px-3.5 py-3 text-left text-[13px] leading-relaxed text-[var(--ink-secondary)]"
+                >
+                  <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-[var(--ink-strong)]" />
+                  <span>
+                    Quick preview ready. Checking the photo for a more complete
+                    result…
+                  </span>
+                </div>
+              )}
+
+              {reviewQualityNotice && (
+                <div className="flex items-start gap-2.5 rounded-2xl border border-[var(--status-check-border)] bg-[var(--status-check-tint)] px-3.5 py-3 text-left text-[13px] leading-relaxed text-[var(--ink-secondary)]">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0 text-[var(--status-due-soon)]" />
+                  <span>{reviewQualityNotice}</span>
+                </div>
+              )}
+
               <ParsedSummary
                 card={card}
                 onUpdate={update}
                 manual={reviewSource === 'manual'}
+                needsReview={reviewMeta.needsReview}
               />
+
+              <section className="glass-card rounded-3xl p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
+                      Stay in touch
+                    </p>
+                    <p className="mt-1 text-[13px] text-[var(--ink-secondary)]">
+                      {selectedCadence}
+                      {lastContactedAt
+                        ? ' from the last-met date'
+                        : ' · first message ready now'}
+                    </p>
+                  </div>
+                </div>
+                <div
+                  className="mt-3 grid grid-cols-3 gap-2"
+                  role="group"
+                  aria-label="Follow-up cadence"
+                >
+                  {TIER_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setTier(option.value)}
+                      aria-pressed={tier === option.value}
+                      className={cn(
+                        'pressable min-h-11 rounded-2xl border px-2 text-xs font-semibold transition-all',
+                        tier === option.value
+                          ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)] shadow-card'
+                          : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="glass-card rounded-3xl p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/30 text-[var(--ink-secondary)]">
+                    <Smartphone className="size-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-[var(--ink-strong)]">
+                      Save to iPhone Contacts
+                    </p>
+                    <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--ink-secondary)]">
+                      Optional · opens an editable Apple contact before saving.
+                    </p>
+                  </div>
+                </div>
+                <NativeContactSaveButton
+                  card={{
+                    n: card.name,
+                    t: card.title || undefined,
+                    co: card.company || undefined,
+                    p: card.phone || undefined,
+                    e: card.email || undefined,
+                  }}
+                  source="business_card"
+                  idleLabel={
+                    cloudScanPending
+                      ? 'Finishing card check…'
+                      : 'Save to iPhone Contacts'
+                  }
+                  className="mt-3 min-h-11 text-[13px]"
+                  disabled={!card.name.trim() || cloudScanPending}
+                  onOutcome={(outcome) =>
+                    setSavedToPhone(outcome === 'saved')
+                  }
+                />
+              </section>
 
               <button
                 type="button"
@@ -934,7 +1299,7 @@ export function ScanCardSheet({
                 aria-expanded={showReviewDetails}
                 className="glass-button pressable flex min-h-11 w-full items-center justify-between rounded-2xl px-4 text-left text-[13px] font-semibold text-[var(--ink-secondary)]"
               >
-                <span>Add context, cadence or save to phone</span>
+                <span>Add context or last-met date</span>
                 <ChevronDown
                   className={cn(
                     'size-4 transition-transform',
@@ -977,69 +1342,6 @@ export function ScanCardSheet({
                         follow up now.
                       </span>
                     </label>
-
-                    <div className="mt-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
-                        Stay in touch
-                      </p>
-                      <div className="mt-2 grid grid-cols-3 gap-2">
-                        {TIER_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setTier(opt.value)}
-                            className={cn(
-                              'pressable min-h-11 rounded-2xl border px-2 text-xs font-semibold transition-all',
-                              tier === opt.value
-                                ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)] shadow-card'
-                                : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
-                            )}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleSaveToPhone}
-                      disabled={
-                        !card.name.trim() || isSavingToPhone || savedToPhone
-                      }
-                      aria-busy={isSavingToPhone}
-                      className="pressable mt-3 flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
-                    >
-                      {isSavingToPhone ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : savedToPhone ? (
-                        <CheckCircle2 className="size-3.5" />
-                      ) : (
-                        <Smartphone className="size-3.5" />
-                      )}
-                      {isSavingToPhone
-                        ? 'Opening Contacts…'
-                        : savedToPhone
-                          ? 'Saved to Contacts'
-                          : 'Save to phone'}
-                    </button>
-                    {saveToPhoneError && (
-                      <div
-                        role="status"
-                        className="mt-1.5 flex flex-wrap items-center gap-x-2 text-left text-[12px] leading-relaxed text-[var(--status-overdue)]"
-                      >
-                        <span>{saveToPhoneError}</span>
-                        {contactsPermissionBlocked && (
-                          <button
-                            type="button"
-                            onClick={handleOpenSettings}
-                            className="pressable min-h-8 font-semibold underline underline-offset-2"
-                          >
-                            Open Settings
-                          </button>
-                        )}
-                      </div>
-                    )}
                   </section>
                 </>
               )}
@@ -1061,14 +1363,17 @@ export function ScanCardSheet({
 
         {stage === 'review' && (
           <footer className="relative z-[1] border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
+            <p className="mb-2 text-center text-[12px] leading-relaxed text-[var(--ink-secondary)]">
+              Saves to FollowApp and opens an editable first message.
+            </p>
             <button
               type="button"
               onClick={submit}
               disabled={!card.name.trim()}
               className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
             >
-              <Check className="size-4" />
-              <span>{hasDeliveryChannel ? 'Create follow-up' : 'Create draft'}</span>
+              <span>Review message</span>
+              <ArrowRight className="size-4" />
             </button>
           </footer>
         )}
@@ -1150,10 +1455,12 @@ function ParsedSummary({
   card,
   onUpdate,
   manual,
+  needsReview,
 }: {
   card: ScannedCard
   onUpdate: (key: keyof ScannedCard, value: string) => void
   manual: boolean
+  needsReview: readonly ScanCardField[]
 }) {
   return (
     <section className="glass-hero overflow-hidden rounded-3xl px-4 py-0">
@@ -1161,8 +1468,9 @@ function ParsedSummary({
         label="Full name"
         value={card.name}
         placeholder="Full name (required)"
-        sure={Boolean(card.name.trim())}
-        showConfidence={!manual}
+        needsReview={
+          !manual && scanFieldNeedsReview('name', card.name, needsReview)
+        }
         autoComplete="name"
         required
         onChange={(value) => onUpdate('name', value)}
@@ -1171,8 +1479,9 @@ function ParsedSummary({
         label="Role or title"
         value={card.title}
         placeholder="Role or job title"
-        sure={Boolean(card.title.trim())}
-        showConfidence={!manual && Boolean(card.title.trim())}
+        needsReview={
+          !manual && scanFieldNeedsReview('title', card.title, needsReview)
+        }
         autoComplete="organization-title"
         onChange={(value) => onUpdate('title', value)}
       />
@@ -1180,8 +1489,9 @@ function ParsedSummary({
         label="Company"
         value={card.company}
         placeholder="Company or organization"
-        sure={Boolean(card.company.trim())}
-        showConfidence={!manual && Boolean(card.company.trim())}
+        needsReview={
+          !manual && scanFieldNeedsReview('company', card.company, needsReview)
+        }
         autoComplete="organization"
         onChange={(value) => onUpdate('company', value)}
       />
@@ -1189,8 +1499,9 @@ function ParsedSummary({
         label="Mobile"
         value={card.phone}
         placeholder="Phone number"
-        sure={looksLikePhone(card.phone)}
-        showConfidence={!manual && Boolean(card.phone.trim())}
+        needsReview={
+          !manual && scanFieldNeedsReview('phone', card.phone, needsReview)
+        }
         type="tel"
         inputMode="tel"
         autoComplete="tel"
@@ -1200,8 +1511,9 @@ function ParsedSummary({
         label="Email"
         value={card.email}
         placeholder="Email address"
-        sure={isDeliverableEmail(card.email)}
-        showConfidence={!manual && Boolean(card.email.trim())}
+        needsReview={
+          !manual && scanFieldNeedsReview('email', card.email, needsReview)
+        }
         type="email"
         inputMode="email"
         autoComplete="email"
@@ -1215,8 +1527,7 @@ function EditableSummaryRow({
   label,
   value,
   placeholder,
-  sure,
-  showConfidence,
+  needsReview,
   type = 'text',
   inputMode,
   autoComplete,
@@ -1226,8 +1537,7 @@ function EditableSummaryRow({
   label: string
   value: string
   placeholder: string
-  sure: boolean
-  showConfidence: boolean
+  needsReview: boolean
   type?: 'text' | 'tel' | 'email'
   inputMode?: 'text' | 'tel' | 'email'
   autoComplete?: string
@@ -1238,7 +1548,7 @@ function EditableSummaryRow({
     <label
       className={cn(
         'grid gap-3 border-b border-[var(--hairline)] py-3 last:border-b-0',
-        showConfidence ? 'grid-cols-[1fr_auto]' : 'grid-cols-1',
+        needsReview ? 'grid-cols-[1fr_auto]' : 'grid-cols-1',
       )}
     >
       <span className="min-w-0">
@@ -1256,22 +1566,17 @@ function EditableSummaryRow({
           className="mt-1 h-7 w-full min-w-0 bg-transparent font-heading text-[15px] font-semibold tracking-[-0.012em] text-[var(--ink-strong)] outline-none placeholder:text-[var(--ink-tertiary)]/45"
         />
       </span>
-      {showConfidence && <ConfidenceBadge sure={sure} />}
+      {needsReview && <ReviewBadge />}
     </label>
   )
 }
 
-function ConfidenceBadge({ sure }: { sure: boolean }) {
-  if (sure) {
-    return (
-      <span className="mt-1 flex size-[26px] shrink-0 items-center justify-center rounded-full bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
-        <CheckCircle2 className="size-4" />
-      </span>
-    )
-  }
-
+function ReviewBadge() {
   return (
-    <span className="mt-1 flex h-8 shrink-0 items-center gap-1 rounded-lg border bg-[var(--status-check-tint)] px-2.5 text-[11.5px] font-semibold text-[var(--status-due-soon)]" style={{ borderColor: 'var(--status-check-border)' }}>
+    <span
+      className="mt-1 flex h-8 shrink-0 items-center gap-1 rounded-lg border bg-[var(--status-check-tint)] px-2.5 text-[11.5px] font-semibold text-[var(--status-due-soon)]"
+      style={{ borderColor: 'var(--status-check-border)' }}
+    >
       <AlertCircle className="size-3.5" />
       Check
     </span>

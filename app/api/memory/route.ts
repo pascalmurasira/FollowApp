@@ -8,6 +8,7 @@ import { normalizeDeviceId } from '@/lib/server/device-id'
 import { withDeviceAccess } from '@/lib/server/device-access'
 import { requestedDeviceId } from '@/lib/server/request-device'
 import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { logServerError } from '@/lib/server/error-metadata'
 import { z } from 'zod'
 
 export const maxDuration = 10
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
     if (!access.ok) return access.response
     return Response.json({ ok: true })
   } catch (error) {
-    console.error('[v0] Memory route failed:', error)
+    logServerError('[v0] Memory route failed', error)
     // Never let memory failures break the core flow.
     return Response.json({ ok: false }, { status: 200 })
   }
@@ -95,7 +96,7 @@ export async function GET(req: Request) {
     if (!access.ok) return access.response
     return Response.json(access.value)
   } catch (error) {
-    console.error('[v0] Memory GET failed:', error)
+    logServerError('[v0] Memory GET failed', error)
     return Response.json({ count: 0, insights: [] })
   }
 }
@@ -121,7 +122,7 @@ export async function DELETE(req: Request) {
     if (!access.ok) return access.response
     return Response.json({ ok: true })
   } catch (error) {
-    console.error('[v0] Memory DELETE failed:', error)
+    logServerError('[v0] Memory DELETE failed', error)
     return Response.json({ ok: false }, { status: 500 })
   }
 }

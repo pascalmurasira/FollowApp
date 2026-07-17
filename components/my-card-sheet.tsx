@@ -7,6 +7,7 @@ import QRCode from 'qrcode'
 import {
   AlertCircle,
   Check,
+  ChevronDown,
   Loader2,
   Pencil,
   QrCode,
@@ -19,11 +20,17 @@ import {
   isShareableProfile,
   loadLocalProfile,
   loadProfile,
+  retryPendingProfileSync,
   saveProfile,
 } from '@/lib/profile'
 import { cardFitsReliableQr, cardUrl } from '@/lib/card'
 import { getDeviceId } from '@/lib/device-id'
-import { isNativeUserCancelError, shareContent } from '@/lib/native'
+import { isNativeUserCancelError } from '@/lib/native'
+import { trackProductEvent } from '@/lib/product-analytics'
+import {
+  shareContentWithOutcome,
+  type ShareOutcome,
+} from '@/lib/share-outcome'
 
 type QrStatus = 'idle' | 'loading' | 'ready' | 'error' | 'too-large'
 
@@ -80,6 +87,7 @@ export function MyCardSheet({
   const [profile, setProfile] = useState<Profile | null>(null)
   const [draft, setDraft] = useState<Profile>({ name: '' })
   const [editing, setEditing] = useState(false)
+  const [extraDetailsOpen, setExtraDetailsOpen] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(false)
   const [saving, setSaving] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -89,7 +97,7 @@ export function MyCardSheet({
   const [qrStatus, setQrStatus] = useState<QrStatus>('idle')
   const [qrAttempt, setQrAttempt] = useState(0)
   const [sharing, setSharing] = useState(false)
-  const [shared, setShared] = useState(false)
+  const [shareOutcome, setShareOutcome] = useState<ShareOutcome | null>(null)
   const [shareError, setShareError] = useState<string | null>(null)
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -123,18 +131,20 @@ export function MyCardSheet({
 
     const deviceId = getDeviceId()
     const local = loadLocalProfile(deviceId)
+    trackProductEvent('qr_card_opened', { has_existing_card: Boolean(local) })
     let cancelled = false
     draftDirtyRef.current = false
     setProfile(local)
     setDraft(local ?? { name: '' })
     setEditing(!local)
+    setExtraDetailsOpen(Boolean(local?.title || local?.company))
     setLoadingProfile(!local)
     setSaving(false)
     setValidationError(null)
     setCardSizeError(null)
     setSaveNotice(null)
     setShareError(null)
-    setShared(false)
+    setShareOutcome(null)
     if (local) onCardReadyRef.current?.()
 
     void loadProfile(deviceId).then((loaded) => {
@@ -155,6 +165,34 @@ export function MyCardSheet({
 
     return () => {
       cancelled = true
+    }
+  }, [open])
+
+  // A local-first card remains usable offline. When connectivity returns while
+  // this sheet is still open, repair its cloud copy immediately instead of
+  // waiting for the user to close and reopen the surface.
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    const retry = async () => {
+      const deviceId = getDeviceId()
+      if (!deviceId) return
+      setSaveNotice('Card ready. Syncing in the background…')
+      try {
+        await retryPendingProfileSync(deviceId)
+        if (active) setSaveNotice(null)
+      } catch (error) {
+        console.warn('[v0] Card sync retry failed:', error)
+        if (active) {
+          setSaveNotice('Saved on this device. Cloud sync will retry automatically.')
+        }
+      }
+    }
+    const onOnline = () => void retry()
+    window.addEventListener('online', onOnline)
+    return () => {
+      active = false
+      window.removeEventListener('online', onOnline)
     }
   }, [open])
 
@@ -295,7 +333,7 @@ export function MyCardSheet({
     setCardSizeError(null)
   }
 
-  const persist = async () => {
+  const persist = () => {
     const name = draft.name.trim()
     if (!name || name.toLocaleLowerCase() === 'you') {
       setValidationError('Add your name before creating a shareable card.')
@@ -318,26 +356,34 @@ export function MyCardSheet({
       return
     }
     setSaving(true)
-    setSaveNotice(null)
+    setSaveNotice('Card ready. Syncing in the background…')
     setProfile(next)
     setDraft(next)
     setEditing(false)
     onCardReadyRef.current?.()
+    trackProductEvent('qr_card_ready', {
+      has_phone: Boolean(next.phone),
+      has_email: Boolean(next.email),
+      has_role: Boolean(next.title || next.company),
+    })
 
-    try {
-      await saveProfile(getDeviceId(), next)
-    } catch (error) {
-      console.error('[v0] Card cloud sync failed:', error)
-      setSaveNotice('Saved on this device. Cloud sync is currently unavailable.')
-    } finally {
-      setSaving(false)
-    }
+    // saveProfile caches synchronously before its network request. Release the
+    // UI immediately so a slow connection can never block showing or sharing
+    // the QR; the cache carries a pending-sync marker for automatic retry.
+    const cloudSave = saveProfile(getDeviceId(), next)
+    setSaving(false)
+    void cloudSave
+      .then(() => setSaveNotice(null))
+      .catch((error) => {
+        console.error('[v0] Card cloud sync failed:', error)
+        setSaveNotice('Saved on this device. Cloud sync will retry automatically.')
+      })
   }
 
-  const markShared = () => {
-    setShared(true)
+  const markShared = (outcome: ShareOutcome) => {
+    setShareOutcome(outcome)
     if (sharedTimerRef.current) clearTimeout(sharedTimerRef.current)
-    sharedTimerRef.current = setTimeout(() => setShared(false), 2000)
+    sharedTimerRef.current = setTimeout(() => setShareOutcome(null), 2000)
   }
 
   const share = async () => {
@@ -367,7 +413,8 @@ export function MyCardSheet({
           const fileShare: ShareData = { ...shareData, files: [file] }
           if (navigator.canShare(fileShare)) {
             await navigator.share(fileShare)
-            markShared()
+            markShared('shared')
+            trackProductEvent('qr_card_shared', { method: 'image' })
             return
           }
         } catch (error) {
@@ -376,8 +423,9 @@ export function MyCardSheet({
         }
       }
 
-      await shareContent(shareData)
-      markShared()
+      const outcome = await shareContentWithOutcome(shareData)
+      markShared(outcome)
+      trackProductEvent('qr_card_shared', { method: outcome })
     } catch (error) {
       if (!isShareCancellation(error)) {
         console.error('[v0] Card share failed:', error)
@@ -489,30 +537,6 @@ export function MyCardSheet({
                   {validationError}
                 </p>
               )}
-              <Field label="Role">
-                <input
-                  value={draft.title ?? ''}
-                  onChange={(event) =>
-                    updateDraft({ ...draft, title: event.target.value })
-                  }
-                  placeholder="Design Lead"
-                  autoComplete="organization-title"
-                  maxLength={300}
-                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
-                />
-              </Field>
-              <Field label="Company">
-                <input
-                  value={draft.company ?? ''}
-                  onChange={(event) =>
-                    updateDraft({ ...draft, company: event.target.value })
-                  }
-                  placeholder="Linear"
-                  autoComplete="organization"
-                  maxLength={300}
-                  className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
-                />
-              </Field>
               <Field label="Phone">
                 <input
                   value={draft.phone ?? ''}
@@ -539,6 +563,56 @@ export function MyCardSheet({
                   className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                 />
               </Field>
+
+              <button
+                type="button"
+                onClick={() => setExtraDetailsOpen((open) => !open)}
+                aria-expanded={extraDetailsOpen}
+                className="glass-button pressable flex min-h-12 items-center justify-between rounded-2xl px-4 text-left"
+              >
+                <span>
+                  <span className="block text-sm font-semibold text-[var(--ink-strong)]">
+                    Add role and company
+                  </span>
+                  <span className="block text-[12px] text-[var(--ink-secondary)]">
+                    Optional professional context
+                  </span>
+                </span>
+                <ChevronDown
+                  className={`size-5 text-[var(--ink-tertiary)] transition-transform ${
+                    extraDetailsOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {extraDetailsOpen && (
+                <div className="flex flex-col gap-4 rounded-2xl border border-[var(--hairline)] bg-white/10 p-3.5">
+                  <Field label="Role">
+                    <input
+                      value={draft.title ?? ''}
+                      onChange={(event) =>
+                        updateDraft({ ...draft, title: event.target.value })
+                      }
+                      placeholder="Design Lead"
+                      autoComplete="organization-title"
+                      maxLength={300}
+                      className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+                    />
+                  </Field>
+                  <Field label="Company">
+                    <input
+                      value={draft.company ?? ''}
+                      onChange={(event) =>
+                        updateDraft({ ...draft, company: event.target.value })
+                      }
+                      placeholder="Linear"
+                      autoComplete="organization"
+                      maxLength={300}
+                      className="h-11 w-full rounded-xl border border-[var(--hairline)] bg-white/25 px-4 text-base outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
+                    />
+                  </Field>
+                </div>
+              )}
               {cardSizeError && (
                 <p role="alert" className="text-[13px] leading-relaxed text-destructive">
                   {cardSizeError}
@@ -631,7 +705,8 @@ export function MyCardSheet({
               )}
               <p className="mt-4 text-pretty text-center text-[11.5px] leading-relaxed text-[var(--ink-tertiary)]">
                 Anyone who scans this QR or receives its link can view and save
-                the details shown on this card.
+                the details shown on this card. Shared copies do not expire
+                automatically, so share only the fields you want to make public.
               </p>
             </div>
           ) : (
@@ -679,6 +754,7 @@ export function MyCardSheet({
                   // already in flight when the user opened the form.
                   draftDirtyRef.current = true
                   setDraft(profile)
+                  setExtraDetailsOpen(Boolean(profile.title || profile.company))
                   setValidationError(null)
                   setEditing(true)
                 }}
@@ -696,12 +772,18 @@ export function MyCardSheet({
               >
                 {sharing ? (
                   <Loader2 className="size-4 animate-spin" />
-                ) : shared ? (
+                ) : shareOutcome ? (
                   <Check className="size-4" />
                 ) : (
                   <Share2 className="size-4" />
                 )}
-                {sharing ? 'Preparing…' : shared ? 'Done' : 'Share'}
+                {sharing
+                  ? 'Preparing…'
+                  : shareOutcome === 'copied'
+                    ? 'Link copied'
+                    : shareOutcome === 'shared'
+                      ? 'Shared'
+                      : 'Share'}
               </button>
             </>
           ) : null}
