@@ -48,8 +48,8 @@ export function ProfileHeader({
   }, [])
 
   const persist = async (next: Profile) => {
-    const previous = profile
-    // Optimistic: show the change immediately, roll back if the save fails.
+    // The profile store commits locally before attempting cloud sync, so the
+    // visible state must remain consistent with the card and the next launch.
     setProfile(next)
     const deviceId = getDeviceId()
     if (!deviceId) return
@@ -57,8 +57,7 @@ export function ProfileHeader({
       await saveProfile(deviceId, next)
       setError(null)
     } catch {
-      setProfile(previous)
-      setError('That photo was too large to save. Try a smaller one.')
+      setError('Saved on this device. Cloud sync will retry automatically.')
     }
   }
 

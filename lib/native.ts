@@ -156,6 +156,7 @@ export async function captureImageDataUrl(): Promise<string | null> {
 
 interface FollowAppNativePlugin {
   openSettings(): Promise<void>
+  prepareBusinessCardCamera(): Promise<{ prepared?: boolean }>
   cameraStatus(): Promise<{
     available?: boolean
     permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
@@ -174,6 +175,28 @@ async function followAppNativePlugin(): Promise<FollowAppNativePlugin> {
     )
   }
   return followAppNativePluginPromise
+}
+
+/**
+ * Loads the native bridge and lets iOS allocate an unpresented camera picker.
+ * The native method never requests permission or presents UI, so callers may
+ * safely run this while the app is idle. A later user tap remains the only
+ * action that can open the camera or trigger the permission prompt.
+ */
+export async function prewarmBusinessCardCamera(): Promise<void> {
+  if (!(await isNativeRuntime())) return
+
+  try {
+    const native = await followAppNativePlugin()
+    await native.prepareBusinessCardCamera()
+  } catch (error) {
+    // Prewarming is an optional latency optimization. Older native shells do
+    // not expose this method and must continue to capture through the normal
+    // user-initiated path without surfacing an error.
+    if (!isNativeMethodUnavailableError(error)) {
+      console.debug('[v0] Native camera prewarm was skipped:', error)
+    }
+  }
 }
 
 export async function chooseImageDataUrl(): Promise<string | null> {

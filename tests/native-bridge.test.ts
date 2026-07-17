@@ -51,8 +51,8 @@ test('cancellation and real contact errors do not look like a missing bridge', (
 test('camera fallback is limited to an unavailable adapter', () => {
   assert.equal(
     isNativeCameraAdapterUnavailableError({
-      code: 'CAMERA_UNAVAILABLE',
-      message: 'Camera could not be opened.',
+      code: 'CAMERA_ADAPTER_UNAVAILABLE',
+      message: 'FollowAppNative camera adapter is unavailable.',
     }),
     true,
   )
@@ -69,6 +69,34 @@ test('camera fallback is limited to an unavailable adapter', () => {
       message: 'Camera is already open.',
     }),
     false,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'CAMERA_HARDWARE_UNAVAILABLE',
+      message: 'Camera is unavailable on this device.',
+    }),
+    false,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'CAMERA_PRESENTATION_FAILED',
+      message: 'Camera could not be opened.',
+    }),
+    false,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'UNAVAILABLE',
+      message: 'Camera could not be opened.',
+    }),
+    false,
+  )
+  assert.equal(
+    isNativeCameraAdapterUnavailableError({
+      code: 'UNAVAILABLE',
+      message: 'FollowAppNative plugin is unavailable.',
+    }),
+    true,
   )
   assert.equal(
     isNativeCameraAdapterUnavailableError({

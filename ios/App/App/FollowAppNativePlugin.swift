@@ -10,6 +10,7 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
     public let jsName = "FollowAppNative"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareBusinessCardCamera", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cameraStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "takeBusinessCardPhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "saveContact", returnType: CAPPluginReturnPromise)
@@ -17,6 +18,7 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
 
     private var photoCall: CAPPluginCall?
     private var contactCall: CAPPluginCall?
+    private var preparedCameraPicker: UIImagePickerController?
 
     @objc func openSettings(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -47,15 +49,36 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
                         if granted {
                             self.presentCamera(call)
                         } else {
+                            self.preparedCameraPicker = nil
                             call.reject("Camera permission denied.", "PERMISSION_DENIED")
                         }
                     }
                 }
             case .denied, .restricted:
+                self.preparedCameraPicker = nil
                 call.reject("Camera permission denied.", "PERMISSION_DENIED")
             @unknown default:
-                call.reject("Camera permission is unavailable.", "CAMERA_UNAVAILABLE")
+                self.preparedCameraPicker = nil
+                call.reject("Camera permission is unavailable.", "CAMERA_PERMISSION_UNAVAILABLE")
             }
+        }
+    }
+
+    @objc func prepareBusinessCardCamera(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            // Prewarming must never request permission, configure a camera
+            // source, or present UI. Only an already-authorized app gets an
+            // unconfigured picker shell; the user's later tap remains the
+            // sole camera trigger.
+            guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized,
+                  UIImagePickerController.isSourceTypeAvailable(.camera),
+                  self.photoCall == nil else {
+                call.resolve(["prepared": false])
+                return
+            }
+
+            self.prepareCameraPickerIfSafe()
+            call.resolve(["prepared": self.preparedCameraPicker != nil])
         }
     }
 
@@ -142,13 +165,14 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
 
     private func presentCamera(_ call: CAPPluginCall) {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            call.reject("Camera is unavailable on this device.", "CAMERA_UNAVAILABLE")
+            preparedCameraPicker = nil
+            call.reject("Camera is unavailable on this device.", "CAMERA_HARDWARE_UNAVAILABLE")
             return
         }
 
         guard let viewController = bridge?.viewController,
               let presenter = topViewController(from: viewController) else {
-            call.reject("Camera could not be opened.", "CAMERA_UNAVAILABLE")
+            call.reject("Camera could not be opened.", "CAMERA_PRESENTATION_FAILED")
             return
         }
 
@@ -157,18 +181,28 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
             return
         }
 
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.cameraCaptureMode = .photo
-        if UIImagePickerController.isCameraDeviceAvailable(.rear) {
-            picker.cameraDevice = .rear
+        guard presenter.viewIfLoaded?.window != nil,
+              !presenter.isBeingDismissed else {
+            call.reject("Camera could not be opened.", "CAMERA_PRESENTATION_FAILED")
+            return
         }
-        picker.allowsEditing = false
-        picker.delegate = self
-        picker.modalPresentationStyle = .fullScreen
 
+        let wasPrewarmed = preparedCameraPicker != nil
+        let picker = preparedCameraPicker ?? UIImagePickerController()
+        preparedCameraPicker = nil
+        configureCameraPicker(picker)
+        let presentationStartedAt = ProcessInfo.processInfo.systemUptime
         photoCall = call
-        presenter.present(picker, animated: true)
+        presenter.present(picker, animated: false) {
+            let elapsedMilliseconds = Int(
+                (ProcessInfo.processInfo.systemUptime - presentationStartedAt) * 1_000
+            )
+            NSLog(
+                "[FollowApp] Camera controller presented in %d ms (prewarmed: %@).",
+                elapsedMilliseconds,
+                wasPrewarmed ? "yes" : "no"
+            )
+        }
         // UIKit can decline a presentation without invoking a useful error
         // callback (for example while another controller is transitioning).
         // Never leave the JavaScript promise — and its Opening camera state —
@@ -180,8 +214,33 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
                 return
             }
             self.photoCall = nil
-            call.reject("Camera could not be opened.", "CAMERA_UNAVAILABLE")
+            call.reject("Camera could not be opened.", "CAMERA_PRESENTATION_FAILED")
         }
+    }
+
+    private func configureCameraPicker(_ picker: UIImagePickerController) {
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        if UIImagePickerController.isCameraDeviceAvailable(.rear) {
+            picker.cameraDevice = .rear
+        }
+        picker.allowsEditing = false
+        picker.delegate = self
+        picker.modalPresentationStyle = .fullScreen
+    }
+
+    private func prepareCameraPickerIfSafe() {
+        guard preparedCameraPicker == nil,
+              photoCall == nil,
+              AVCaptureDevice.authorizationStatus(for: .video) == .authorized,
+              UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            return
+        }
+
+        // Do not set `sourceType`, access `view`, or call `loadViewIfNeeded()`
+        // here. The shell stays disconnected from camera hardware until the
+        // user explicitly asks to scan.
+        preparedCameraPicker = UIImagePickerController()
     }
 
     private func topViewController(from root: UIViewController?) -> UIViewController? {
@@ -203,7 +262,8 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
     public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         let call = photoCall
         photoCall = nil
-        picker.dismiss(animated: true) {
+        picker.dismiss(animated: true) { [weak self] in
+            self?.prepareCameraPickerIfSafe()
             call?.reject("User cancelled camera.", "USER_CANCELLED")
         }
     }
@@ -216,7 +276,8 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
         photoCall = nil
 
         guard let image = info[.originalImage] as? UIImage else {
-            picker.dismiss(animated: true) {
+            picker.dismiss(animated: true) { [weak self] in
+                self?.prepareCameraPickerIfSafe()
                 call?.reject("Photo could not be read.", "PHOTO_UNREADABLE")
             }
             return
@@ -224,7 +285,9 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
 
         // Give the camera back immediately. Resize/JPEG/base64 work is sizable
         // on modern photos and should not freeze the picker on the main thread.
-        picker.dismiss(animated: true)
+        picker.dismiss(animated: true) { [weak self] in
+            self?.prepareCameraPickerIfSafe()
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             let dataUrl = image.businessCardDataUrl()
             DispatchQueue.main.async {

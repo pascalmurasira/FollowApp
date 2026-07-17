@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ScanLine } from 'lucide-react'
+import { QrCode, ScanLine } from 'lucide-react'
 import { CONTACTS, CURRENT_USER, DEMO_CONTACT_IDS } from '@/lib/mock-data'
 import type { Contact, Message, Tab, Tier } from '@/lib/types'
 import { BottomNav } from '@/components/bottom-nav'
@@ -54,6 +54,7 @@ import { savedCountFromImportError } from '@/lib/contact-import-utils'
 import { getDeviceId } from '@/lib/device-id'
 import { useSession } from '@/lib/auth-client'
 import { useEngagement } from '@/hooks/use-engagement'
+import { prewarmBusinessCardCamera } from '@/lib/native'
 
 let idCounter = 0
 const nextId = () => `local-${idCounter++}`
@@ -98,6 +99,12 @@ export function NudgeApp() {
   useEffect(() => {
     if (showSyncPrompt) setShowSecure(true)
   }, [showSyncPrompt])
+
+  // Returning users with camera permission already granted get a warm native
+  // picker. This never asks for permission or opens UI before their tap.
+  useEffect(() => {
+    void prewarmBusinessCardCamera()
+  }, [])
 
   // 'pending' until we've checked localStorage, then 'onboarding' or 'app'.
   const [phase, setPhase] = useState<'pending' | 'onboarding' | 'app'>('pending')
@@ -420,12 +427,12 @@ export function NudgeApp() {
         <>
           <header className="sticky top-0 z-10 px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-[var(--ink-strong)] backdrop-blur-xl lg:static lg:px-8 lg:py-5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 <span className="glass-button flex size-9 items-center justify-center rounded-xl text-[var(--ink-strong)]">
                   <NudgeLogo className="size-[18px]" />
                 </span>
                 <div>
-                  <h1 className="font-heading text-[30px] font-bold leading-none tracking-[-0.03em]">
+                  <h1 className="font-heading text-[26px] font-bold leading-none tracking-[-0.03em] min-[380px]:text-[30px]">
                     {tab === 'nudges' ? 'Follow-ups' : tab === 'chats' ? 'Chats' : 'You'}
                   </h1>
                   <p className="mt-1 hidden text-[13px] text-[var(--ink-secondary)] lg:block">
@@ -442,17 +449,28 @@ export function NudgeApp() {
                       ? 'Private conversations'
                       : 'Profile & preferences'}
                 </p>
-                {tab === 'nudges' && (
-                  <button
-                    type="button"
-                    onClick={() => setShowScan(true)}
-                    aria-label="Scan a business card"
-                    className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold"
-                  >
-                    <ScanLine className="size-[18px]" />
-                    <span className="hidden min-[380px]:inline">Scan card</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowCard(true)}
+                  aria-label="Show my QR code"
+                  title="Show my QR code"
+                  className="glass-button pressable flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--ink-strong)] sm:w-auto sm:px-3.5"
+                >
+                  <QrCode className="size-[18px]" />
+                  <span className="ml-2 hidden text-sm font-semibold sm:inline">
+                    My QR
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowScan(true)}
+                  aria-label="Scan a business card"
+                  title="Scan a business card"
+                  className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold"
+                >
+                  <ScanLine className="size-[18px]" />
+                  <span className="hidden sm:inline">Scan card</span>
+                </button>
               </div>
             </div>
           </header>

@@ -1,12 +1,20 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Camera, ScanLine, ShieldCheck, Sparkles } from 'lucide-react'
+import {
+  ArrowRight,
+  Camera,
+  QrCode,
+  ScanLine,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react'
 import type { Contact } from '@/lib/types'
 import type { NewContactInput } from '@/lib/contacts-store'
 import { DEMO_CONTACT_IDS } from '@/lib/mock-data'
 import { NudgeLogo } from '@/components/nudge-logo'
 import { ScanCardSheet } from '@/components/scan-card-sheet'
+import { MyCardSheet } from '@/components/my-card-sheet'
 
 export interface WelcomeResult {
   selectedContactIds: string[]
@@ -23,16 +31,18 @@ interface WelcomeFlowProps {
 }
 
 /**
- * First run is an activation surface, not a product tour. The scan sheet starts
- * open so the user's first decision is the job they installed FollowApp to do.
- * Tone and cadence use sensible defaults and remain editable after the first win.
+ * First run is an activation surface, not a product tour. The two jobs users
+ * arrive with—capturing somebody else's card and sharing their own—are both one
+ * tap away. Tone and cadence use sensible defaults after the first saved card.
  */
 export function WelcomeFlow({
   contacts,
   onComplete,
   onScanContact,
 }: WelcomeFlowProps) {
-  const [scanOpen, setScanOpen] = useState(true)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [cardOpen, setCardOpen] = useState(false)
+  const [cardReady, setCardReady] = useState(false)
   const [activatedContactId, setActivatedContactId] = useState<string | null>(null)
   const sampleContact = useMemo(
     () => contacts.find((contact) => DEMO_CONTACT_IDS.has(contact.id)),
@@ -75,6 +85,19 @@ export function WelcomeFlow({
     setScanOpen(false)
   }
 
+  const handleCardClose = () => {
+    setCardOpen(false)
+    if (!cardReady) return
+
+    // Creating a shareable card is a valid first win. Keep samples available
+    // as an optional preview until this user adds their first real contact.
+    onComplete({
+      selectedContactIds: sampleContact ? [sampleContact.id] : [],
+      toneId: 'lowkey',
+      sampleMode: Boolean(sampleContact),
+    })
+  }
+
   const trySample = () => {
     if (!sampleContact) return
     completeWithContact(sampleContact.id, true)
@@ -93,7 +116,7 @@ export function WelcomeFlow({
           </span>
         </span>
         <span className="rounded-full border border-[var(--hairline)] bg-white/25 px-3 py-1.5 text-[11px] font-semibold text-[var(--ink-secondary)] backdrop-blur">
-          No setup required
+          No account required
         </span>
       </header>
 
@@ -120,11 +143,11 @@ export function WelcomeFlow({
             First follow-up in under a minute
           </div>
           <h1 className="text-balance font-heading text-[2.25rem] font-bold leading-[1.05] tracking-[-0.045em] text-[var(--ink-strong)] sm:text-[2.75rem]">
-            Turn a card into a follow-up.
+            Scan theirs. Share yours.
           </h1>
           <p className="mx-auto mt-4 max-w-[22rem] text-pretty text-[15px] leading-relaxed text-[var(--ink-secondary)]">
-            Scan a business card. FollowApp captures the details and drafts what
-            to say next.
+            Capture a business card and get a ready-to-send follow-up, or let
+            someone scan your digital card.
           </p>
         </div>
 
@@ -135,8 +158,16 @@ export function WelcomeFlow({
             className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold"
           >
             <Camera className="size-4" />
-            Scan a card
+            Scan their card
             <ArrowRight className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setCardOpen(true)}
+            className="glass-button pressable mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold text-[var(--ink-strong)]"
+          >
+            <QrCode className="size-4" />
+            Show my QR code
           </button>
           {sampleContact && (
             <button
@@ -156,10 +187,16 @@ export function WelcomeFlow({
 
       <ScanCardSheet
         open={scanOpen}
+        autoLaunchCamera
         variant="onboarding"
         onClose={handleScanClose}
         onAdd={handleScanAdd}
         onTrySample={sampleContact ? trySample : undefined}
+      />
+      <MyCardSheet
+        open={cardOpen}
+        onClose={handleCardClose}
+        onCardReady={() => setCardReady(true)}
       />
     </div>
   )

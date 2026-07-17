@@ -20,6 +20,9 @@ export interface CardData {
   e?: string
 }
 
+/** Conservative ceiling that keeps screen-scanned QR codes reasonably sparse. */
+export const MAX_CARD_QR_URL_BYTES = 900
+
 // --- URL-safe base64 (isomorphic: btoa/atob exist in modern browsers + Node) -
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -66,9 +69,12 @@ export function decodeCard(token: string): CardData | null {
   }
 }
 
-/** The path + query for a card, e.g. "/card?c=eyJ...". */
+/**
+ * Public card path. The payload lives in the fragment so it is decoded by the
+ * recipient's browser but is not sent in HTTP requests, referrers, or CDN logs.
+ */
 export function cardPath(profile: Parameters<typeof encodeCard>[0]): string {
-  return `/card?c=${encodeCard(profile)}`
+  return `/card#c=${encodeCard(profile)}`
 }
 
 /** Absolute card URL (what the QR encodes). Falls back to a relative path. */
@@ -81,6 +87,14 @@ export function cardUrl(
   return `${base}${cardPath(profile)}`
 }
 
+/** Guard the share flow before the QR library reaches an unrecoverable size. */
+export function cardFitsReliableQr(
+  profile: Parameters<typeof encodeCard>[0],
+): boolean {
+  const productionUrl = cardUrl(profile, 'https://followapp.chat')
+  return new TextEncoder().encode(productionUrl).byteLength <= MAX_CARD_QR_URL_BYTES
+}
+
 /**
  * If a scanned QR string is a FollowApp card URL (or a bare token), return its
  * decoded card; otherwise null. Lets the in-app scanner accept either a full
@@ -88,10 +102,12 @@ export function cardUrl(
  */
 export function readCardFromScan(raw: string): CardData | null {
   const text = raw.trim()
-  // Try to pull the `c` param out of a URL first.
+  // Accept current fragment links and legacy query links already in the wild.
   try {
     const url = new URL(text)
-    const c = url.searchParams.get('c')
+    const c =
+      new URLSearchParams(url.hash.replace(/^#/, '')).get('c') ??
+      url.searchParams.get('c')
     if (c) return decodeCard(c)
   } catch {
     // Not a URL — fall through and treat the whole string as a token.
@@ -105,7 +121,7 @@ export function readCardFromScan(raw: string): CardData | null {
 function vc(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
+    .replace(/\r\n|\r|\n/g, '\\n')
     .replace(/,/g, '\\,')
     .replace(/;/g, '\\;')
 }
