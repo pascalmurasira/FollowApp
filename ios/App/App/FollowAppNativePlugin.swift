@@ -19,6 +19,7 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
     private var photoCall: CAPPluginCall?
     private var contactCall: CAPPluginCall?
     private var preparedCameraPicker: UIImagePickerController?
+    private let contactStore = CNContactStore()
 
     @objc func openSettings(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -117,7 +118,9 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
                 return
             }
             guard let viewController = self.bridge?.viewController,
-                  let presenter = self.topViewController(from: viewController) else {
+                  let presenter = self.topViewController(from: viewController),
+                  presenter.viewIfLoaded?.window != nil,
+                  !presenter.isBeingDismissed else {
                 call.reject("Contacts could not be opened.", "CONTACT_UNAVAILABLE")
                 return
             }
@@ -144,11 +147,38 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerCo
             }
 
             let editor = CNContactViewController(forNewContact: contact)
+            // ContactsUI deliberately disables Add/Done when no store is set.
+            // Keep one store for the plugin lifetime and give it to every new
+            // contact editor so the reviewed card can actually be committed.
+            editor.contactStore = self.contactStore
             editor.delegate = self
             let navigationController = UINavigationController(rootViewController: editor)
-            navigationController.modalPresentationStyle = .formSheet
+            navigationController.modalPresentationStyle =
+                UIDevice.current.userInterfaceIdiom == .pad ? .formSheet : .fullScreen
+            navigationController.isModalInPresentation = true
             self.contactCall = call
-            presenter.present(navigationController, animated: true)
+            let presentationStartedAt = ProcessInfo.processInfo.systemUptime
+            presenter.present(navigationController, animated: true) {
+                let elapsedMilliseconds = Int(
+                    (ProcessInfo.processInfo.systemUptime - presentationStartedAt) * 1_000
+                )
+                NSLog("[FollowApp] Contact editor presented in %d ms.", elapsedMilliseconds)
+            }
+
+            // UIKit can decline a presentation during another controller's
+            // transition without completing the bridge call. Reject that case
+            // instead of leaving the web UI permanently busy.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak navigationController] in
+                guard let self,
+                      self.contactCall === call,
+                      let navigationController,
+                      navigationController.presentingViewController == nil ||
+                        navigationController.viewIfLoaded?.window == nil else {
+                    return
+                }
+                self.contactCall = nil
+                call.reject("Contacts could not be opened.", "CONTACT_PRESENTATION_FAILED")
+            }
         }
     }
 

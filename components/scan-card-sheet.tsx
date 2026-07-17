@@ -155,6 +155,10 @@ export function ScanCardSheet({
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [savedToPhone, setSavedToPhone] = useState(false)
+  const [isSavingToPhone, setIsSavingToPhone] = useState(false)
+  const [saveToPhoneError, setSaveToPhoneError] = useState<string | null>(null)
+  const [contactsPermissionBlocked, setContactsPermissionBlocked] =
+    useState(false)
   const [contextStatus, setContextStatus] = useState<ContextStatus>('idle')
   const [contextNotes, setContextNotes] = useState<ContextNote[]>([])
   const [cameraHelp, setCameraHelp] = useState<CameraPermissionHelp>(null)
@@ -172,6 +176,7 @@ export function ScanCardSheet({
   const cameraButtonRef = useRef<HTMLButtonElement>(null)
   const didAutoLaunchRef = useRef(false)
   const cameraLaunchRef = useRef(createCameraLaunchState())
+  const contactSaveInFlightRef = useRef(false)
   const scanAbortRef = useRef<AbortController | null>(null)
   const operationRef = useRef(0)
   const openRef = useRef(open)
@@ -200,6 +205,10 @@ export function ScanCardSheet({
     setNote('')
     setError(null)
     setSavedToPhone(false)
+    setIsSavingToPhone(false)
+    setSaveToPhoneError(null)
+    setContactsPermissionBlocked(false)
+    contactSaveInFlightRef.current = false
     setContextStatus('idle')
     setContextNotes([])
     setCameraHelp(null)
@@ -387,6 +396,11 @@ export function ScanCardSheet({
   const readCardImage = async (image: string, operation: number) => {
     if (!openRef.current || operationRef.current !== operation) return
     setError(null)
+    setSavedToPhone(false)
+    setIsSavingToPhone(false)
+    setSaveToPhoneError(null)
+    setContactsPermissionBlocked(false)
+    contactSaveInFlightRef.current = false
     setReviewSource('scan')
     setStage('reading')
     scanAbortRef.current?.abort()
@@ -545,6 +559,45 @@ export function ScanCardSheet({
   const handleOpenSettings = async () => {
     await tapFeedback()
     await openAppSettings()
+  }
+
+  const handleSaveToPhone = async () => {
+    if (
+      !card.name.trim() ||
+      savedToPhone ||
+      contactSaveInFlightRef.current
+    ) {
+      return
+    }
+
+    contactSaveInFlightRef.current = true
+    setIsSavingToPhone(true)
+    setSaveToPhoneError(null)
+    setContactsPermissionBlocked(false)
+    try {
+      const saved = await saveContactToPhone({
+        n: card.name,
+        t: card.title || undefined,
+        co: card.company || undefined,
+        p: card.phone || undefined,
+        e: card.email || undefined,
+      })
+      if (!openRef.current) return
+      setSavedToPhone(saved)
+    } catch (err) {
+      if (!openRef.current) return
+      const permissionBlocked = isNativePermissionDeniedError(err)
+      setContactsPermissionBlocked(permissionBlocked)
+      setSaveToPhoneError(
+        permissionBlocked
+          ? 'Contacts access is off. Enable it in Settings, then try again.'
+          : 'Could not open Contacts. Please try again.',
+      )
+      console.error('[v0] Save to Contacts failed:', err)
+    } finally {
+      contactSaveInFlightRef.current = false
+      if (openRef.current) setIsSavingToPhone(false)
+    }
   }
 
   const handleManualEntry = async () => {
@@ -950,27 +1003,43 @@ export function ScanCardSheet({
 
                     <button
                       type="button"
-                      onClick={async () => {
-                        if (!card.name.trim()) return
-                        try {
-                          const saved = await saveContactToPhone({
-                            n: card.name,
-                            t: card.title || undefined,
-                            co: card.company || undefined,
-                            p: card.phone || undefined,
-                            e: card.email || undefined,
-                          })
-                          setSavedToPhone(saved)
-                        } catch (err) {
-                          console.error('[v0] Save to Contacts failed:', err)
-                        }
-                      }}
-                      disabled={!card.name.trim()}
+                      onClick={handleSaveToPhone}
+                      disabled={
+                        !card.name.trim() || isSavingToPhone || savedToPhone
+                      }
+                      aria-busy={isSavingToPhone}
                       className="pressable mt-3 flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--ink-secondary)] disabled:opacity-40"
                     >
-                      <Smartphone className="size-3.5" />
-                      {savedToPhone ? 'Opened Contacts' : 'Save to phone'}
+                      {isSavingToPhone ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : savedToPhone ? (
+                        <CheckCircle2 className="size-3.5" />
+                      ) : (
+                        <Smartphone className="size-3.5" />
+                      )}
+                      {isSavingToPhone
+                        ? 'Opening Contacts…'
+                        : savedToPhone
+                          ? 'Saved to Contacts'
+                          : 'Save to phone'}
                     </button>
+                    {saveToPhoneError && (
+                      <div
+                        role="status"
+                        className="mt-1.5 flex flex-wrap items-center gap-x-2 text-left text-[12px] leading-relaxed text-[var(--status-overdue)]"
+                      >
+                        <span>{saveToPhoneError}</span>
+                        {contactsPermissionBlocked && (
+                          <button
+                            type="button"
+                            onClick={handleOpenSettings}
+                            className="pressable min-h-8 font-semibold underline underline-offset-2"
+                          >
+                            Open Settings
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </section>
                 </>
               )}

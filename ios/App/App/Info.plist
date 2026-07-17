@@ -29,7 +29,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>FollowApp uses the camera only when you choose to scan a QR code or business card.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>FollowApp opens the contact editor only when you choose to save a person to Contacts.</string>
+	<string>FollowApp uses Contacts only when you choose to review and save a person to your phone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FollowApp lets you choose a business card photo when you prefer not to take a new one.</string>
 	<key>UILaunchStoryboardName</key>
