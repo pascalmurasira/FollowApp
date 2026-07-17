@@ -305,8 +305,7 @@ export function ScanCardSheet({
       return
     }
     didAutoLaunchRef.current = true
-    const frame = window.requestAnimationFrame(() => cameraButtonRef.current?.click())
-    return () => window.cancelAnimationFrame(frame)
+    cameraButtonRef.current?.click()
   }, [autoLaunchCamera, open, portalRoot])
 
   if (!open || !portalRoot) return null
@@ -449,8 +448,9 @@ export function ScanCardSheet({
     }
 
     setIsOpeningCamera(true)
-    void tapFeedback()
     try {
+      // Camera presentation owns the hot path. Avoid a competing haptics bridge
+      // call here; the physical camera transition is already clear feedback.
       const image = await captureImageDataUrl()
       if (!openRef.current || operationRef.current !== operation) return
       if (!image) {
@@ -460,7 +460,8 @@ export function ScanCardSheet({
       // before any upload work so users never remain stuck on “Opening camera”.
       setStage('reading')
       console.info('[followapp:scan]', {
-        event: 'camera_capture_returned',
+        // Includes framing/shutter time; native logs cover controller launch.
+        event: 'camera_capture_round_trip',
         elapsedMs: Math.round(performance.now() - startedAt),
       })
       await readCardImage(image, operation)
