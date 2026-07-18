@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import {
-  isNativeCameraAdapterUnavailableError,
-  isNativeMethodUnavailableError,
-} from '../lib/native-bridge.ts'
+import { isNativeMethodUnavailableError } from '../lib/native-bridge.ts'
 
 test('older or absent native contact methods are eligible for fallback', () => {
   assert.equal(
@@ -48,68 +46,25 @@ test('cancellation and real contact errors do not look like a missing bridge', (
   )
 })
 
-test('camera fallback is limited to an unavailable adapter', () => {
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'CAMERA_ADAPTER_UNAVAILABLE',
-      message: 'FollowAppNative camera adapter is unavailable.',
-    }),
-    true,
+test('business-card capture uses one maintained native camera lifecycle', () => {
+  const nativeSource = readFileSync(
+    new URL('../lib/native.ts', import.meta.url),
+    'utf8',
   )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'UNIMPLEMENTED',
-      message: 'FollowAppNative camera method is not implemented',
-    }),
-    true,
+  const scanSheetSource = readFileSync(
+    new URL('../components/scan-card-sheet.tsx', import.meta.url),
+    'utf8',
   )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'CAMERA_BUSY',
-      message: 'Camera is already open.',
-    }),
-    false,
+  const followAppNativeSource = readFileSync(
+    new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),
+    'utf8',
   )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'CAMERA_HARDWARE_UNAVAILABLE',
-      message: 'Camera is unavailable on this device.',
-    }),
-    false,
-  )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'CAMERA_PRESENTATION_FAILED',
-      message: 'Camera could not be opened.',
-    }),
-    false,
-  )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'UNAVAILABLE',
-      message: 'Camera could not be opened.',
-    }),
-    false,
-  )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'UNAVAILABLE',
-      message: 'FollowAppNative plugin is unavailable.',
-    }),
-    true,
-  )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'USER_CANCELLED',
-      message: 'User cancelled camera.',
-    }),
-    false,
-  )
-  assert.equal(
-    isNativeCameraAdapterUnavailableError({
-      code: 'PERMISSION_DENIED',
-      message: 'Camera permission denied.',
-    }),
-    false,
+
+  assert.match(nativeSource, /Camera\.takePhoto\(/)
+  assert.doesNotMatch(nativeSource, /\.takeBusinessCardPhoto\(/)
+  assert.doesNotMatch(scanSheetSource, /prepareBusinessCardCamera/)
+  assert.doesNotMatch(
+    followAppNativeSource,
+    /takeBusinessCardPhoto|prepareBusinessCardCamera/,
   )
 })

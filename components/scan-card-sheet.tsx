@@ -36,7 +36,6 @@ import {
   isNativePermissionDeniedError,
   isNativeUserCancelError,
   openAppSettings,
-  prepareBusinessCardCamera,
   tapFeedback,
 } from '@/lib/native'
 import { NativeContactSaveButton } from '@/components/native-contact-save-button'
@@ -246,14 +245,6 @@ export function ScanCardSheet({
 
   useEffect(() => {
     setPortalRoot(document.body)
-  }, [])
-
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return
-    // Returning users have already granted camera access. Prepare the inert
-    // native picker while they read the dashboard so their scan tap can
-    // present it immediately; this never requests permission or opens UI.
-    void prepareBusinessCardCamera()
   }, [])
 
   useEffect(() => {
