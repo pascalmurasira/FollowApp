@@ -4,6 +4,10 @@ import Contacts
 import ContactsUI
 import UserNotifications
 import Vision
+import VisionKit
+import AVFoundation
+import ActivityKit
+import LockedCameraCapture
 
 enum FollowAppReminderNotification {
     static let identifierPrefix = "followapp-follow-up-"
@@ -49,7 +53,7 @@ enum FollowAppReminderNotification {
 }
 
 @objc(FollowAppNativePlugin)
-public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewControllerDelegate {
+public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
     public let identifier = "FollowAppNativePlugin"
     public let jsName = "FollowAppNative"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -61,7 +65,19 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
         CAPPluginMethod(name: "cancelFollowUpReminder", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelAllFollowUpReminders", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "consumeFollowUpReminderTap", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "recognizeBusinessCard", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "recognizeBusinessCard", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "nativeScannerAvailability", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "scanBusinessCard", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "consumeLockedCameraCapture", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "consumeSystemEntryPoint", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "beginQRPresentation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "endQRPresentation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "presentExchangeDock", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "dismissExchangeDock", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "liveActivityStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startEventLiveActivity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateEventLiveActivity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "endEventLiveActivity", returnType: CAPPluginReturnPromise)
     ]
 
     private var contactCall: CAPPluginCall?
@@ -69,6 +85,9 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     private let reminderGenerationLock = NSLock()
     private var reminderGeneration: UInt64 = 0
     private var reminderIdentifierGenerations: [String: UInt64] = [:]
+    private var businessCardScanner: AnyObject?
+    private var qrPresentationManager: QRPresentationManager?
+    private weak var exchangeDockController: UIViewController?
 
     override public func load() {
         NotificationCenter.default.addObserver(
@@ -77,10 +96,34 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
             name: FollowAppReminderNotification.tappedEvent,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSystemEntryPoint(notification:)),
+            name: FollowAppSystemEntryPointStore.openedNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleApplicationDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleApplicationWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+        DispatchQueue.main.async { [weak self] in
+            self?.qrPresentationManager = QRPresentationManager()
+        }
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        DispatchQueue.main.async { [qrPresentationManager] in
+            qrPresentationManager?.endAll()
+        }
     }
 
     @objc private func handleFollowUpReminderTap(notification: Notification) {
@@ -92,6 +135,28 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
             data: ["contactId": contactId],
             retainUntilConsumed: true
         )
+    }
+
+    @objc private func handleSystemEntryPoint(notification: Notification) {
+        guard let route = notification.userInfo?["route"] as? String else { return }
+        let url = notification.userInfo?["url"] as? String ?? "followapp://\(route)"
+        notifyListeners(
+            "systemEntryPointOpened",
+            data: ["route": route, "url": url],
+            retainUntilConsumed: true
+        )
+    }
+
+    @objc private func handleApplicationDidEnterBackground() {
+        DispatchQueue.main.async { [weak self] in
+            self?.qrPresentationManager?.applicationDidEnterBackground()
+        }
+    }
+
+    @objc private func handleApplicationWillEnterForeground() {
+        DispatchQueue.main.async { [weak self] in
+            self?.qrPresentationManager?.applicationWillEnterForeground()
+        }
     }
 
     @objc func openSettings(_ call: CAPPluginCall) {
@@ -110,6 +175,104 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
                 }
             }
         }
+    }
+
+    @objc func consumeSystemEntryPoint(_ call: CAPPluginCall) {
+        if let entryPoint = FollowAppSystemEntryPointStore.consume() {
+            call.resolve([
+                "route": entryPoint.rawValue,
+                "url": entryPoint.url.absoluteString,
+            ])
+        } else {
+            call.resolve([:])
+        }
+    }
+
+    @objc func beginQRPresentation(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if self.qrPresentationManager == nil {
+                self.qrPresentationManager = QRPresentationManager()
+            }
+            let presentationId = self.qrPresentationId(from: call)
+            self.qrPresentationManager?.begin(presentationId: presentationId)
+            call.resolve([
+                "active": self.qrPresentationManager?.isRequested == true,
+                "presentationId": presentationId
+            ])
+        }
+    }
+
+    @objc func endQRPresentation(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let presentationId = self.qrPresentationId(from: call)
+            self.qrPresentationManager?.end(presentationId: presentationId)
+            call.resolve([
+                "active": self.qrPresentationManager?.isRequested == true,
+                "presentationId": presentationId
+            ])
+        }
+    }
+
+    private func qrPresentationId(from call: CAPPluginCall) -> String {
+        guard let rawValue = call.getString("presentationId")?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            // Maintains compatibility with web bundles installed before
+            // presentation generations were added.
+            return "legacy"
+        }
+        return String(rawValue.prefix(160))
+    }
+
+    @objc func presentExchangeDock(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard self.exchangeDockController == nil else {
+                call.reject("The exchange dock is already open.", "EXCHANGE_DOCK_BUSY")
+                return
+            }
+            guard let root = self.bridge?.viewController,
+                  let presenter = self.topViewController(from: root),
+                  presenter.viewIfLoaded?.window != nil else {
+                call.reject("The exchange dock could not be opened.", "EXCHANGE_DOCK_UNAVAILABLE")
+                return
+            }
+
+            let controller = NativeExchangeDockFactory.make { [weak self] action in
+                guard let self else { return }
+                self.notifyListeners(
+                    "exchangeDockAction",
+                    data: [
+                        "action": action.rawValue,
+                        "url": "followapp://\(action.rawValue)",
+                    ]
+                )
+                self.exchangeDockController?.dismiss(animated: true)
+                self.exchangeDockController = nil
+            }
+            controller.presentationController?.delegate = self
+            self.exchangeDockController = controller
+            presenter.present(controller, animated: true) {
+                call.resolve(["presented": true])
+            }
+        }
+    }
+
+    @objc func dismissExchangeDock(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let controller = self.exchangeDockController else {
+                call.resolve(["dismissed": false])
+                return
+            }
+            controller.dismiss(animated: true) {
+                self.exchangeDockController = nil
+                call.resolve(["dismissed": true])
+            }
+        }
+    }
+
+    public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        guard presentationController.presentedViewController === exchangeDockController else { return }
+        exchangeDockController = nil
     }
 
     @objc func notificationStatus(_ call: CAPPluginCall) {
@@ -329,6 +492,128 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
         return components
     }
 
+    @objc func nativeScannerAvailability(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let permission: String
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized:
+                permission = "granted"
+            case .denied, .restricted:
+                permission = "denied"
+            case .notDetermined:
+                permission = "prompt"
+            @unknown default:
+                permission = "unsupported"
+            }
+
+            if #available(iOS 16.0, *) {
+                call.resolve([
+                    "supported": DataScannerViewController.isSupported,
+                    "available": BusinessCardScannerCoordinator.isSupported,
+                    "permission": permission,
+                ])
+            } else {
+                call.resolve([
+                    "supported": false,
+                    "available": false,
+                    "permission": permission,
+                ])
+            }
+        }
+    }
+
+    @objc func scanBusinessCard(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard self.businessCardScanner == nil else {
+                call.reject("The live card scanner is already open.", "SCANNER_BUSY")
+                return
+            }
+
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized:
+                self.presentBusinessCardScanner(call)
+            case .notDetermined:
+                AVCaptureDevice.requestAccess(for: .video) { granted in
+                    DispatchQueue.main.async {
+                        if granted {
+                            self.presentBusinessCardScanner(call)
+                        } else {
+                            call.resolve([
+                                "available": false,
+                                "reason": "permission-denied",
+                            ])
+                        }
+                    }
+                }
+            case .denied, .restricted:
+                call.resolve([
+                    "available": false,
+                    "reason": "permission-denied",
+                ])
+            @unknown default:
+                call.resolve([
+                    "available": false,
+                    "reason": "unsupported",
+                ])
+            }
+        }
+    }
+
+    @available(iOS 16.0, *)
+    private func makeBusinessCardScanner(
+        presenter: UIViewController,
+        call: CAPPluginCall
+    ) -> BusinessCardScannerCoordinator? {
+        BusinessCardScannerCoordinator(presenter: presenter) { [weak self] result in
+            self?.businessCardScanner = nil
+            guard let result else {
+                call.resolve(["available": true, "cancelled": true])
+                return
+            }
+            switch result {
+            case .success(let scan):
+                call.resolve([
+                    "available": true,
+                    "cancelled": false,
+                    "lines": scan.lines,
+                    "text": scan.lines.joined(separator: "\n"),
+                    "qrPayloads": scan.qrPayloads,
+                    "elapsedMilliseconds": scan.elapsedMilliseconds,
+                ])
+            case .failure(let error):
+                call.reject(
+                    error.localizedDescription,
+                    "LIVE_SCANNER_FAILED",
+                    error
+                )
+            }
+        }
+    }
+
+    private func presentBusinessCardScanner(_ call: CAPPluginCall) {
+        guard #available(iOS 16.0, *) else {
+            call.resolve(["available": false, "reason": "unsupported"])
+            return
+        }
+        guard BusinessCardScannerCoordinator.isSupported else {
+            call.resolve(["available": false, "reason": "unavailable"])
+            return
+        }
+        guard let root = bridge?.viewController,
+              let presenter = topViewController(from: root),
+              presenter.viewIfLoaded?.window != nil,
+              !presenter.isBeingDismissed else {
+            call.reject("The live card scanner could not be opened.", "SCANNER_UNAVAILABLE")
+            return
+        }
+        guard let scanner = makeBusinessCardScanner(presenter: presenter, call: call) else {
+            call.resolve(["available": false, "reason": "unavailable"])
+            return
+        }
+        businessCardScanner = scanner
+        scanner.present()
+    }
+
     /// Local, on-device preliminary OCR. Cloud parsing can enrich these lines
     /// later, but the user sees useful card text without a network round trip.
     @objc func recognizeBusinessCard(_ call: CAPPluginCall) {
@@ -378,6 +663,209 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
                 call.reject("Business-card text recognition failed.", "OCR_FAILED", error)
             }
         }
+    }
+
+    @objc func consumeLockedCameraCapture(_ call: CAPPluginCall) {
+        guard #available(iOS 18.0, *) else {
+            call.resolve(["available": false])
+            return
+        }
+
+        Task {
+            let manager = LockedCameraCaptureManager.shared
+            var capture: (session: URL, file: URL)?
+
+            // Session content can arrive just after the containing app opens.
+            // Poll briefly so the web layer does not need its own race-prone
+            // retry loop.
+            for _ in 0..<20 {
+                capture = self.latestLockedCameraCapture(
+                    in: manager.sessionContentURLs
+                )
+                if capture != nil { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+
+            guard let capture else {
+                call.resolve(["available": true])
+                return
+            }
+
+            do {
+                let source = try Data(contentsOf: capture.file, options: [.mappedIfSafe])
+                guard source.count <= 30_000_000,
+                      let image = UIImage(data: source),
+                      let jpeg = image.jpegData(compressionQuality: 0.84) else {
+                    call.reject("The Lock Screen capture could not be decoded.", "LOCKED_CAPTURE_INVALID")
+                    return
+                }
+                let dataURL = "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
+                try? await manager.invalidateSessionContent(at: capture.session)
+                call.resolve([
+                    "available": true,
+                    "image": dataURL,
+                    "source": "locked-camera",
+                ])
+            } catch {
+                call.reject(
+                    "The Lock Screen capture could not be read.",
+                    "LOCKED_CAPTURE_READ_FAILED",
+                    error
+                )
+            }
+        }
+    }
+
+    private func latestLockedCameraCapture(
+        in sessionURLs: [URL]
+    ) -> (session: URL, file: URL)? {
+        let allowedExtensions = Set(["jpg", "jpeg", "png", "heic", "heif"])
+        var candidates: [(session: URL, file: URL, date: Date)] = []
+
+        for sessionURL in sessionURLs {
+            guard let enumerator = FileManager.default.enumerator(
+                at: sessionURL,
+                includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for case let fileURL as URL in enumerator {
+                guard allowedExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
+                let values = try? fileURL.resourceValues(
+                    forKeys: [.contentModificationDateKey, .isRegularFileKey]
+                )
+                guard values?.isRegularFile == true else { continue }
+                candidates.append((
+                    session: sessionURL,
+                    file: fileURL,
+                    date: values?.contentModificationDate ?? .distantPast
+                ))
+            }
+        }
+
+        return candidates.max(by: { $0.date < $1.date }).map {
+            (session: $0.session, file: $0.file)
+        }
+    }
+
+    @objc func liveActivityStatus(_ call: CAPPluginCall) {
+        guard #available(iOS 16.2, *) else {
+            call.resolve(["supported": false, "enabled": false, "activities": []])
+            return
+        }
+        let activities = Activity<FollowAppEventAttributes>.activities.map { activity in
+            [
+                "id": activity.id,
+                "eventId": activity.attributes.eventID,
+                "eventName": activity.attributes.eventName,
+            ]
+        }
+        call.resolve([
+            "supported": true,
+            "enabled": ActivityAuthorizationInfo().areActivitiesEnabled,
+            "activities": activities,
+        ])
+    }
+
+    @objc func startEventLiveActivity(_ call: CAPPluginCall) {
+        guard #available(iOS 16.2, *) else {
+            call.resolve(["started": false, "reason": "unsupported"])
+            return
+        }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            call.resolve(["started": false, "reason": "disabled"])
+            return
+        }
+        guard let eventID = bounded(call.getString("eventId"), max: 160),
+              let eventName = bounded(call.getString("eventName"), max: 120) else {
+            call.reject("An event id and name are required.", "INVALID_EVENT_ACTIVITY")
+            return
+        }
+        let state = FollowAppEventAttributes.ContentState(
+            capturedCount: boundedCount(call.getInt("captured")),
+            promiseCount: boundedCount(call.getInt("promises"))
+        )
+
+        Task {
+            for activity in Activity<FollowAppEventAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+            do {
+                let activity = try Activity.request(
+                    attributes: FollowAppEventAttributes(
+                        eventID: eventID,
+                        eventName: eventName
+                    ),
+                    content: ActivityContent(state: state, staleDate: nil),
+                    pushType: nil
+                )
+                call.resolve(["started": true, "id": activity.id])
+            } catch {
+                call.reject(
+                    "The conference Live Activity could not be started.",
+                    "LIVE_ACTIVITY_START_FAILED",
+                    error
+                )
+            }
+        }
+    }
+
+    @objc func updateEventLiveActivity(_ call: CAPPluginCall) {
+        guard #available(iOS 16.2, *) else {
+            call.resolve(["updated": false, "reason": "unsupported"])
+            return
+        }
+        let requestedEventID = bounded(call.getString("eventId"), max: 160)
+        let state = FollowAppEventAttributes.ContentState(
+            capturedCount: boundedCount(call.getInt("captured")),
+            promiseCount: boundedCount(call.getInt("promises"))
+        )
+        let activity = Activity<FollowAppEventAttributes>.activities.first { item in
+            requestedEventID == nil || item.attributes.eventID == requestedEventID
+        }
+        guard let activity else {
+            call.resolve(["updated": false, "reason": "not-found"])
+            return
+        }
+
+        Task {
+            await activity.update(ActivityContent(state: state, staleDate: nil))
+            call.resolve(["updated": true, "id": activity.id])
+        }
+    }
+
+    @objc func endEventLiveActivity(_ call: CAPPluginCall) {
+        guard #available(iOS 16.2, *) else {
+            call.resolve(["ended": 0])
+            return
+        }
+        let requestedEventID = bounded(call.getString("eventId"), max: 160)
+        let matches = Activity<FollowAppEventAttributes>.activities.filter { item in
+            requestedEventID == nil || item.attributes.eventID == requestedEventID
+        }
+        let finalState = FollowAppEventAttributes.ContentState(
+            capturedCount: boundedCount(call.getInt("captured")),
+            promiseCount: boundedCount(call.getInt("promises"))
+        )
+
+        Task {
+            for activity in matches {
+                await activity.end(
+                    ActivityContent(state: finalState, staleDate: nil),
+                    dismissalPolicy: .default
+                )
+            }
+            call.resolve(["ended": matches.count])
+        }
+    }
+
+    private func bounded(_ value: String?, max: Int) -> String? {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalized.isEmpty else { return nil }
+        return String(normalized.prefix(max))
+    }
+
+    private func boundedCount(_ value: Int?) -> Int {
+        Swift.max(0, Swift.min(value ?? 0, 10_000))
     }
 
     @objc func saveContact(_ call: CAPPluginCall) {

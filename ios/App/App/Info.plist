@@ -18,6 +18,19 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.pascalmurasira.followapp.system-entry</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>followapp</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
@@ -32,6 +45,8 @@
 	<string>FollowApp uses Contacts only when you choose to review and save a person to your phone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FollowApp lets you choose a business card photo when you prefer not to take a new one.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

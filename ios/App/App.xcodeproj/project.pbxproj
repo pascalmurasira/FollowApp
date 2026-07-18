@@ -18,7 +18,64 @@
 		5B88E7A12C40000100F0A001 /* FollowAppNativePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B88E7A02C40000100F0A001 /* FollowAppNativePlugin.swift */; };
 		5B88E7A32C40000100F0A001 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B88E7A22C40000100F0A001 /* MainViewController.swift */; };
 		6B932A4A2C39600100F0A001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6B932A492C39600100F0A001 /* PrivacyInfo.xcprivacy */; };
+		AA0000022C41000100F0A001 /* BusinessCardScannerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000012C41000100F0A001 /* BusinessCardScannerCoordinator.swift */; };
+		AA0000042C41000100F0A001 /* FollowAppActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000032C41000100F0A001 /* FollowAppActivityAttributes.swift */; };
+		AA0000052C41000100F0A001 /* FollowAppActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000032C41000100F0A001 /* FollowAppActivityAttributes.swift */; };
+		AA0000072C41000100F0A001 /* FollowAppCameraCaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000062C41000100F0A001 /* FollowAppCameraCaptureIntent.swift */; };
+		AA0000082C41000100F0A001 /* FollowAppCameraCaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000062C41000100F0A001 /* FollowAppCameraCaptureIntent.swift */; };
+		AA0000092C41000100F0A001 /* FollowAppCameraCaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000062C41000100F0A001 /* FollowAppCameraCaptureIntent.swift */; };
+		AA00000B2C41000100F0A001 /* FollowAppSystemIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000A2C41000100F0A001 /* FollowAppSystemIntents.swift */; };
+		AA00000D2C41000100F0A001 /* NativeExchangeDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000C2C41000100F0A001 /* NativeExchangeDock.swift */; };
+		AA00000F2C41000100F0A001 /* QRPresentationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000E2C41000100F0A001 /* QRPresentationManager.swift */; };
+		AA0000122C41000100F0A001 /* FollowAppWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000112C41000100F0A001 /* FollowAppWidgets.swift */; };
+		AA0000222C41000100F0A001 /* FollowAppCaptureExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000212C41000100F0A001 /* FollowAppCaptureExtension.swift */; };
+		AA0000242C41000100F0A001 /* FollowAppCaptureViewfinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000232C41000100F0A001 /* FollowAppCaptureViewfinder.swift */; };
+		AA0000302C41000100F0A001 /* FollowAppWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = AA0000142C41000100F0A001 /* FollowAppWidgets.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AA0000312C41000100F0A001 /* FollowAppCaptureExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000262C41000100F0A001 /* FollowAppCaptureExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AA0000392C41000100F0A001 /* FollowApp.icon in Resources */ = {isa = PBXBuildFile; fileRef = AA0000382C41000100F0A001 /* FollowApp.icon */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AA0000342C41000100F0A001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000152C41000100F0A001;
+			remoteInfo = FollowAppWidgets;
+		};
+		AA0000362C41000100F0A001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000272C41000100F0A001;
+			remoteInfo = FollowAppCaptureExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AA0000322C41000100F0A001 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AA0000302C41000100F0A001 /* FollowAppWidgets.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000372C41000100F0A001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Extensions;
+			dstSubfolderSpec = 1;
+			files = (
+				AA0000312C41000100F0A001 /* FollowAppCaptureExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -35,6 +92,20 @@
 		5B88E7A42C40000100F0A001 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		6B932A492C39600100F0A001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		AA0000012C41000100F0A001 /* BusinessCardScannerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusinessCardScannerCoordinator.swift; sourceTree = "<group>"; };
+		AA0000032C41000100F0A001 /* FollowAppActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowAppActivityAttributes.swift; sourceTree = "<group>"; };
+		AA0000062C41000100F0A001 /* FollowAppCameraCaptureIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowAppCameraCaptureIntent.swift; sourceTree = "<group>"; };
+		AA00000A2C41000100F0A001 /* FollowAppSystemIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowAppSystemIntents.swift; sourceTree = "<group>"; };
+		AA00000C2C41000100F0A001 /* NativeExchangeDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeExchangeDock.swift; sourceTree = "<group>"; };
+		AA00000E2C41000100F0A001 /* QRPresentationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRPresentationManager.swift; sourceTree = "<group>"; };
+		AA0000112C41000100F0A001 /* FollowAppWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowAppWidgets.swift; sourceTree = "<group>"; };
+		AA0000132C41000100F0A001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000142C41000100F0A001 /* FollowAppWidgets.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = FollowAppWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000212C41000100F0A001 /* FollowAppCaptureExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowAppCaptureExtension.swift; sourceTree = "<group>"; };
+		AA0000232C41000100F0A001 /* FollowAppCaptureViewfinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowAppCaptureViewfinder.swift; sourceTree = "<group>"; };
+		AA0000252C41000100F0A001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000262C41000100F0A001 /* FollowAppCaptureExtension.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = FollowAppCaptureExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000382C41000100F0A001 /* FollowApp.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIconLayers/FollowApp.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -43,6 +114,20 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+			);
+			 runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000172C41000100F0A001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000292C41000100F0A001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -54,6 +139,8 @@
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
+				AA0000102C41000100F0A001 /* FollowAppWidgets */,
+				AA0000202C41000100F0A001 /* FollowAppCaptureExtension */,
 				504EC3051FED79650016851F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -62,6 +149,8 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				AA0000142C41000100F0A001 /* FollowAppWidgets.appex */,
+				AA0000262C41000100F0A001 /* FollowAppCaptureExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,9 +162,16 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				5B88E7A22C40000100F0A001 /* MainViewController.swift */,
 				5B88E7A02C40000100F0A001 /* FollowAppNativePlugin.swift */,
+				AA0000012C41000100F0A001 /* BusinessCardScannerCoordinator.swift */,
+				AA0000032C41000100F0A001 /* FollowAppActivityAttributes.swift */,
+				AA0000062C41000100F0A001 /* FollowAppCameraCaptureIntent.swift */,
+				AA00000A2C41000100F0A001 /* FollowAppSystemIntents.swift */,
+				AA00000C2C41000100F0A001 /* NativeExchangeDock.swift */,
+				AA00000E2C41000100F0A001 /* QRPresentationManager.swift */,
 				5B88E7A42C40000100F0A001 /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
-				504EC30E1FED79650016851F /* Assets.xcassets */,
+					504EC30E1FED79650016851F /* Assets.xcassets */,
+					AA0000382C41000100F0A001 /* FollowApp.icon */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
 				6B932A492C39600100F0A001 /* PrivacyInfo.xcprivacy */,
@@ -83,6 +179,25 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		AA0000102C41000100F0A001 /* FollowAppWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000112C41000100F0A001 /* FollowAppWidgets.swift */,
+				AA0000132C41000100F0A001 /* Info.plist */,
+			);
+			path = FollowAppWidgets;
+			sourceTree = "<group>";
+		};
+		AA0000202C41000100F0A001 /* FollowAppCaptureExtension */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000212C41000100F0A001 /* FollowAppCaptureExtension.swift */,
+				AA0000232C41000100F0A001 /* FollowAppCaptureViewfinder.swift */,
+				AA0000252C41000100F0A001 /* Info.plist */,
+			);
+			path = FollowAppCaptureExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -95,10 +210,14 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				AA0000322C41000100F0A001 /* Embed App Extensions */,
+				AA0000372C41000100F0A001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AA0000332C41000100F0A001 /* PBXTargetDependency */,
+				AA0000352C41000100F0A001 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -107,6 +226,44 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AA0000152C41000100F0A001 /* FollowAppWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00001B2C41000100F0A001 /* Build configuration list for PBXNativeTarget "FollowAppWidgets" */;
+			buildPhases = (
+				AA0000162C41000100F0A001 /* Sources */,
+				AA0000172C41000100F0A001 /* Frameworks */,
+				AA0000182C41000100F0A001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FollowAppWidgets;
+			packageProductDependencies = (
+			);
+			productName = FollowAppWidgets;
+			productReference = AA0000142C41000100F0A001 /* FollowAppWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		AA0000272C41000100F0A001 /* FollowAppCaptureExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00002D2C41000100F0A001 /* Build configuration list for PBXNativeTarget "FollowAppCaptureExtension" */;
+			buildPhases = (
+				AA0000282C41000100F0A001 /* Sources */,
+				AA0000292C41000100F0A001 /* Frameworks */,
+				AA00002A2C41000100F0A001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FollowAppCaptureExtension;
+			packageProductDependencies = (
+			);
+			productName = FollowAppCaptureExtension;
+			productReference = AA0000262C41000100F0A001 /* FollowAppCaptureExtension.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -127,6 +284,14 @@
 							};
 						};
 					};
+					AA0000152C41000100F0A001 = {
+						CreatedOnToolsVersion = 26.3;
+						ProvisioningStyle = Automatic;
+					};
+					AA0000272C41000100F0A001 = {
+						CreatedOnToolsVersion = 26.3;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */;
@@ -146,6 +311,8 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				AA0000152C41000100F0A001 /* FollowAppWidgets */,
+				AA0000272C41000100F0A001 /* FollowAppCaptureExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -161,7 +328,22 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				6B932A4A2C39600100F0A001 /* PrivacyInfo.xcprivacy in Resources */,
-				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+					2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+					AA0000392C41000100F0A001 /* FollowApp.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000182C41000100F0A001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA00002A2C41000100F0A001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -175,10 +357,49 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				5B88E7A32C40000100F0A001 /* MainViewController.swift in Sources */,
 				5B88E7A12C40000100F0A001 /* FollowAppNativePlugin.swift in Sources */,
+				AA0000022C41000100F0A001 /* BusinessCardScannerCoordinator.swift in Sources */,
+				AA0000042C41000100F0A001 /* FollowAppActivityAttributes.swift in Sources */,
+				AA0000072C41000100F0A001 /* FollowAppCameraCaptureIntent.swift in Sources */,
+				AA00000B2C41000100F0A001 /* FollowAppSystemIntents.swift in Sources */,
+				AA00000D2C41000100F0A001 /* NativeExchangeDock.swift in Sources */,
+				AA00000F2C41000100F0A001 /* QRPresentationManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000162C41000100F0A001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000122C41000100F0A001 /* FollowAppWidgets.swift in Sources */,
+				AA0000052C41000100F0A001 /* FollowAppActivityAttributes.swift in Sources */,
+				AA0000082C41000100F0A001 /* FollowAppCameraCaptureIntent.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000282C41000100F0A001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000222C41000100F0A001 /* FollowAppCaptureExtension.swift in Sources */,
+				AA0000242C41000100F0A001 /* FollowAppCaptureViewfinder.swift in Sources */,
+				AA0000092C41000100F0A001 /* FollowAppCameraCaptureIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA0000332C41000100F0A001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA0000152C41000100F0A001 /* FollowAppWidgets */;
+			targetProxy = AA0000342C41000100F0A001 /* PBXContainerItemProxy */;
+		};
+		AA0000352C41000100F0A001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA0000272C41000100F0A001 /* FollowAppCaptureExtension */;
+			targetProxy = AA0000362C41000100F0A001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -313,11 +534,11 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = FollowApp;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202607180724;
+				CURRENT_PROJECT_VERSION = 202607180911;
 				DEVELOPMENT_TEAM = ZF489NYM57;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -338,11 +559,11 @@
 		504EC3181FED79650016851F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = FollowApp;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202607180724;
+				CURRENT_PROJECT_VERSION = 202607180911;
 				DEVELOPMENT_TEAM = ZF489NYM57;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -355,6 +576,112 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "FollowApp App Store";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		AA0000192C41000100F0A001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 202607180911;
+				DEVELOPMENT_TEAM = ZF489NYM57;
+				INFOPLIST_FILE = FollowAppWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pascalmurasira.followapp.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AA00001A2C41000100F0A001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 202607180911;
+				DEVELOPMENT_TEAM = ZF489NYM57;
+				INFOPLIST_FILE = FollowAppWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pascalmurasira.followapp.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		AA00002B2C41000100F0A001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 202607180911;
+				DEVELOPMENT_TEAM = ZF489NYM57;
+				ENABLE_APP_SANDBOX = YES;
+				INFOPLIST_FILE = FollowAppCaptureExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pascalmurasira.followapp.capture;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AA00002C2C41000100F0A001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 202607180911;
+				DEVELOPMENT_TEAM = ZF489NYM57;
+				ENABLE_APP_SANDBOX = YES;
+				INFOPLIST_FILE = FollowAppCaptureExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pascalmurasira.followapp.capture;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -377,6 +704,24 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00001B2C41000100F0A001 /* Build configuration list for PBXNativeTarget "FollowAppWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000192C41000100F0A001 /* Debug */,
+				AA00001A2C41000100F0A001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00002D2C41000100F0A001 /* Build configuration list for PBXNativeTarget "FollowAppCaptureExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00002B2C41000100F0A001 /* Debug */,
+				AA00002C2C41000100F0A001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

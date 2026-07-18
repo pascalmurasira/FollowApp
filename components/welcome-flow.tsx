@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowRight,
   Camera,
@@ -17,6 +17,7 @@ import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { MyCardSheet } from '@/components/my-card-sheet'
 import { activationAfterOwnCard } from '@/lib/onboarding'
 import type { ConferenceSession } from '@/lib/encounters'
+import type { SystemEntryAction } from '@/lib/system-entry'
 
 export interface WelcomeResult {
   selectedContactIds: string[]
@@ -32,6 +33,11 @@ interface WelcomeFlowProps {
   onScanContact: (input: NewContactInput) => Contact
   conferenceSession: ConferenceSession | null
   onStartConference: () => ConferenceSession
+  systemEntryAction?: SystemEntryAction | null
+  onSystemEntryHandled?: () => void
+  initialScanImageDataUrl?: string | null
+  onInitialScanImageConsumed?: () => void
+  systemScanPreparing?: boolean
 }
 
 /**
@@ -45,8 +51,14 @@ export function WelcomeFlow({
   onScanContact,
   conferenceSession,
   onStartConference,
+  systemEntryAction = null,
+  onSystemEntryHandled,
+  initialScanImageDataUrl = null,
+  onInitialScanImageConsumed,
+  systemScanPreparing = false,
 }: WelcomeFlowProps) {
   const [scanOpen, setScanOpen] = useState(false)
+  const [scanRevision, setScanRevision] = useState(0)
   const [cardOpen, setCardOpen] = useState(false)
   const [cardReady, setCardReady] = useState(false)
   const [capturedContactId, setCapturedContactId] = useState<string | null>(null)
@@ -55,6 +67,33 @@ export function WelcomeFlow({
     () => contacts.find((contact) => DEMO_CONTACT_IDS.has(contact.id)),
     [contacts],
   )
+
+  // A Control Center control, Action Button, Live Activity, or locked-camera
+  // capture can be the user's very first interaction. Route it straight to its
+  // value surface; onboarding must never become a detour in front of the scan.
+  useEffect(() => {
+    if (!systemEntryAction) return
+    if (systemEntryAction === 'show-my-qr') {
+      setScanOpen(false)
+      setCardOpen(true)
+    } else {
+      setCardOpen(false)
+      setScanRevision((revision) => revision + 1)
+      if (
+        systemEntryAction === 'open-event' &&
+        conferenceSession?.active !== true
+      ) {
+        onStartConference()
+      }
+      setScanOpen(true)
+    }
+    onSystemEntryHandled?.()
+  }, [
+    conferenceSession?.active,
+    onStartConference,
+    onSystemEntryHandled,
+    systemEntryAction,
+  ])
 
   const completeWithContact = (
     contactId: string,
@@ -196,8 +235,11 @@ export function WelcomeFlow({
       </main>
 
       <ScanCardSheet
+        key={`welcome-scan-${scanRevision}`}
         open={scanOpen}
-        autoLaunchCamera
+        autoLaunchCamera={!systemScanPreparing}
+        initialImageDataUrl={initialScanImageDataUrl}
+        onInitialImageConsumed={onInitialScanImageConsumed}
         variant="onboarding"
         onClose={handleScanClose}
         onAdd={handleScanAdd}

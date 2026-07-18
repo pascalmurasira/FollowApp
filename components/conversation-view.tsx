@@ -10,6 +10,10 @@ import {
   MessageCircle,
   Copy,
   Plus,
+  CheckCircle2,
+  ChevronDown,
+  History,
+  Lightbulb,
 } from 'lucide-react'
 import type { Contact, EnrichmentHook } from '@/lib/types'
 import type { ContactUpdateInput } from '@/lib/contacts-store'
@@ -38,6 +42,10 @@ import {
   nextFollowUpForContact,
 } from '@/lib/contact-dates'
 import { trackProductEvent } from '@/lib/product-analytics'
+import {
+  encounterWhyNow,
+  latestEncounter,
+} from '@/lib/encounters'
 
 export function ConversationView({
   contact,
@@ -96,11 +104,14 @@ export function ConversationView({
   })
 
   const [draft, setDraft] = useState(initialDraft ?? '')
+  const [showAlternatives, setShowAlternatives] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [showDestinationEditor, setShowDestinationEditor] = useState(false)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const scrollRef = useRef<HTMLDivElement>(null)
-  const draftRef = useRef<HTMLInputElement>(null)
+  const draftRef = useRef<HTMLTextAreaElement>(null)
   const handledClearRevision = useRef(clearDraftRevision)
+  const didSeedSuggestionRef = useRef(Boolean(initialDraft?.trim()))
 
   useEffect(() => {
     if (!initialDraft?.trim()) return
@@ -116,11 +127,11 @@ export function ConversationView({
   }, [clearDraftRevision])
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: 'smooth',
-    })
-  }, [contact.messages.length])
+    const suggestion = suggestions[0]?.text.trim()
+    if (!suggestion || didSeedSuggestionRef.current) return
+    didSeedSuggestionRef.current = true
+    setDraft((current) => current.trim() || suggestion)
+  }, [suggestions])
 
   const openComposer = (text: string) => {
     if (!text.trim() || !canSend) return
@@ -151,6 +162,15 @@ export function ConversationView({
     })
     window.requestAnimationFrame(() => draftRef.current?.focus())
   }
+
+  const encounter = latestEncounter(contact)
+  const whyNow =
+    encounterWhyNow(contact) ??
+    (encounter?.nextStep?.status === 'open'
+      ? `You left ${encounter.event?.name ?? 'your meeting'} planning to ${encounter.nextStep.label.toLowerCase()}.`
+      : encounter?.memorySeed
+        ? `You remembered: ${encounter.memorySeed}`
+        : contact.context || `Keep your connection with ${firstName} warm.`)
 
   return (
     <div className="relative z-[1] mx-auto flex h-[100dvh] w-full max-w-3xl flex-col lg:h-[calc(100dvh-3rem)] lg:border-x lg:border-white/30">
@@ -210,62 +230,72 @@ export function ConversationView({
         <InAppChat otherUserId={match.otherUserId} otherName={match.otherName} />
       ) : (
         <>
-      <div
-        ref={scrollRef}
-        className="flex-1 space-y-2 overflow-y-auto overscroll-y-contain px-3 py-4"
-      >
-        <div className="mx-auto my-2 w-fit rounded-full border border-[var(--hairline)] bg-white/20 px-3 py-1 text-center text-[11px] text-[var(--ink-secondary)] backdrop-blur">
-          {canSend
-            ? `Sent from your own ${channelLabel(channel)} · replies arrive in ${channelLabel(channel)}, not here`
-            : 'Your draft is usable now — add a phone/email to send, or copy it anywhere'}
-        </div>
-
-        {contact.messages.map((message) => {
-          const mine = message.sender === 'me'
-          return (
-            <div
-              key={message.id}
-              className={cn('flex', mine ? 'justify-end' : 'justify-start')}
-            >
-              <div
-                className={cn(
-                  'relative max-w-[80%] px-3.5 py-2.5 text-[15px] leading-relaxed text-pretty shadow-sm',
-                  mine
-                    ? 'rounded-2xl rounded-br-sm bg-[var(--action-bg)] text-[var(--action-fg)]'
-                    : 'glass-card rounded-2xl rounded-bl-sm text-[var(--ink-body)]',
-                )}
-              >
-                {message.text}
-                <span
-                  className={cn(
-                    'mt-0.5 block text-right text-[10px] tnum',
-                    mine
-                      ? 'text-bubble-out-foreground/55'
-                      : 'text-muted-foreground/70',
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto overscroll-y-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4 sm:px-6"
+          >
+            <div className="mx-auto max-w-xl space-y-4">
+              <section className="rounded-[1.75rem] bg-card p-5 shadow-sm ring-1 ring-black/[0.04]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink-strong)]">
+                    <Sparkles className="size-4 text-[var(--status-due-soon)]" />
+                    Why now?
+                  </span>
+                  {encounter?.event && (
+                    <span className="max-w-[50%] truncate rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-[var(--ink-secondary)]">
+                      {encounter.event.name}
+                    </span>
                   )}
-                >
-                  {message.sentAt
-                    ? clockTimeAt(message.sentAt)
-                    : clockTime(message.minutesAgo)}
-                </span>
-              </div>
-            </div>
-          )
-        })}
+                </div>
+                <p className="mt-3 font-heading text-[20px] font-semibold leading-snug tracking-[-0.025em] text-[var(--ink-strong)] text-pretty">
+                  {whyNow}
+                </p>
 
-      </div>
+                {(encounter?.memorySeed || encounter?.nextStep) && (
+                  <div className="mt-4 space-y-2 border-t border-border/70 pt-4">
+                    {encounter.memorySeed && (
+                      <div className="flex items-start gap-2.5 text-[13px] leading-relaxed text-[var(--ink-body)]">
+                        <Lightbulb className="mt-0.5 size-4 shrink-0 text-[var(--status-due-soon)]" />
+                        <div>
+                          <span className="font-semibold">Remember</span>
+                          <span className="text-[var(--ink-secondary)]"> · {encounter.memorySeed}</span>
+                        </div>
+                      </div>
+                    )}
+                    {encounter.nextStep && (
+                      <div className="flex items-start gap-2.5 text-[13px] leading-relaxed text-[var(--ink-body)]">
+                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[var(--status-on-track)]" />
+                        <div>
+                          <span className="font-semibold">Promise</span>
+                          <span className="text-[var(--ink-secondary)]">
+                            {' · '}{encounter.nextStep.label}
+                            {encounter.nextStep.dueOn
+                              ? ` by ${formatFollowUpDate(encounter.nextStep.dueOn, {
+                                  weekday: 'short',
+                                })}`
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-      {match && linkStatus !== 'accepted' && (
-        <ChatLinkBanner
-          name={match.otherName}
-          status={linkStatus}
-          direction={match.link?.direction ?? null}
-          onRequest={requestChat}
-        />
-      )}
+                <div className="mt-4 flex items-center gap-2 border-t border-border/70 pt-4 text-[11px] font-medium text-[var(--ink-secondary)]">
+                  <span className="rounded-full bg-secondary px-2.5 py-1">Met</span>
+                  <span aria-hidden="true">→</span>
+                  <span className={encounter?.nextStep ? 'rounded-full bg-secondary px-2.5 py-1' : ''}>
+                    {encounter?.nextStep ? 'Promised' : 'Remembered'}
+                  </span>
+                  <span aria-hidden="true">→</span>
+                  <span className="rounded-full bg-[var(--action-bg)] px-2.5 py-1 text-[var(--action-fg)]">
+                    Reach out
+                  </span>
+                </div>
+              </section>
 
-      <div className="border-t border-[var(--hairline)] bg-white/20 backdrop-blur-xl">
-                {isColdOpen && (
+              {isColdOpen && (
+                <section className="overflow-hidden rounded-3xl bg-card shadow-sm ring-1 ring-black/[0.04]">
                   <EnrichmentBar
                     firstName={firstName}
                     status={enrichStatus}
@@ -274,114 +304,179 @@ export function ConversationView({
                     onRun={runEnrichment}
                     onToggle={toggleHook}
                   />
-                )}
+                </section>
+              )}
 
-              {/* AI suggestion bar — the "what to say" engine */}
-              <div className="px-4 pt-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
-                    <Sparkles className="size-3 text-[var(--ink-secondary)]" />
-                    Draft · matches your tone
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (canSend) openComposer(draft)
+                  else void copyDraft(draft)
+                }}
+                className="rounded-[1.75rem] bg-card p-4 shadow-sm ring-1 ring-black/[0.04]"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--ink-strong)]">
+                      <Sparkles className="size-4" />
+                      Recommended follow-up
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-[var(--ink-secondary)]">
+                      Built from what you remember · always editable
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={refresh}
                     disabled={loading}
-                    aria-label="Get new suggestions"
-                    className="pressable -my-2 flex min-h-11 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-[var(--ink-secondary)] disabled:opacity-50"
+                    aria-label="Get a new recommendation"
+                    className="pressable flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-[var(--ink-secondary)] disabled:opacity-50"
                   >
                     <RotateCw className={cn('size-3.5', loading && 'animate-spin')} />
-                    New ideas
+                    Rewrite
                   </button>
                 </div>
 
-                <div className="-mx-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {loading && suggestions.length === 0 ? (
-                    <>
-                      {[0, 1, 2].map((i) => (
-                        <div
-                          key={i}
-                          className="h-[72px] w-[82%] shrink-0 snap-start animate-pulse rounded-xl border border-[var(--hairline)] bg-white/20"
-                        />
-                      ))}
-                    </>
-                  ) : (
-                    suggestions.map((suggestion, i) => (
-                      <button
-                        key={`${suggestion.text}-${i}`}
-                        type="button"
-                        onClick={() => handleSuggestion(suggestion.text)}
-                        aria-label={`Use draft: ${suggestion.text}`}
-                        className="glass-card pressable flex h-[72px] w-[82%] shrink-0 snap-start flex-col justify-center rounded-xl px-4 py-2 text-left"
-                      >
-                        <span className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
-                          {`${suggestion.tone} · tap to edit`}
-                        </span>
-                        <span className="line-clamp-2 text-sm leading-snug text-[var(--ink-body)]">
-                          {suggestion.text}
-                        </span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (canSend) openComposer(draft)
-                else void copyDraft(draft)
-              }}
-              className="flex items-center gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2"
-            >
-              <input
-                ref={draftRef}
-                value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value)
-                  setCopyStatus('idle')
-                }}
-                placeholder={canSend ? 'Or write your own…' : 'Edit or paste your draft…'}
-                aria-label="Message"
-                className="glass-card h-11 flex-1 rounded-full px-4 text-base text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-tertiary)] focus-visible:border-[var(--action-bg)]"
-              />
-              <button
-                type="submit"
-                disabled={!draft.trim()}
-                aria-label={
-                  canSend ? sendActionLabel(channel) : 'Copy draft'
-                }
-                className={cn(
-                  'pressable flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-semibold disabled:opacity-40',
-                  canSend && isWhatsApp
-                    ? 'bg-whatsapp text-whatsapp-foreground'
-                    : 'bg-primary text-primary-foreground',
-                )}
-              >
-                {canSend ? (
-                  <>
-                    <ChannelIcon channel={channel} className="size-4" />
-                    <span>{sendActionLabel(channel)}</span>
-                  </>
-                ) : copyStatus === 'copied' ? (
-                  <><Check className="size-4" /><span>Copied</span></>
+                {loading && !draft ? (
+                  <div className="mt-3 h-28 animate-pulse rounded-2xl bg-secondary" />
                 ) : (
-                  <><Copy className="size-4" /><span>Copy</span></>
+                  <textarea
+                    ref={draftRef}
+                    value={draft}
+                    onChange={(event) => {
+                      didSeedSuggestionRef.current = true
+                      setDraft(event.target.value)
+                      setCopyStatus('idle')
+                    }}
+                    rows={4}
+                    placeholder="Write a short, human follow-up…"
+                    aria-label="Recommended follow-up draft"
+                    className="mt-3 w-full resize-none rounded-2xl border border-border bg-secondary/45 px-3.5 py-3 text-[15px] leading-relaxed text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-tertiary)] focus-visible:border-[var(--action-bg)]"
+                  />
                 )}
-              </button>
-            </form>
-            {!canSend && copyStatus !== 'idle' && (
-              <p
-                role="status"
-                aria-live="polite"
-                className="px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-center text-[12px] text-[var(--ink-secondary)]"
-              >
-                {copyStatus === 'copied'
-                  ? 'Draft copied — paste it wherever you reach out.'
-                  : 'Clipboard was unavailable. The draft is still selected above for manual copying.'}
-              </p>
-            )}
-      </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="min-w-0 text-[11px] leading-relaxed text-[var(--ink-secondary)]">
+                    {canSend
+                      ? `Opens your ${channelLabel(channel)}. Replies stay there.`
+                      : 'Copy this anywhere, or add a phone/email above.'}
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={!draft.trim()}
+                    aria-label={canSend ? sendActionLabel(channel) : 'Copy draft'}
+                    className={cn(
+                      'pressable flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-full px-4 text-[12px] font-semibold disabled:opacity-40',
+                      canSend && isWhatsApp
+                        ? 'bg-whatsapp text-whatsapp-foreground'
+                        : 'bg-primary text-primary-foreground',
+                    )}
+                  >
+                    {canSend ? (
+                      <>
+                        <ChannelIcon channel={channel} className="size-4" />
+                        <span>{sendActionLabel(channel)}</span>
+                      </>
+                    ) : copyStatus === 'copied' ? (
+                      <><Check className="size-4" /><span>Copied</span></>
+                    ) : (
+                      <><Copy className="size-4" /><span>Copy</span></>
+                    )}
+                  </button>
+                </div>
+                {!canSend && copyStatus !== 'idle' && (
+                  <p role="status" aria-live="polite" className="mt-2 text-[11px] text-[var(--ink-secondary)]">
+                    {copyStatus === 'copied'
+                      ? 'Copied — paste it wherever you reach out.'
+                      : 'Clipboard unavailable. The draft remains selected for manual copying.'}
+                  </p>
+                )}
+              </form>
+
+              {suggestions.length > 1 && (
+                <section className="overflow-hidden rounded-3xl bg-card shadow-sm ring-1 ring-black/[0.04]">
+                  <button
+                    type="button"
+                    onClick={() => setShowAlternatives((value) => !value)}
+                    aria-expanded={showAlternatives}
+                    className="pressable flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left text-[13px] font-semibold text-[var(--ink-strong)]"
+                  >
+                    More ideas
+                    <ChevronDown className={cn('size-4 transition-transform', showAlternatives && 'rotate-180')} />
+                  </button>
+                  {showAlternatives && (
+                    <div className="space-y-2 border-t border-border/70 p-3">
+                      {suggestions.slice(1).map((suggestion, index) => (
+                        <button
+                          key={`${suggestion.text}-${index}`}
+                          type="button"
+                          onClick={() => handleSuggestion(suggestion.text)}
+                          className="pressable w-full rounded-2xl bg-secondary/55 px-3.5 py-3 text-left"
+                        >
+                          <span className="text-[11px] font-semibold text-[var(--ink-tertiary)]">
+                            {suggestion.tone}
+                          </span>
+                          <span className="mt-1 block text-sm leading-relaxed text-[var(--ink-body)]">
+                            {suggestion.text}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {match && linkStatus !== 'accepted' && (
+                <ChatLinkBanner
+                  name={match.otherName}
+                  status={linkStatus}
+                  direction={match.link?.direction ?? null}
+                  onRequest={requestChat}
+                />
+              )}
+
+              {contact.messages.length > 0 && (
+                <section className="overflow-hidden rounded-3xl bg-card shadow-sm ring-1 ring-black/[0.04]">
+                  <button
+                    type="button"
+                    onClick={() => setShowHistory((value) => !value)}
+                    aria-expanded={showHistory}
+                    className="pressable flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left"
+                  >
+                    <span className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink-strong)]">
+                      <History className="size-4" />
+                      Relationship history · {contact.messages.length}
+                    </span>
+                    <ChevronDown className={cn('size-4 transition-transform', showHistory && 'rotate-180')} />
+                  </button>
+                  {showHistory && (
+                    <div className="space-y-2 border-t border-border/70 bg-secondary/25 p-3">
+                      {contact.messages.map((message) => {
+                        const mine = message.sender === 'me'
+                        return (
+                          <div key={message.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                            <div
+                              className={cn(
+                                'max-w-[86%] rounded-2xl px-3.5 py-2.5 text-[14px] leading-relaxed shadow-sm',
+                                mine
+                                  ? 'rounded-br-sm bg-[var(--action-bg)] text-[var(--action-fg)]'
+                                  : 'rounded-bl-sm bg-card text-[var(--ink-body)]',
+                              )}
+                            >
+                              {message.text}
+                              <span className={cn('mt-0.5 block text-right text-[10px]', mine ? 'text-white/55' : 'text-[var(--ink-tertiary)]')}>
+                                {message.sentAt ? clockTimeAt(message.sentAt) : clockTime(message.minutesAgo)}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>

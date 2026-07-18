@@ -17,9 +17,10 @@ platform :ios do
       xcargs: '-allowProvisioningUpdates',
       export_xcargs: '-allowProvisioningUpdates',
       export_options: {
-        provisioningProfiles: {
-          'com.pascalmurasira.followapp' => 'FollowApp App Store'
-        }
+        signingStyle: 'automatic',
+        manageAppVersionAndBuildNumber: false,
+        stripSwiftSymbols: true,
+        uploadSymbols: true
       },
       output_directory: '../build',
       output_name: 'FollowApp.ipa'

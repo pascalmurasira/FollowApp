@@ -7,11 +7,13 @@ import {
   conferencePriorityScore,
   createConferenceSession,
   createEncounterCapture,
+  eventActionStack,
   findStrongContactMatch,
   hasActionableCommitment,
   isFollowUpSuppressed,
   isFollowUpDeferred,
   isPendingEncounterOnly,
+  peopleGroupsByLatestEvent,
   reviewEncounter,
   updateEncounterEventDetails,
 } from '../lib/encounters.ts'
@@ -211,6 +213,74 @@ test('event captures stay pending until reviewed and no-follow-up dismisses a pr
   assert.equal(dismissed.disposition, 'none')
   assert.equal(dismissed.nextStep?.status, 'dismissed')
   assert.equal(dismissed.reviewedAt, '2026-07-18T17:00:00.000Z')
+})
+
+test('event action stack gives every person one promise-first bucket', () => {
+  const promise = makeContact('promise', {
+    encounters: [
+      makeEncounter({
+        nextStep: {
+          kind: 'send-deck',
+          label: 'Send the deck',
+          owner: 'me',
+          dueOn: '2026-07-19',
+          status: 'open',
+          createdAt: '2026-07-18T09:00:00.000Z',
+        },
+        disposition: 'important',
+      }),
+    ],
+  })
+  const warm = makeContact('warm', {
+    encounters: [makeEncounter({ memorySeed: 'Asked about the Kigali launch.' })],
+  })
+  const later = makeContact('later', {
+    encounters: [makeEncounter({ disposition: 'later' })],
+  })
+  const pending = makeContact('pending', {
+    encounters: [makeEncounter({ reviewState: 'pending', reviewedAt: undefined })],
+  })
+  const otherEvent = makeContact('other-event', {
+    encounters: [makeEncounter({ event: EVENT_B })],
+  })
+
+  const stack = eventActionStack(
+    [later, otherEvent, warm, pending, promise],
+    EVENT_A.id,
+  )
+
+  assert.deepEqual(stack.promises.map((contact) => contact.id), ['promise'])
+  assert.deepEqual(stack.warmFollowUps.map((contact) => contact.id), ['warm'])
+  assert.deepEqual(
+    stack.savedForLater.map((contact) => contact.id),
+    ['later', 'pending'],
+  )
+})
+
+test('people groups use the latest event while preserving ungrouped people', () => {
+  const crossEvent = makeContact('cross-event', {
+    name: 'Ada Lovelace',
+    encounters: [
+      makeEncounter(),
+      makeEncounter({
+        event: EVENT_B,
+        capturedAt: '2026-08-04T15:30:00.000Z',
+      }),
+    ],
+  })
+  const firstEvent = makeContact('first-event', {
+    name: 'Grace Hopper',
+    encounters: [makeEncounter()],
+  })
+  const ungrouped = makeContact('ungrouped', { name: 'Lin Chen' })
+
+  const groups = peopleGroupsByLatestEvent([ungrouped, firstEvent, crossEvent])
+
+  assert.deepEqual(groups.events.map((group) => group.id), [EVENT_B.id, EVENT_A.id])
+  assert.deepEqual(groups.events[0]?.contacts.map((contact) => contact.id), [
+    'cross-event',
+  ])
+  assert.deepEqual(groups.other.map((contact) => contact.id), ['ungrouped'])
 })
 
 test('due commitments outrank future promises and cadence-only contacts', () => {

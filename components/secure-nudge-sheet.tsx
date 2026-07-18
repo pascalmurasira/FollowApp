@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, ShieldCheck, MailCheck } from 'lucide-react'
 import { signIn } from '@/lib/auth-client'
 import { accountSyncCallbackURL } from '@/lib/account-sync-flow'
 import { trackProductEvent } from '@/lib/product-analytics'
 import { getDeviceId } from '@/lib/device-id'
 import { isShareableProfile, loadLocalProfile } from '@/lib/profile'
+import { useModalFocus } from '@/hooks/use-modal-focus'
 
 /**
  * The "Secure your Nudge" magic-link sheet. Collects an email, sends a sign-in
@@ -27,6 +29,7 @@ export function SecureNudgeSheet({
     'idle',
   )
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const { portalRoot, dialogRef, modalRootRef } = useModalFocus(open, onClose)
 
   useEffect(() => {
     if (open) {
@@ -43,7 +46,7 @@ export function SecureNudgeSheet({
     }
   }, [initialEmail, open])
 
-  if (!open) return null
+  if (!open || !portalRoot) return null
 
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
 
@@ -73,20 +76,34 @@ export function SecureNudgeSheet({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+  return createPortal(
+    <div
+      ref={modalRootRef}
+      className="fixed inset-0 z-50 flex items-end justify-center"
+    >
       <button
         type="button"
-        aria-label="Close"
+        aria-hidden="true"
+        tabIndex={-1}
         onClick={onClose}
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
-      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl">
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="secure-nudge-sheet-title"
+        tabIndex={-1}
+        className="relative flex w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-background shadow-xl outline-none"
+      >
         <header className="flex items-center justify-between px-5 py-4">
           <span className="flex items-center gap-2">
             <ShieldCheck className="size-5 text-primary" />
-            <h2 className="font-serif text-xl font-medium tracking-tight">
+            <h2
+              id="secure-nudge-sheet-title"
+              className="font-serif text-xl font-medium tracking-tight"
+            >
               Back up &amp; sync
             </h2>
           </span>
@@ -151,7 +168,7 @@ export function SecureNudgeSheet({
               </label>
 
               {status === 'error' && (
-                <p className="text-sm text-destructive">
+                <p role="alert" className="text-sm text-destructive">
                   {errorMessage}
                 </p>
               )}
@@ -176,7 +193,8 @@ export function SecureNudgeSheet({
             </>
           )}
         </div>
-      </div>
-    </div>
+      </section>
+    </div>,
+    portalRoot,
   )
 }

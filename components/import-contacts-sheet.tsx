@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Upload, ClipboardList, FileText, Check } from 'lucide-react'
 import {
   importedContactIdentityKey,
@@ -12,6 +13,7 @@ import {
 import type { Tier } from '@/lib/types'
 import { savedCountFromImportError } from '@/lib/contact-import-utils'
 import { cn } from '@/lib/utils'
+import { useModalFocus } from '@/hooks/use-modal-focus'
 
 const SOURCE_LABEL: Record<ImportSource, string> = {
   linkedin: 'LinkedIn export',
@@ -57,8 +59,9 @@ export function ImportContactsSheet({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const { portalRoot, dialogRef, modalRootRef } = useModalFocus(open, onClose)
 
-  if (!open) return null
+  if (!open || !portalRoot) return null
 
   const reset = () => {
     setMode(defaultMode())
@@ -177,19 +180,33 @@ export function ImportContactsSheet({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+  return createPortal(
+    <div
+      ref={modalRootRef}
+      className="fixed inset-0 z-50 flex items-end justify-center"
+    >
       <button
         type="button"
-        aria-label="Close"
+        aria-hidden="true"
+        tabIndex={-1}
         onClick={close}
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
-      <div className="app-field relative flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-contacts-sheet-title"
+        tabIndex={-1}
+        className="app-field relative flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl outline-none"
+      >
         <span className="field-grain" aria-hidden />
         <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
-          <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
+          <h2
+            id="import-contacts-sheet-title"
+            className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
+          >
             {parsed ? 'Review import' : 'Import contacts'}
           </h2>
           <button
@@ -276,7 +293,7 @@ export function ImportContactsSheet({
               )}
 
               {error && (
-                <p className="mt-3 rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+                <p role="alert" className="mt-3 rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
                   {error}
                 </p>
               )}
@@ -393,8 +410,9 @@ export function ImportContactsSheet({
             </button>
           </footer>
         )}
-      </div>
-    </div>
+      </section>
+    </div>,
+    portalRoot,
   )
 }
 

@@ -6,7 +6,6 @@ import {
   X,
   Camera,
   Loader2,
-  UserPlus,
   Smartphone,
   AlertCircle,
   RotateCcw,
@@ -36,10 +35,11 @@ import {
   isNativePermissionDeniedError,
   isNativeUserCancelError,
   openAppSettings,
+  scanBusinessCardNatively,
   tapFeedback,
 } from '@/lib/native'
 import { NativeContactSaveButton } from '@/components/native-contact-save-button'
-import { todayDateInputValue } from '@/lib/contact-dates'
+import { todayDateInputValue, toDateInputValue } from '@/lib/contact-dates'
 import { isDeliverableEmail } from '@/lib/contact-validation'
 import {
   beginCameraLaunch,
@@ -59,6 +59,7 @@ import {
 } from '@/lib/camera-launch'
 import { trackProductEvent } from '@/lib/product-analytics'
 import {
+  parseNativeBusinessCardScan,
   parseBusinessCardLines,
   preliminaryBusinessCardFieldCount,
   recognizeNativeBusinessCard,
@@ -70,6 +71,7 @@ import {
   type ConferenceSession,
 } from '@/lib/encounters'
 import { ENCOUNTER_LIMITS } from '@/lib/persistence-limits'
+import { runViewTransition } from '@/lib/view-transition'
 
 interface ScannedCard {
   name: string
@@ -171,6 +173,13 @@ function looksLikePhone(value: string): boolean {
   return digits.length >= 8
 }
 
+function dueDateFromToday(days: number): string {
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  date.setDate(date.getDate() + days)
+  return toDateInputValue(date)
+}
+
 export function ScanCardSheet({
   open,
   onClose,
@@ -180,6 +189,8 @@ export function ScanCardSheet({
   onShowCard,
   onFinishCapture,
   autoLaunchCamera = false,
+  initialImageDataUrl = null,
+  onInitialImageConsumed,
   variant = 'standard',
   conferenceSession = null,
   stayAfterSave = false,
@@ -192,6 +203,8 @@ export function ScanCardSheet({
   onShowCard?: () => void
   onFinishCapture?: (contactId: string) => void
   autoLaunchCamera?: boolean
+  initialImageDataUrl?: string | null
+  onInitialImageConsumed?: () => void
   variant?: 'standard' | 'onboarding'
   conferenceSession?: ConferenceSession | null
   stayAfterSave?: boolean
@@ -225,6 +238,7 @@ export function ScanCardSheet({
   const photoFileRef = useRef<HTMLInputElement>(null)
   const cameraButtonRef = useRef<HTMLButtonElement>(null)
   const didAutoLaunchRef = useRef(false)
+  const consumedInitialImageRef = useRef<string | null>(null)
   const cameraLaunchRef = useRef(createCameraLaunchState())
   const originalScanRef = useRef<ScannedCard | null>(null)
   const editedScanFieldsRef = useRef(new Set<keyof ScannedCard>())
@@ -240,6 +254,7 @@ export function ScanCardSheet({
       operationRef.current += 1
       cancelCameraLaunch(cameraLaunchRef.current)
       setIsOpeningCamera(false)
+      consumedInitialImageRef.current = null
     }
   }, [open])
 
@@ -403,19 +418,33 @@ export function ScanCardSheet({
       didAutoLaunchRef.current = false
       return
     }
+    const hasUnconsumedInitialImage = Boolean(
+      initialImageDataUrl &&
+        consumedInitialImageRef.current !== initialImageDataUrl,
+    )
     if (
-      !autoLaunchCamera ||
+      (!autoLaunchCamera && !hasUnconsumedInitialImage) ||
       !portalRoot ||
-      didAutoLaunchRef.current ||
       !Capacitor.isNativePlatform()
     ) {
       return
     }
+    // A Lock Screen image can arrive after this sheet has already attempted a
+    // live scan. Let that new image override the one-shot gate, then retry as
+    // soon as any camera controller already in flight has finished.
+    if (isOpeningCamera) return
+    if (didAutoLaunchRef.current && !hasUnconsumedInitialImage) return
     const cameraButton = cameraButtonRef.current
     if (!cameraButton) return
     didAutoLaunchRef.current = true
     cameraButton.click()
-  }, [autoLaunchCamera, open, portalRoot])
+  }, [
+    autoLaunchCamera,
+    initialImageDataUrl,
+    isOpeningCamera,
+    open,
+    portalRoot,
+  ])
 
   if (!open || !portalRoot) return null
 
@@ -754,21 +783,136 @@ export function ScanCardSheet({
     setCameraHelp(null)
     setIsOpeningCamera(true)
     try {
-      // Camera presentation owns the hot path. Avoid a competing haptics bridge
-      // call here; the physical camera transition is already clear feedback.
+      const lockedCapture =
+        initialImageDataUrl &&
+        consumedInitialImageRef.current !== initialImageDataUrl
+          ? initialImageDataUrl
+          : null
+
+      if (lockedCapture) {
+        // The Lock Screen capture extension has already taken the photo. Mark
+        // it consumed before decoding so a parent rerender cannot replay it.
+        consumedInitialImageRef.current = lockedCapture
+        onInitialImageConsumed?.()
+        setStage('reading')
+        trackProductEvent('camera_visible', {
+          source: 'locked_camera_capture',
+          outcome: 'handoff',
+        })
+        await readCardImage(
+          await normalizeDataUrl(lockedCapture),
+          operation,
+          'native_camera',
+        )
+        return
+      }
+
+      // VisionKit keeps recognition entirely on-device and can return usable
+      // fields without taking, resizing, or uploading a photo. Unsupported
+      // devices and older app builds intentionally fall through to the proven
+      // Capacitor Camera implementation below.
+      trackProductEvent('camera_visible', {
+        source: 'native_live_scanner',
+        outcome: 'requested',
+      })
+      let nativeScan: Awaited<ReturnType<typeof scanBusinessCardNatively>>
+      try {
+        nativeScan = await scanBusinessCardNatively()
+      } catch (liveScannerError) {
+        // A transient VisionKit presentation failure must not take the camera
+        // away. Permission/cancellation are normally returned as structured
+        // outcomes; every other bridge failure degrades to the maintained
+        // Capacitor capture path.
+        console.warn(
+          '[v0] Native live scanner unavailable; using camera fallback:',
+          liveScannerError,
+        )
+        nativeScan = { available: false, reason: 'unavailable' }
+      }
+      if (!openRef.current || operationRef.current !== operation) return
+
+      if (nativeScan.cancelled) {
+        trackProductEvent('camera_permission_outcome', {
+          outcome: 'cancelled',
+        })
+        return
+      }
+
+      if (nativeScan.reason === 'permission-denied') {
+        trackProductEvent('camera_permission_outcome', {
+          outcome: 'denied',
+        })
+        setCameraHelp('blocked')
+        setStage('capture')
+        return
+      }
+
+      if (nativeScan.available) {
+        const scanned = parseNativeBusinessCardScan(
+          nativeScan.lines ?? [],
+          nativeScan.qrPayloads ?? [],
+        )
+        const fieldCount = preliminaryBusinessCardFieldCount(scanned)
+        trackProductEvent('ocr_preliminary', {
+          outcome: fieldCount > 0 ? 'live_scanner_success' : 'live_scanner_empty',
+          latency_ms:
+            nativeScan.elapsedMilliseconds ??
+            Math.round(performance.now() - startedAt),
+          filled_field_count: fieldCount,
+        })
+
+        if (fieldCount === 0) {
+          setError(
+            nativeScan.qrPayloads?.length
+              ? 'A QR code was detected, but it did not contain readable contact details. Try a photo or enter the essentials.'
+              : "Couldn't read enough from that card. Hold it flat and try again, choose a photo, or enter the essentials.",
+          )
+          setStage('capture')
+          return
+        }
+
+        originalScanRef.current = scanned
+        editedScanFieldsRef.current.clear()
+        setCard(scanned)
+        setReviewMeta({
+          // Live recognition is fast, not authoritative. Every populated value
+          // remains visibly reviewable before the contact can be saved.
+          needsReview: SCAN_REVIEW_FIELD_KEYS.filter((field) =>
+            scanned[field].trim(),
+          ),
+          imageQuality: 'usable',
+          qualityNote: '',
+        })
+        setReviewSource('scan')
+        setContextStatus('idle')
+        setContextNotes([])
+        setCloudScanPending(false)
+        setSavedToPhone(false)
+        setNote('')
+        setError(
+          scanned.name.trim() || scanned.company.trim()
+            ? null
+            : 'Add their name before saving. The other detected details are ready to review.',
+        )
+        setStage('review')
+        trackProductEvent('camera_permission_outcome', {
+          outcome: 'granted',
+        })
+        return
+      }
+
+      // Camera presentation owns the fallback hot path. Avoid a competing
+      // haptics bridge call; the physical camera transition is clear feedback.
       const capture = captureImageDataUrl()
-      // Capacitor does not expose a first-preview callback. The bridge handoff
-      // is the closest non-invasive signal and avoids another permission call
-      // on the latency-critical camera path.
       trackProductEvent('camera_visible', {
         source: 'native_camera',
         outcome: 'bridge_handoff',
+        live_scanner_reason: nativeScan.reason ?? 'unavailable',
       })
       const image = await capture
       if (!openRef.current || operationRef.current !== operation) return
-      if (!image) {
-        throw new Error('Camera returned no photo.')
-      }
+      if (!image) throw new Error('Camera returned no photo.')
+
       // Native adapters already return a bounded JPEG. Change the visible state
       // before any upload work so users never remain stuck on “Opening camera”.
       setStage('reading')
@@ -991,8 +1135,12 @@ export function ScanCardSheet({
       onOpenContact(contactId)
       return
     }
-    setAddedContactId(contactId)
-    setStage('added')
+    const showAddedState = () => {
+      setAddedContactId(contactId)
+      setStage('added')
+    }
+    if (conferenceMode) runViewTransition(showAddedState)
+    else showAddedState()
   }
 
   const finishAdded = () => {
@@ -1091,9 +1239,11 @@ export function ScanCardSheet({
               className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
             >
               {stage === 'review'
-                ? reviewSource === 'manual'
-                  ? 'Add contact details'
-                  : 'Check the essentials'
+                ? conferenceMode
+                  ? `Remember ${card.name.trim().split(' ')[0] || 'this meeting'}`
+                  : reviewSource === 'manual'
+                    ? 'Add contact details'
+                    : 'Check the essentials'
                 : stage === 'added'
                   ? conferenceMode
                     ? 'Person captured'
@@ -1106,9 +1256,11 @@ export function ScanCardSheet({
             </h2>
             {stage === 'review' && (
               <p className="mt-0.5 text-[12px] text-[var(--ink-secondary)]">
-                {reviewSource === 'manual'
-                  ? 'Enter what you know — you can fill in the rest later'
-                  : 'Correct anything uncertain. Everything else can wait.'}
+                {conferenceMode
+                  ? 'One human detail and any promise. Then capture the next person.'
+                  : reviewSource === 'manual'
+                    ? 'Enter what you know — you can fill in the rest later'
+                    : 'Correct anything uncertain. Everything else can wait.'}
               </p>
             )}
           </div>
@@ -1268,9 +1420,9 @@ export function ScanCardSheet({
           )}
 
           {stage === 'added' && (
-            <div className="flex flex-col items-center gap-4 py-14 text-center">
+            <div className="flex flex-col items-center gap-4 py-8 text-center">
               <div className="flex size-16 items-center justify-center rounded-2xl bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
-                <UserPlus className="size-7" />
+                <Check className="size-7" strokeWidth={2.5} />
               </div>
               <div>
                 <p className="text-lg font-semibold text-[var(--ink-strong)]">
@@ -1289,7 +1441,62 @@ export function ScanCardSheet({
                 </p>
               </div>
               {conferenceMode ? (
-                <div className="mt-2 grid w-full grid-cols-2 gap-2">
+                <div className="w-full">
+                  <div
+                    data-transition-element="captured-person"
+                    className="mb-4 rounded-3xl bg-card p-4 text-left shadow-sm ring-1 ring-black/[0.04]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--avatar-ghost-bg)] text-sm font-bold text-[var(--avatar-ghost-fg)]">
+                        {card.name
+                          .trim()
+                          .split(/\s+/)
+                          .slice(0, 2)
+                          .map((part) => part[0])
+                          .join('')
+                          .toUpperCase() || '?'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[16px] font-semibold text-[var(--ink-strong)]">
+                          {card.name}
+                        </p>
+                        <p className="truncate text-[13px] text-[var(--ink-secondary)]">
+                          {[card.title, card.company].filter(Boolean).join(' · ') ||
+                            `Met at ${conferenceSession?.name ?? 'this event'}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2 border-t border-border/70 pt-3 text-[13px]">
+                      {memorySeed.trim() && (
+                        <p className="flex items-start gap-2 text-[var(--ink-body)]">
+                          <Lightbulb className="mt-0.5 size-4 shrink-0 text-[var(--status-due-soon)]" />
+                          <span>{memorySeed.trim()}</span>
+                        </p>
+                      )}
+                      {nextStepKind && (
+                        <p className="flex items-start gap-2 font-medium text-[var(--ink-strong)]">
+                          <Check className="mt-0.5 size-4 shrink-0 text-[var(--status-on-track)]" />
+                          <span>
+                            {NEXT_STEP_OPTIONS.find(
+                              (option) => option.kind === nextStepKind,
+                            )?.label ?? 'Follow up'}
+                            {nextStepDueOn
+                              ? ` · ${new Intl.DateTimeFormat(undefined, {
+                                  month: 'short',
+                                  day: 'numeric',
+                                }).format(new Date(`${nextStepDueOn}T12:00:00`))}`
+                              : ''}
+                          </span>
+                        </p>
+                      )}
+                      {!memorySeed.trim() && !nextStepKind && (
+                        <p className="text-[var(--ink-secondary)]">
+                          Safely captured. Add a memory in the event review later.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid w-full grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={scanAnother}
@@ -1315,6 +1522,7 @@ export function ScanCardSheet({
                   >
                     Done for now
                   </button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -1379,20 +1587,21 @@ export function ScanCardSheet({
                 onUpdate={update}
                 manual={reviewSource === 'manual'}
                 needsReview={reviewMeta.needsReview}
+                transitionToCapturedPerson={conferenceMode}
               />
 
               {conferenceMode && (
-                <section className="glass-card rounded-3xl p-4">
+                <section className="rounded-3xl bg-card p-4 shadow-sm ring-1 ring-black/[0.04]">
                   <div className="flex items-start gap-3">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/30 text-[var(--ink-secondary)]">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--avatar-ghost-bg)] text-[var(--avatar-ghost-fg)]">
                       <Lightbulb className="size-5" />
                     </span>
                     <div>
                       <p className="text-[13px] font-semibold text-[var(--ink-strong)]">
-                        Give future-you one clue
+                        1. What will bring this person back?
                       </p>
                       <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--ink-secondary)]">
-                        Optional · one detail that will bring this meeting back.
+                        A topic, personal detail or the moment you connected.
                       </p>
                     </div>
                   </div>
@@ -1403,10 +1612,10 @@ export function ScanCardSheet({
                     maxLength={ENCOUNTER_LIMITS.memorySeed}
                     rows={2}
                     placeholder="Met after the food-tech panel; expanding into Rwanda."
-                    className="mt-3 w-full resize-none rounded-2xl border border-[var(--hairline)] bg-white/25 px-3 py-2.5 text-base leading-relaxed text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-tertiary)] focus-visible:border-[var(--action-bg)]"
+                    className="mt-3 w-full resize-none rounded-2xl border border-border bg-secondary/45 px-3 py-2.5 text-base leading-relaxed text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-tertiary)] focus-visible:border-[var(--action-bg)]"
                   />
-                  <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
-                    What did you agree?
+                  <p className="mt-4 text-[13px] font-semibold text-[var(--ink-strong)]">
+                    2. Did you promise anything?
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {NEXT_STEP_OPTIONS.map((option) => (
@@ -1431,10 +1640,32 @@ export function ScanCardSheet({
                     ))}
                   </div>
                   {nextStepKind && (
-                    <label className="mt-3 block">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-tertiary)]">
-                        When · optional
+                    <div className="mt-3">
+                      <span className="text-[12px] font-medium text-[var(--ink-secondary)]">
+                        When should this happen?
                       </span>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {[
+                          ['Today', dueDateFromToday(0)],
+                          ['Tomorrow', dueDateFromToday(1)],
+                          ['Next week', dueDateFromToday(7)],
+                        ].map(([label, value]) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => setNextStepDueOn(value)}
+                            aria-pressed={nextStepDueOn === value}
+                            className={cn(
+                              'pressable min-h-10 rounded-xl border px-1.5 text-[11px] font-semibold',
+                              nextStepDueOn === value
+                                ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)]'
+                                : 'border-border bg-secondary/50 text-[var(--ink-secondary)]',
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       <div className="relative mt-2">
                         <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
                         <input
@@ -1443,10 +1674,10 @@ export function ScanCardSheet({
                           onInput={(event) =>
                             setNextStepDueOn(event.currentTarget.value)
                           }
-                          className="h-11 w-full rounded-2xl border border-[var(--hairline)] bg-white/25 pl-10 pr-4 text-base text-[var(--ink-body)] outline-none"
+                          className="h-11 w-full rounded-2xl border border-border bg-secondary/45 pl-10 pr-4 text-base text-[var(--ink-body)] outline-none"
                         />
                       </div>
-                    </label>
+                    </div>
                   )}
                 </section>
               )}
@@ -1599,7 +1830,7 @@ export function ScanCardSheet({
           <footer className="relative z-[1] border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
             <p className="mb-2 text-center text-[12px] leading-relaxed text-[var(--ink-secondary)]">
               {conferenceMode
-                ? `Saves to ${conferenceSession?.name ?? 'this event'} without interrupting the conversation.`
+                ? `Saved to ${conferenceSession?.name ?? 'this event'}. You can change every detail later.`
                 : 'Saves to FollowApp and opens an editable first message.'}
             </p>
             <button
@@ -1608,7 +1839,7 @@ export function ScanCardSheet({
               disabled={!card.name.trim()}
               className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
             >
-              <span>{conferenceMode ? 'Save person' : 'Review message'}</span>
+              <span>{conferenceMode ? 'Save memory' : 'Review message'}</span>
               <ArrowRight className="size-4" />
             </button>
           </footer>
@@ -1692,14 +1923,21 @@ function ParsedSummary({
   onUpdate,
   manual,
   needsReview,
+  transitionToCapturedPerson,
 }: {
   card: ScannedCard
   onUpdate: (key: keyof ScannedCard, value: string) => void
   manual: boolean
   needsReview: readonly ScanCardField[]
+  transitionToCapturedPerson: boolean
 }) {
   return (
-    <section className="glass-hero overflow-hidden rounded-3xl px-4 py-0">
+    <section
+      data-transition-element={
+        transitionToCapturedPerson ? 'captured-person' : undefined
+      }
+      className="glass-hero overflow-hidden rounded-3xl px-4 py-0"
+    >
       <EditableSummaryRow
         label="Full name"
         value={card.name}

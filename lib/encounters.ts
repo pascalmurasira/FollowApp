@@ -363,6 +363,127 @@ export interface EncounterEventSummary {
   latestCaptureAt: string
 }
 
+export interface EventActionStack {
+  /** Explicit, still-open commitments made at this event. */
+  promises: Contact[]
+  /** Reviewed encounters that deserve a thoughtful follow-up without a promise. */
+  warmFollowUps: Contact[]
+  /** People safely captured but intentionally deferred or still missing a clue. */
+  savedForLater: Contact[]
+}
+
+/**
+ * Turn an event into a small, human action stack instead of a generic CRM list.
+ * Every person appears in exactly one bucket and explicit promises always win.
+ */
+export function eventActionStack(
+  contacts: Contact[],
+  eventId: string,
+): EventActionStack {
+  const promises: Array<{ contact: Contact; dueOn: string; capturedAt: string }> = []
+  const warmFollowUps: Array<{ contact: Contact; capturedAt: string }> = []
+  const savedForLater: Array<{ contact: Contact; capturedAt: string }> = []
+
+  for (const contact of contacts) {
+    const encounter = normalizeEncounters(contact.encounters).find(
+      (item) => item.event?.id === eventId,
+    )
+    if (!encounter) continue
+
+    if (
+      encounter.nextStep?.status === 'open' &&
+      encounter.disposition !== 'later' &&
+      encounter.disposition !== 'none'
+    ) {
+      promises.push({
+        contact,
+        dueOn: encounter.nextStep.dueOn ?? '9999-12-31',
+        capturedAt: encounter.capturedAt,
+      })
+    } else if (
+      encounter.reviewState === 'reviewed' &&
+      encounter.disposition !== 'later' &&
+      encounter.disposition !== 'none'
+    ) {
+      warmFollowUps.push({ contact, capturedAt: encounter.capturedAt })
+    } else {
+      savedForLater.push({ contact, capturedAt: encounter.capturedAt })
+    }
+  }
+
+  promises.sort(
+    (a, b) =>
+      a.dueOn.localeCompare(b.dueOn) ||
+      b.capturedAt.localeCompare(a.capturedAt),
+  )
+  warmFollowUps.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
+  savedForLater.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
+
+  return {
+    promises: promises.map((item) => item.contact),
+    warmFollowUps: warmFollowUps.map((item) => item.contact),
+    savedForLater: savedForLater.map((item) => item.contact),
+  }
+}
+
+export interface PeopleEventGroup {
+  id: string
+  name: string
+  date?: string
+  latestCaptureAt: string
+  contacts: Contact[]
+}
+
+/**
+ * Group each person under the event where they were most recently captured.
+ * Cross-event history stays on the contact; this is only a useful list view.
+ */
+export function peopleGroupsByLatestEvent(contacts: Contact[]): {
+  events: PeopleEventGroup[]
+  other: Contact[]
+} {
+  const events = new Map<string, PeopleEventGroup>()
+  const other: Contact[] = []
+
+  for (const contact of contacts) {
+    const encounter = latestEncounter(contact)
+    if (!encounter?.event) {
+      other.push(contact)
+      continue
+    }
+    const event = encounter.event
+    const group = events.get(event.id)
+    if (group) {
+      group.contacts.push(contact)
+      if (encounter.capturedAt > group.latestCaptureAt) {
+        group.latestCaptureAt = encounter.capturedAt
+        group.name = event.name
+        group.date = event.date
+      }
+    } else {
+      events.set(event.id, {
+        id: event.id,
+        name: event.name,
+        date: event.date,
+        latestCaptureAt: encounter.capturedAt,
+        contacts: [contact],
+      })
+    }
+  }
+
+  return {
+    events: [...events.values()]
+      .map((group) => ({
+        ...group,
+        contacts: [...group.contacts].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      }))
+      .sort((a, b) => b.latestCaptureAt.localeCompare(a.latestCaptureAt)),
+    other: [...other].sort((a, b) => a.name.localeCompare(b.name)),
+  }
+}
+
 export function eventGroupsFromContacts(
   contacts: Contact[],
 ): EncounterEventSummary[] {

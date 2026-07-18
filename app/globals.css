@@ -209,6 +209,10 @@
   --glass-blur: blur(26px) saturate(150%);
   --glass-blur-flat: blur(22px) saturate(140%);
   --hairline: oklch(0.3 0.03 252 / 0.08);
+  --content-surface: oklch(0.99 0.003 252 / 0.985);
+  --content-shadow:
+    0 18px 46px -32px oklch(0.22 0.04 255 / 0.35),
+    0 1px 0 oklch(1 0 0 / 0.9) inset;
 
   --action-bg: oklch(0.28 0.05 255);
   --action-fg: oklch(0.97 0.004 252);
@@ -261,6 +265,10 @@
     0 -1px 0 oklch(0 0 0 / 0.24) inset,
     0 -12px 28px oklch(0 0 0 / 0.16) inset;
   --hairline: oklch(1 0 0 / 0.08);
+  --content-surface: oklch(0.225 0.016 258 / 0.985);
+  --content-shadow:
+    0 22px 52px -32px oklch(0 0 0 / 0.75),
+    0 1px 0 oklch(1 0 0 / 0.1) inset;
   --action-bg: oklch(0.95 0.008 252);
   --action-fg: oklch(0.22 0.03 255);
   --action-shadow:
@@ -348,7 +356,10 @@
 .app-field {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
+  /* `hidden` creates a programmatically scrollable box, so focusing the fixed
+     tab bar can move the whole app underneath its sticky header. `clip` keeps
+     the decorative field contained without becoming a second scroll owner. */
+  overflow: clip;
   background: var(--field-bg);
   color: var(--ink-body);
   perspective: 1200px;
@@ -473,17 +484,37 @@
 
 .glass-hero {
   border-radius: var(--r-card-hero);
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  background: var(--content-surface);
+  box-shadow: var(--content-shadow);
 }
 
-.glass-card,
-.glass-button {
+.glass-card {
+  border-radius: var(--r-card);
+  background: var(--content-surface);
+  box-shadow: var(--content-shadow);
+}
+
+/* Liquid glass is reserved for floating or transient controls. Content cards
+   stay opaque so names, memories, and dates remain readable in bright venues. */
+.glass-button,
+.glass-card.glass-chrome {
   border-radius: var(--r-card);
   background: var(--glass-bg-flat);
   -webkit-backdrop-filter: var(--glass-blur-flat);
   backdrop-filter: var(--glass-blur-flat);
+  box-shadow: var(--glass-highlight), var(--glass-depth-shadow), var(--glass-shadow);
+}
+
+.glass-hero::before,
+.glass-hero::after,
+.glass-card:not(.glass-chrome)::before,
+.glass-card:not(.glass-chrome)::after {
+  display: none;
+}
+
+.glass-card.glass-chrome::before,
+.glass-card.glass-chrome::after {
+  display: block;
 }
 
 .pressable {
@@ -538,6 +569,20 @@
   pointer-events: none;
   background: linear-gradient(180deg, transparent, oklch(0 0 0 / 0.16));
   opacity: 0.7;
+}
+
+/* `primary-action` paints a background image, so a utility that only changes
+   background-color cannot win. Use a complete, explicit WhatsApp treatment
+   when the CTA is about to hand the user to that app. */
+.primary-action.whatsapp-action {
+  background:
+    radial-gradient(circle at 24% 0%, oklch(1 0 0 / 0.2), transparent 32%),
+    linear-gradient(180deg, color-mix(in oklch, var(--whatsapp) 88%, white 12%), var(--whatsapp));
+  color: var(--whatsapp-foreground);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.28),
+    inset 0 -2px 0 oklch(0 0 0 / 0.18),
+    0 15px 30px -18px color-mix(in oklch, var(--whatsapp) 72%, black 28%);
 }
 
 .primary-action:active {
@@ -602,6 +647,49 @@
 
 .status-on-track {
   color: var(--status-on-track);
+}
+
+/* Keep the exchange QR physically predictable even when the rest of the app
+   follows the system's dark appearance. Cameras acquire pure black/white much
+   faster than tinted or translucent modules in a bright conference hall. */
+.qr-presentation {
+  color-scheme: light;
+  background: #fff;
+}
+
+.qr-exchange-frame {
+  width: min(78vw, 42dvh, 23rem);
+}
+
+@media (max-height: 700px) {
+  .qr-profile-mark {
+    display: none;
+  }
+}
+
+@supports (view-transition-name: none) {
+  [data-transition-surface='my-card'] {
+    view-transition-name: followapp-my-card;
+  }
+
+  [data-transition-element='my-card-qr'] {
+    view-transition-name: followapp-my-card-qr;
+  }
+
+  [data-transition-element='captured-person'] {
+    view-transition-name: followapp-captured-person;
+  }
+
+  ::view-transition-old(followapp-my-card),
+  ::view-transition-new(followapp-my-card),
+  ::view-transition-old(followapp-my-card-qr),
+  ::view-transition-new(followapp-my-card-qr),
+  ::view-transition-old(followapp-captured-person),
+  ::view-transition-new(followapp-captured-person) {
+    animation-duration: 260ms;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    mix-blend-mode: normal;
+  }
 }
 
 @keyframes field-drift-a {
@@ -806,6 +894,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
   .animate-rise,
   .animate-bloom,
   .animate-halo,
@@ -817,5 +909,76 @@
   .app-field::after {
     animation: none !important;
     transition: opacity 0.2s ease !important;
+  }
+
+  .pressable,
+  .primary-action,
+  [data-transition-surface],
+  [data-transition-element] {
+    transition: none !important;
+    transform: none !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 1ms !important;
+  }
+}
+
+/* Safari and current Chromium builds expose this preference when the user
+   asks the OS to reduce translucent materials. Fall back to solid system
+   surfaces instead of merely lowering the blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong,
+  .glass-appbar,
+  .glass-button,
+  .glass-card.glass-chrome,
+  .secondary-action {
+    background: var(--card) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    box-shadow: 0 1px 0 var(--border) inset, var(--content-shadow);
+  }
+
+  .field-grain,
+  .app-field::before,
+  .app-field::after {
+    display: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --ink-secondary: oklch(0.32 0.025 255);
+    --ink-tertiary: oklch(0.36 0.025 255);
+    --hairline: oklch(0.2 0.03 255 / 0.3);
+    --glass-border: oklch(0.2 0.03 255 / 0.38);
+    --status-overdue: oklch(0.43 0.16 28);
+    --status-due-soon: oklch(0.43 0.12 68);
+    --status-on-track: oklch(0.37 0.13 150);
+  }
+
+  .dark {
+    --ink-secondary: oklch(0.84 0.015 252);
+    --ink-tertiary: oklch(0.79 0.015 252);
+    --hairline: oklch(1 0 0 / 0.32);
+    --glass-border: oklch(1 0 0 / 0.38);
+    --status-overdue: oklch(0.82 0.15 30);
+    --status-due-soon: oklch(0.88 0.12 78);
+    --status-on-track: oklch(0.84 0.13 150);
+  }
+
+  .primary-action {
+    outline: 1px solid color-mix(in oklch, var(--action-fg) 36%, transparent);
+    outline-offset: -2px;
+    text-shadow: none;
+  }
+
+  .glass-button,
+  .glass-card,
+  .glass-hero {
+    border-width: 1.5px;
   }
 }

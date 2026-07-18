@@ -40,6 +40,15 @@ export function useModalFocus(open: boolean, onClose: () => void) {
       element.setAttribute('aria-hidden', 'true')
     }
 
+    // A sheet owns the visual viewport while it is open. Lock the document as
+    // well as making it inert so touch/trackpad scrolling cannot move content
+    // behind the dialog (particularly noticeable in the iOS web view).
+    const previousOverflow = document.documentElement.style.overflow
+    const previousOverscrollBehavior =
+      document.documentElement.style.overscrollBehavior
+    document.documentElement.style.overflow = 'hidden'
+    document.documentElement.style.overscrollBehavior = 'none'
+
     const focusFrame = window.requestAnimationFrame(() =>
       dialogRef.current?.focus(),
     )
@@ -91,6 +100,9 @@ export function useModalFocus(open: boolean, onClose: () => void) {
         if (ariaHidden === null) element.removeAttribute('aria-hidden')
         else element.setAttribute('aria-hidden', ariaHidden)
       }
+      document.documentElement.style.overflow = previousOverflow
+      document.documentElement.style.overscrollBehavior =
+        previousOverscrollBehavior
       previousFocusRef.current?.focus()
       previousFocusRef.current = null
     }

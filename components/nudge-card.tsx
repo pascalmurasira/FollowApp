@@ -199,7 +199,7 @@ export function NudgeCard({
             className={cn(
               'primary-action pressable flex min-h-[46px] flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold disabled:opacity-40',
               canSend && isWhatsApp
-                ? 'bg-whatsapp text-whatsapp-foreground shadow-sm'
+                ? 'whatsapp-action'
                 : 'bg-primary text-primary-foreground shadow-sm',
             )}
           >
@@ -280,7 +280,7 @@ function StatusBlock({
       className={cn(
         'tnum shrink-0 text-right leading-none',
         level === 'overdue'
-          ? 'status-due-soon'
+          ? 'status-overdue'
           : level === 'due-soon'
             ? 'status-due-soon'
             : 'status-on-track',

@@ -90,6 +90,11 @@ import {
   reminderPermissionStatus,
   requestReminderPermission,
   scheduleFollowUpReminder,
+  consumeLockedCameraCapture,
+  endNativeEventLiveActivity,
+  nativeLiveActivityStatus,
+  startNativeEventLiveActivity,
+  updateNativeEventLiveActivity,
 } from '@/lib/native'
 import { trackProductEvent } from '@/lib/product-analytics'
 import {
@@ -104,6 +109,7 @@ import {
   contactsForEvent,
   createConferenceSession,
   eventGroupsFromContacts,
+  eventActionStack,
   findStrongContactMatch,
   loadConferenceSession,
   normalizeEncounters,
@@ -111,6 +117,8 @@ import {
   updateEncounterEventDetails,
   type ConferenceSession,
 } from '@/lib/encounters'
+import { useSystemEntry } from '@/hooks/use-system-entry'
+import type { SystemEntryAction } from '@/lib/system-entry'
 
 const TAB_ORDER: Tab[] = ['nudges', 'chats', 'you']
 const PENDING_OUTREACH_KEY = 'followapp.pending-outreach.v1'
@@ -200,6 +208,11 @@ export function NudgeApp() {
   const [showScan, setShowScan] = useState(false)
   const [showCard, setShowCard] = useState(false)
   const [showScanQr, setShowScanQr] = useState(false)
+  const [pendingSystemEntry, setPendingSystemEntry] =
+    useState<SystemEntryAction | null>(null)
+  const [systemScanImage, setSystemScanImage] = useState<string | null>(null)
+  const [systemScanPreparing, setSystemScanPreparing] = useState(false)
+  const [systemScanRevision, setSystemScanRevision] = useState(0)
   const [conferenceSession, setConferenceSession] =
     useState<ConferenceSession | null>(null)
   const [showConferenceMode, setShowConferenceMode] = useState(false)
@@ -229,7 +242,41 @@ export function NudgeApp() {
     clearAllScheduledReminders,
   } = useEngagement()
   const reminderReconcileRef = useRef(new Set<string>())
+  const systemScanRequestRef = useRef(0)
+  const liveActivitySyncRef = useRef('')
+  const liveActivityOperationRef = useRef(0)
   const contactsRef = useRef(contacts)
+  const mainScrollRef = useRef<HTMLElement>(null)
+
+  const handleSystemEntry = useCallback((action: SystemEntryAction) => {
+    // System controls are authoritative navigation. Invalidate an older locked
+    // camera read before opening another surface so two native callbacks can
+    // never stack or replace one another.
+    const request = ++systemScanRequestRef.current
+    setSystemScanImage(null)
+    setSystemScanPreparing(false)
+    setPendingSystemEntry(action)
+    if (action !== 'scan-card') return
+
+    setSystemScanRevision((revision) => revision + 1)
+    setSystemScanPreparing(true)
+    void consumeLockedCameraCapture()
+      .then((image) => {
+        if (systemScanRequestRef.current === request) {
+          setSystemScanImage(image)
+        }
+      })
+      .catch(() => {
+        // The live VisionKit/Capacitor scanner remains the automatic fallback.
+      })
+      .finally(() => {
+        if (systemScanRequestRef.current === request) {
+          setSystemScanPreparing(false)
+        }
+      })
+  }, [])
+
+  useSystemEntry(handleSystemEntry)
 
   useEffect(() => {
     contactsRef.current = contacts
@@ -248,6 +295,7 @@ export function NudgeApp() {
     if (!contactId) return
     setActiveDraft(undefined)
     setDraftClearRevision((revision) => revision + 1)
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
     setTab('chats')
     setActiveId(contactId)
     clearScheduledReminder(contactId)
@@ -776,6 +824,79 @@ export function NudgeApp() {
         : [],
     [conferenceSession, contacts],
   )
+  const currentConferencePromises = useMemo(
+    () =>
+      conferenceSession
+        ? eventActionStack(currentConferenceContacts, conferenceSession.id)
+            .promises.length
+        : 0,
+    [conferenceSession, currentConferenceContacts],
+  )
+
+  // Keep the event summary glanceable from the Lock Screen and Dynamic Island.
+  // Status is read first so process restarts update the existing activity rather
+  // than creating duplicates. Old TestFlight builds simply report unsupported.
+  useEffect(() => {
+    if (phase !== 'app' || !conferenceSession) return
+    const signature = [
+      conferenceSession.id,
+      conferenceSession.name,
+      conferenceSession.active ? 'active' : 'ended',
+      currentConferenceContacts.length,
+      currentConferencePromises,
+    ].join(':')
+    if (liveActivitySyncRef.current === signature) return
+    liveActivitySyncRef.current = signature
+    const operation = ++liveActivityOperationRef.current
+
+    void (async () => {
+      try {
+        const status = await nativeLiveActivityStatus()
+        if (liveActivityOperationRef.current !== operation) return
+        if (!status.supported || !status.enabled) {
+          liveActivitySyncRef.current = ''
+          return
+        }
+        const existing = status.activities?.find(
+          (activity) => activity.eventId === conferenceSession.id,
+        )
+        const exists = Boolean(existing)
+        const payload = {
+          eventId: conferenceSession.id,
+          captured: currentConferenceContacts.length,
+          promises: currentConferencePromises,
+        }
+
+        if (!conferenceSession.active) {
+          if (exists) await endNativeEventLiveActivity(payload)
+          return
+        }
+        // Activity attributes are immutable. If the user corrects the event
+        // name, replace the activity rather than leaving stale Lock Screen copy.
+        if (existing && existing.eventName !== conferenceSession.name) {
+          await endNativeEventLiveActivity(payload)
+        }
+        const synced = exists && existing?.eventName === conferenceSession.name
+          ? await updateNativeEventLiveActivity(payload)
+          : await startNativeEventLiveActivity({
+              ...payload,
+              eventName: conferenceSession.name,
+            })
+        if (!synced && liveActivityOperationRef.current === operation) {
+          liveActivitySyncRef.current = ''
+        }
+      } catch {
+        if (liveActivityOperationRef.current === operation) {
+          liveActivitySyncRef.current = ''
+        }
+      }
+    })()
+  }, [
+    conferenceSession,
+    currentConferenceContacts.length,
+    currentConferencePromises,
+    phase,
+  ])
 
   const startConference = useCallback(
     (name: string, location?: string) => {
@@ -831,6 +952,26 @@ export function NudgeApp() {
       ...current,
       active: false,
       endedAt: new Date().toISOString(),
+    }
+    if (currentConferenceContacts.length === 0) {
+      // An event with no encounters has no history or inbox to review. Clear
+      // the convenience session so “End & review” cannot jump into an older
+      // conference, and explicitly retire any Lock Screen activity.
+      liveActivityOperationRef.current += 1
+      liveActivitySyncRef.current = ''
+      void endNativeEventLiveActivity({
+        eventId: current.id,
+        captured: 0,
+        promises: 0,
+      }).catch(() => undefined)
+      saveConferenceSession(null)
+      setConferenceSession(null)
+      setConferenceInboxEventId(null)
+      setShowConferenceMode(false)
+      setShowScan(false)
+      setShowConferenceInbox(false)
+      trackProductEvent('conference_mode_ended', { captured_count: 0 })
+      return
     }
     saveConferenceSession(next)
     setConferenceSession(next)
@@ -1129,6 +1270,7 @@ export function NudgeApp() {
   const changeTab = useCallback((next: Tab) => {
     setTab((current) => {
       if (current === next) return current
+      mainScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
       setTabDirection(
         TAB_ORDER.indexOf(next) > TAB_ORDER.indexOf(current)
           ? 'forward'
@@ -1137,6 +1279,45 @@ export function NudgeApp() {
       return next
     })
   }, [])
+
+  useEffect(() => {
+    if (phase !== 'app' || !pendingSystemEntry) return
+    const action = pendingSystemEntry
+    setPendingSystemEntry(null)
+    setActiveCloudChat(null)
+    setActiveId(null)
+    setShowAddContact(false)
+    setShowImport(false)
+    setShowScanQr(false)
+    setShowConferenceMode(false)
+    setShowConferenceInbox(false)
+    if (action === 'scan-card') {
+      setShowCard(false)
+      setShowScan(true)
+      return
+    }
+    if (action === 'show-my-qr') {
+      setShowScan(false)
+      setShowCard(true)
+      return
+    }
+    setShowScan(false)
+    setShowCard(false)
+    changeTab('nudges')
+    if (conferenceSession?.active) return
+    if (conferenceEvents.length > 0) {
+      openConferenceInbox(conferenceSession?.id ?? conferenceEvents[0].event.id)
+    } else {
+      setShowConferenceMode(true)
+    }
+  }, [
+    conferenceEvents,
+    conferenceSession,
+    changeTab,
+    openConferenceInbox,
+    pendingSystemEntry,
+    phase,
+  ])
 
   // Avoid an onboarding/app flash before localStorage is read.
   if (phase === 'pending') {
@@ -1157,6 +1338,11 @@ export function NudgeApp() {
           setConferenceInboxEventId(next.id)
           return next
         }}
+        systemEntryAction={pendingSystemEntry}
+        onSystemEntryHandled={() => setPendingSystemEntry(null)}
+        initialScanImageDataUrl={systemScanImage}
+        onInitialScanImageConsumed={() => setSystemScanImage(null)}
+        systemScanPreparing={systemScanPreparing}
       />
     )
   }
@@ -1220,7 +1406,13 @@ export function NudgeApp() {
                 </span>
                 <div>
                   <h1 className="font-heading text-[26px] font-bold leading-none tracking-[-0.03em] min-[380px]:text-[30px]">
-                    {tab === 'nudges' ? 'Follow-ups' : tab === 'chats' ? 'People' : 'You'}
+                    {tab === 'nudges'
+                      ? conferenceSession?.active
+                        ? 'Event mode'
+                        : 'Follow-ups'
+                      : tab === 'chats'
+                        ? 'People'
+                        : 'You'}
                   </h1>
                   <p className="mt-1 hidden text-[13px] text-[var(--ink-secondary)] lg:block">
                     {conferenceSession?.active
@@ -1230,40 +1422,56 @@ export function NudgeApp() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <p className="hidden text-xs font-medium text-[var(--ink-secondary)] sm:block">
-                  {tab === 'nudges'
-                    ? `${contacts.length} relationships`
-                    : tab === 'chats'
-                      ? 'Relationships & history'
-                      : 'Profile & preferences'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowCard(true)}
-                  aria-label="Show my QR code"
-                  title="Show my QR code"
-                  className="glass-button pressable flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--ink-strong)] sm:w-auto sm:px-3.5"
-                >
-                  <QrCode className="size-[18px]" />
-                  <span className="ml-1.5 text-[11px] font-semibold sm:text-sm">
-                    My QR
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowScan(true)}
-                  aria-label="Scan a business card"
-                  title="Scan a business card"
-                  className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold"
-                >
-                  <ScanLine className="size-[18px]" />
-                  <span className="text-[11px] sm:text-sm">Scan</span>
-                </button>
+                {tab === 'nudges' && conferenceSession?.active ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowConferenceMode(true)}
+                    className="pressable flex min-h-11 items-center gap-2 rounded-full bg-[var(--status-on-track-tint)] px-3.5 text-[12px] font-semibold text-[var(--status-on-track)]"
+                  >
+                    <span className="size-2 rounded-full bg-[var(--status-on-track)]" />
+                    {currentConferenceContacts.length} captured
+                  </button>
+                ) : (
+                  <>
+                    <p className="hidden text-xs font-medium text-[var(--ink-secondary)] sm:block">
+                      {tab === 'nudges'
+                        ? `${contacts.length} relationships`
+                        : tab === 'chats'
+                          ? 'Relationships & history'
+                          : 'Profile & preferences'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowCard(true)}
+                      aria-label="Show my QR code"
+                      title="Show my QR code"
+                      className="glass-button pressable flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--ink-strong)] sm:w-auto sm:px-3.5"
+                    >
+                      <QrCode className="size-[18px]" />
+                      <span className="ml-1.5 text-[11px] font-semibold sm:text-sm">
+                        My QR
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowScan(true)}
+                      aria-label="Scan a business card"
+                      title="Scan a business card"
+                      className="primary-action pressable flex min-h-11 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold"
+                    >
+                      <ScanLine className="size-[18px]" />
+                      <span className="text-[11px] sm:text-sm">Scan</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </header>
 
-          <main className="order-2 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain pb-24 lg:pb-8">
+          <main
+            ref={mainScrollRef}
+            className="order-2 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain pb-24 lg:pb-8"
+          >
             <div key={tab} className="tab-page" data-direction={tabDirection}>
               {tab === 'nudges' ? (
                 <NudgeFeed
@@ -1308,7 +1516,9 @@ export function NudgeApp() {
             </div>
           </main>
 
-          <BottomNav tab={tab} onChange={changeTab} />
+          {!(conferenceSession?.active && tab === 'nudges') && (
+            <BottomNav tab={tab} onChange={changeTab} />
+          )}
         </>
       )}
 
@@ -1338,9 +1548,17 @@ export function NudgeApp() {
       />
 
       <ScanCardSheet
+        key={`scan-${systemScanRevision}`}
         open={showScan}
-        autoLaunchCamera
-        onClose={() => setShowScan(false)}
+        autoLaunchCamera={!systemScanPreparing}
+        initialImageDataUrl={systemScanImage}
+        onInitialImageConsumed={() => setSystemScanImage(null)}
+        onClose={() => {
+          setShowScan(false)
+          setSystemScanImage(null)
+          setSystemScanPreparing(false)
+          systemScanRequestRef.current += 1
+        }}
         onAdd={addScannedContact}
         conferenceSession={conferenceSession}
         stayAfterSave={conferenceSession?.active === true}
@@ -1373,8 +1591,12 @@ export function NudgeApp() {
 
       <ConferenceModeSheet
         open={showConferenceMode}
-        session={conferenceSession}
-        capturedCount={currentConferenceContacts.length}
+        // An ended session is history, not the draft for a new conference.
+        // Passing it here made “New event” silently reuse the old name/location.
+        session={conferenceSession?.active ? conferenceSession : null}
+        capturedCount={
+          conferenceSession?.active ? currentConferenceContacts.length : 0
+        }
         onClose={() => setShowConferenceMode(false)}
         onStart={startConference}
         onUpdate={(name, location) => {

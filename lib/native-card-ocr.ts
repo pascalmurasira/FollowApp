@@ -1,4 +1,5 @@
 import { isNativeMethodUnavailableError } from './native-bridge.ts'
+import { readCardFromScan } from './card.ts'
 
 export interface NativeBusinessCardRecognition {
   lines: string[]
@@ -37,6 +38,7 @@ const EMAIL_PATTERN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/iu
 const WEBSITE_PATTERN =
   /(?:https?:\/\/|www\.)?[a-z\d](?:[a-z\d-]*\.)+[a-z]{2,}(?:\/[^\s]*)?/i
 const PHONE_PATTERN = /(?:\+?\d[\d\s()./-]{6,}\d)/g
+const MAX_NATIVE_QR_PAYLOAD_CHARS = 8_000
 
 function cleanLine(value: string): string {
   return value
@@ -182,6 +184,192 @@ export function parseBusinessCardLines(
     ) ?? ''
 
   return { name, title, company, phone, email, website }
+}
+
+function emptyPreliminaryBusinessCard(): PreliminaryBusinessCard {
+  return {
+    name: '',
+    title: '',
+    company: '',
+    phone: '',
+    email: '',
+    website: '',
+  }
+}
+
+function splitEscapedVCardValue(value: string, delimiter: string): string[] {
+  const parts: string[] = []
+  let part = ''
+  let escaped = false
+  for (const character of value) {
+    if (escaped) {
+      part += `\\${character}`
+      escaped = false
+    } else if (character === '\\') {
+      escaped = true
+    } else if (character === delimiter) {
+      parts.push(part)
+      part = ''
+    } else {
+      part += character
+    }
+  }
+  if (escaped) part += '\\'
+  parts.push(part)
+  return parts
+}
+
+function decodeVCardText(value: string): string {
+  return cleanLine(
+    value.replace(/\\([nN,;:\\])/g, (_match, escaped: string) => {
+      if (escaped === 'n' || escaped === 'N') return ' '
+      return escaped
+    }),
+  )
+}
+
+function safeVCardWebsite(value: string): string {
+  const candidate = decodeVCardText(value).replace(/[),.;]+$/, '')
+  if (!candidate || /\s/.test(candidate)) return ''
+  if (/^[a-z][a-z\d+.-]*:/i.test(candidate) && !/^https?:/i.test(candidate)) {
+    return ''
+  }
+  try {
+    const url = new URL(
+      /^(?:https?:\/\/)/i.test(candidate) ? candidate : `https://${candidate}`,
+    )
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      !url.hostname.includes('.')
+    ) {
+      return ''
+    }
+    return candidate.slice(0, 180)
+  } catch {
+    return ''
+  }
+}
+
+function parseVCardQrPayload(raw: string): PreliminaryBusinessCard | null {
+  const unfolded = raw
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n[ \t]/g, '')
+  const lines = unfolded.split('\n').map((line) => line.trimEnd())
+  if (
+    lines.length < 4 ||
+    lines[0]?.toUpperCase() !== 'BEGIN:VCARD' ||
+    lines.at(-1)?.toUpperCase() !== 'END:VCARD' ||
+    lines.filter((line) => line.toUpperCase() === 'BEGIN:VCARD').length !== 1 ||
+    lines.filter((line) => line.toUpperCase() === 'END:VCARD').length !== 1
+  ) {
+    return null
+  }
+
+  const card = emptyPreliminaryBusinessCard()
+  let structuredName = ''
+  let supportedVersion = false
+
+  for (const line of lines.slice(1, -1)) {
+    const separator = line.indexOf(':')
+    if (separator <= 0) continue
+    const descriptor = line.slice(0, separator)
+    const property = descriptor
+      .split(';', 1)[0]
+      ?.split('.')
+      .at(-1)
+      ?.toUpperCase()
+    const value = line.slice(separator + 1)
+
+    if (property === 'VERSION') {
+      supportedVersion = /^(?:2\.1|3\.0|4\.0)$/.test(value.trim())
+      continue
+    }
+    // Quoted-printable contact data needs charset-aware decoding. Ignoring it
+    // is safer than putting partially decoded text into a person's record.
+    if (/ENCODING=QUOTED-PRINTABLE/i.test(descriptor)) continue
+
+    if (property === 'FN' && !card.name) {
+      card.name = decodeVCardText(value)
+    } else if (property === 'N' && !structuredName) {
+      const [last = '', first = '', middle = '', prefix = '', suffix = ''] =
+        splitEscapedVCardValue(value, ';').map(decodeVCardText)
+      structuredName = [prefix, first, middle, last, suffix]
+        .filter(Boolean)
+        .join(' ')
+        .slice(0, 180)
+    } else if (property === 'ORG' && !card.company) {
+      card.company = splitEscapedVCardValue(value, ';')
+        .map(decodeVCardText)
+        .filter(Boolean)
+        .join(' · ')
+        .slice(0, 180)
+    } else if (property === 'TITLE' && !card.title) {
+      card.title = decodeVCardText(value)
+    } else if (property === 'TEL' && !card.phone) {
+      card.phone = bestPhone([decodeVCardText(value).replace(/^tel:/i, '')])
+    } else if (property === 'EMAIL' && !card.email) {
+      const emailValue = decodeVCardText(value).replace(/^mailto:/i, '')
+      card.email = emailValue.match(EMAIL_PATTERN)?.[0] ?? ''
+    } else if (property === 'URL' && !card.website) {
+      card.website = safeVCardWebsite(value)
+    }
+  }
+
+  if (!supportedVersion) return null
+  if (!card.name) card.name = structuredName
+  return preliminaryBusinessCardFieldCount(card) > 0 ? card : null
+}
+
+/**
+ * Parse only QR formats that deliberately carry contact data. Arbitrary URLs,
+ * text and malformed vCards stay untrusted and never enter the review model.
+ */
+export function parseSupportedBusinessCardQrPayload(
+  input: string,
+): PreliminaryBusinessCard | null {
+  const raw = input.trim()
+  if (!raw || raw.length > MAX_NATIVE_QR_PAYLOAD_CHARS) return null
+
+  const followAppCard = readCardFromScan(raw)
+  if (followAppCard) {
+    return {
+      name: followAppCard.n,
+      title: followAppCard.t ?? '',
+      company: followAppCard.co ?? '',
+      phone: followAppCard.p ?? '',
+      email: followAppCard.e ?? '',
+      website: '',
+    }
+  }
+
+  return parseVCardQrPayload(raw)
+}
+
+/**
+ * Build one reviewable card from VisionKit's live text and QR observations.
+ * Structured contact QR fields win when present; OCR fills only missing data.
+ */
+export function parseNativeBusinessCardScan(
+  lines: readonly string[],
+  qrPayloads: readonly string[],
+): PreliminaryBusinessCard {
+  const textCard = parseBusinessCardLines(lines)
+  const qrCard = qrPayloads
+    .map(parseSupportedBusinessCardQrPayload)
+    .find((candidate): candidate is PreliminaryBusinessCard => candidate !== null)
+  if (!qrCard) return textCard
+
+  return {
+    name: qrCard.name || textCard.name,
+    title: qrCard.title || textCard.title,
+    company: qrCard.company || textCard.company,
+    phone: qrCard.phone || textCard.phone,
+    email: qrCard.email || textCard.email,
+    website: qrCard.website || textCard.website,
+  }
 }
 
 export function preliminaryBusinessCardFieldCount(

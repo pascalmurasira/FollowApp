@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X,
   Smartphone,
@@ -18,6 +19,7 @@ import { todayDateInputValue } from '@/lib/contact-dates'
 import { cn } from '@/lib/utils'
 import { trackProductEvent } from '@/lib/product-analytics'
 import { CONTACT_LIMITS } from '@/lib/persistence-limits'
+import { useModalFocus } from '@/hooks/use-modal-focus'
 
 const TIER_OPTIONS: {
   value: Tier
@@ -73,6 +75,7 @@ export function AddContactSheet({
   const [detailsOpen, setDetailsOpen] = useState(false)
   // Name of the last person added while keeping the sheet open (quick-add).
   const [justAdded, setJustAdded] = useState<string | null>(null)
+  const { portalRoot, dialogRef, modalRootRef } = useModalFocus(open, onClose)
 
   useEffect(() => {
     setPickerSupported(contactPickerSupported())
@@ -98,7 +101,7 @@ export function AddContactSheet({
     }
   }, [open])
 
-  if (!open) return null
+  if (!open || !portalRoot) return null
 
   const pickFromPhone = async () => {
     try {
@@ -170,21 +173,35 @@ export function AddContactSheet({
     )
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+  return createPortal(
+    <div
+      ref={modalRootRef}
+      className="fixed inset-0 z-50 flex items-end justify-center"
+    >
       {/* Scrim */}
       <button
         type="button"
-        aria-label="Close"
+        aria-hidden="true"
+        tabIndex={-1}
         onClick={onClose}
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
       />
 
       {/* Sheet */}
-      <div className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl">
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-contact-sheet-title"
+        tabIndex={-1}
+        className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl outline-none"
+      >
         <span className="field-grain" aria-hidden />
         <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
-          <h2 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]">
+          <h2
+            id="add-contact-sheet-title"
+            className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
+          >
             Add contact
           </h2>
           <button
@@ -526,8 +543,9 @@ export function AddContactSheet({
             Save & add another
           </button>
         </footer>}
-      </div>
-    </div>
+      </section>
+    </div>,
+    portalRoot,
   )
 }
 
@@ -545,7 +563,7 @@ function Field({
   return (
     <label className="flex flex-col gap-1.5">
       <span className="flex items-baseline gap-2 px-1">
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-tertiary)]">{label}</span>
+        <span className="text-[13px] font-semibold text-[var(--ink-secondary)]">{label}</span>
         {required && <span className="text-xs text-[var(--ink-secondary)]">required</span>}
         {hint && (
           <span className="ml-auto text-[11px] text-[var(--ink-secondary)]">

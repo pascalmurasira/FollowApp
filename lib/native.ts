@@ -154,6 +154,14 @@ interface FollowAppNativePlugin {
     eventName: 'followUpReminderTapped',
     listener: (event: { contactId?: string }) => void,
   ): Promise<{ remove: () => Promise<void> }>
+  addListener(
+    eventName: 'systemEntryPointOpened',
+    listener: (event: NativeSystemEntryPoint) => void,
+  ): Promise<{ remove: () => Promise<void> }>
+  addListener(
+    eventName: 'exchangeDockAction',
+    listener: (event: NativeExchangeDockAction) => void,
+  ): Promise<{ remove: () => Promise<void> }>
   openSettings(): Promise<void>
   saveContact(card: CardData): Promise<{ saved?: boolean }>
   notificationStatus(): Promise<{
@@ -177,6 +185,75 @@ interface FollowAppNativePlugin {
     text?: string
     averageConfidence?: number
   }>
+  nativeScannerAvailability(): Promise<NativeScannerAvailability>
+  scanBusinessCard(): Promise<NativeBusinessCardScan>
+  consumeLockedCameraCapture(): Promise<NativeLockedCameraCapture>
+  consumeSystemEntryPoint(): Promise<Partial<NativeSystemEntryPoint>>
+  beginQRPresentation(input: {
+    presentationId: string
+  }): Promise<{ active?: boolean; presentationId?: string }>
+  endQRPresentation(input: {
+    presentationId: string
+  }): Promise<{ active?: boolean; presentationId?: string }>
+  presentExchangeDock(): Promise<{ presented?: boolean }>
+  dismissExchangeDock(): Promise<{ dismissed?: boolean }>
+  liveActivityStatus(): Promise<NativeLiveActivityStatus>
+  startEventLiveActivity(
+    input: NativeEventLiveActivityInput,
+  ): Promise<{ started?: boolean; id?: string; reason?: string }>
+  updateEventLiveActivity(
+    input: Omit<NativeEventLiveActivityInput, 'eventName'>,
+  ): Promise<{ updated?: boolean; id?: string; reason?: string }>
+  endEventLiveActivity(
+    input: Omit<NativeEventLiveActivityInput, 'eventName'>,
+  ): Promise<{ ended?: number }>
+}
+
+export interface NativeScannerAvailability {
+  supported?: boolean
+  available?: boolean
+  permission?: 'granted' | 'denied' | 'prompt' | 'unsupported'
+}
+
+export interface NativeBusinessCardScan {
+  available?: boolean
+  cancelled?: boolean
+  reason?: 'unsupported' | 'unavailable' | 'permission-denied' | string
+  lines?: string[]
+  text?: string
+  qrPayloads?: string[]
+  elapsedMilliseconds?: number
+}
+
+export interface NativeLockedCameraCapture {
+  available?: boolean
+  image?: string
+  source?: 'locked-camera'
+}
+
+export type NativeSystemRoute = 'scan' | 'my-qr' | 'event'
+
+export interface NativeSystemEntryPoint {
+  route: NativeSystemRoute
+  url: string
+}
+
+export interface NativeExchangeDockAction {
+  action: 'scan' | 'my-qr'
+  url: string
+}
+
+export interface NativeEventLiveActivityInput {
+  eventId: string
+  eventName: string
+  captured: number
+  promises: number
+}
+
+export interface NativeLiveActivityStatus {
+  supported?: boolean
+  enabled?: boolean
+  activities?: Array<{ id?: string; eventId?: string; eventName?: string }>
 }
 
 let followAppNativePluginPromise: Promise<FollowAppNativePlugin> | null = null
@@ -189,6 +266,325 @@ async function followAppNativePlugin(): Promise<FollowAppNativePlugin> {
     )
   }
   return followAppNativePluginPromise
+}
+
+export async function nativeScannerAvailability(): Promise<NativeScannerAvailability> {
+  if (!(await isNativeRuntime())) {
+    return { supported: false, available: false, permission: 'unsupported' }
+  }
+  try {
+    return await (await followAppNativePlugin()).nativeScannerAvailability()
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) {
+      return { supported: false, available: false, permission: 'unsupported' }
+    }
+    throw error
+  }
+}
+
+/**
+ * Opens VisionKit's live text/QR scanner. `available: false` is an intentional
+ * signal to use the existing Capacitor camera path; cancellation is distinct.
+ */
+export async function scanBusinessCardNatively(): Promise<NativeBusinessCardScan> {
+  if (!(await isNativeRuntime())) return { available: false, reason: 'unsupported' }
+  try {
+    const result = await (await followAppNativePlugin()).scanBusinessCard()
+    return {
+      available: result.available === true,
+      cancelled: result.cancelled === true,
+      ...(typeof result.reason === 'string'
+        ? { reason: result.reason.slice(0, 100) }
+        : {}),
+      ...(Array.isArray(result.lines)
+        ? {
+            lines: result.lines
+              .filter((line): line is string => typeof line === 'string')
+              .map((line) => line.trim().slice(0, 220))
+              .filter(Boolean)
+              .slice(0, 80),
+          }
+        : {}),
+      ...(typeof result.text === 'string'
+        ? { text: result.text.slice(0, 12_000) }
+        : {}),
+      ...(Array.isArray(result.qrPayloads)
+        ? {
+            qrPayloads: result.qrPayloads
+              .filter((value): value is string => typeof value === 'string')
+              .map((value) => value.trim().slice(0, 8_000))
+              .filter(Boolean)
+              .slice(0, 10),
+          }
+        : {}),
+      ...(typeof result.elapsedMilliseconds === 'number'
+        ? {
+            elapsedMilliseconds: Math.max(
+              0,
+              Math.min(120_000, Math.round(result.elapsedMilliseconds)),
+            ),
+          }
+        : {}),
+    }
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) {
+      return { available: false, reason: 'unsupported' }
+    }
+    throw error
+  }
+}
+
+/** Consume the newest image captured by the iOS locked-camera extension. */
+export async function consumeLockedCameraCapture(): Promise<string | null> {
+  if (!(await isNativeRuntime())) return null
+  try {
+    const result = await (
+      await followAppNativePlugin()
+    ).consumeLockedCameraCapture()
+    const image = result.image
+    return typeof image === 'string' &&
+      image.startsWith('data:image/jpeg;base64,') &&
+      image.length <= 45_000_000
+      ? image
+      : null
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return null
+    throw error
+  }
+}
+
+function normalizeSystemEntryPoint(
+  value: Partial<NativeSystemEntryPoint>,
+): NativeSystemEntryPoint | null {
+  if (
+    value.route !== 'scan' &&
+    value.route !== 'my-qr' &&
+    value.route !== 'event'
+  ) {
+    return null
+  }
+  const expectedUrl = `followapp://${value.route}`
+  return { route: value.route, url: expectedUrl }
+}
+
+export async function consumeNativeSystemEntryPoint(): Promise<NativeSystemEntryPoint | null> {
+  if (!(await isNativeRuntime())) return null
+  try {
+    return normalizeSystemEntryPoint(
+      await (await followAppNativePlugin()).consumeSystemEntryPoint(),
+    )
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return null
+    throw error
+  }
+}
+
+export async function listenForNativeSystemEntryPoints(
+  listener: (entryPoint: NativeSystemEntryPoint) => void,
+): Promise<() => void> {
+  if (!(await isNativeRuntime())) return () => {}
+  try {
+    const handle = await (
+      await followAppNativePlugin()
+    ).addListener('systemEntryPointOpened', (value) => {
+      const entryPoint = normalizeSystemEntryPoint(value)
+      if (entryPoint) listener(entryPoint)
+    })
+    return () => void handle.remove()
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return () => {}
+    throw error
+  }
+}
+
+export interface NativeQRPresentationDriver {
+  begin(presentationId: string): Promise<boolean>
+  end(presentationId: string): Promise<void>
+}
+
+/**
+ * Reference-counts QR owners and serializes their native bridge calls.
+ *
+ * React can clean up one presentation while another is already opening. A
+ * bare begin/end pair lets the older completion restore brightness underneath
+ * the newer QR. The lease set makes duplicate/stale ends harmless, while the
+ * operation queue also protects older app binaries that do not understand the
+ * presentation identifier yet.
+ */
+export function createNativeQRPresentationCoordinator(
+  driver: NativeQRPresentationDriver,
+) {
+  const leases = new Set<string>()
+  let nativeSessionId: string | null = null
+  let operationQueue: Promise<void> = Promise.resolve()
+
+  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = operationQueue.then(operation, operation)
+    operationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  const begin = (presentationId: string): Promise<boolean> =>
+    enqueue(async () => {
+      if (leases.has(presentationId)) return nativeSessionId !== null
+      if (leases.size > 0) {
+        leases.add(presentationId)
+        return true
+      }
+
+      const active = await driver.begin(presentationId)
+      if (active) {
+        leases.add(presentationId)
+        nativeSessionId = presentationId
+      }
+      return active
+    })
+
+  const end = (presentationId: string): Promise<void> =>
+    enqueue(async () => {
+      if (!leases.delete(presentationId) || leases.size > 0) return
+      const sessionId = nativeSessionId
+      nativeSessionId = null
+      if (sessionId) await driver.end(sessionId)
+    })
+
+  return { begin, end }
+}
+
+const nativeQRPresentationCoordinator = createNativeQRPresentationCoordinator({
+  async begin(presentationId) {
+    if (!(await isNativeRuntime())) return false
+    try {
+      const result = await (
+        await followAppNativePlugin()
+      ).beginQRPresentation({ presentationId })
+      return result.active === true
+    } catch (error) {
+      if (isNativeMethodUnavailableError(error)) return false
+      throw error
+    }
+  },
+  async end(presentationId) {
+    if (!(await isNativeRuntime())) return
+    try {
+      await (
+        await followAppNativePlugin()
+      ).endQRPresentation({ presentationId })
+    } catch (error) {
+      if (!isNativeMethodUnavailableError(error)) throw error
+    }
+  },
+})
+
+export function beginNativeQRPresentation(
+  presentationId: string,
+): Promise<boolean> {
+  return nativeQRPresentationCoordinator.begin(presentationId)
+}
+
+export function endNativeQRPresentation(
+  presentationId: string,
+): Promise<void> {
+  return nativeQRPresentationCoordinator.end(presentationId)
+}
+
+export async function presentNativeExchangeDock(): Promise<boolean> {
+  if (!(await isNativeRuntime())) return false
+  try {
+    const result = await (await followAppNativePlugin()).presentExchangeDock()
+    return result.presented === true
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return false
+    throw error
+  }
+}
+
+export async function dismissNativeExchangeDock(): Promise<void> {
+  if (!(await isNativeRuntime())) return
+  try {
+    await (await followAppNativePlugin()).dismissExchangeDock()
+  } catch (error) {
+    if (!isNativeMethodUnavailableError(error)) throw error
+  }
+}
+
+export async function listenForNativeExchangeDockActions(
+  listener: (action: NativeExchangeDockAction) => void,
+): Promise<() => void> {
+  if (!(await isNativeRuntime())) return () => {}
+  try {
+    const handle = await (
+      await followAppNativePlugin()
+    ).addListener('exchangeDockAction', (value) => {
+      if (value.action === 'scan' || value.action === 'my-qr') {
+        listener({ action: value.action, url: `followapp://${value.action}` })
+      }
+    })
+    return () => void handle.remove()
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return () => {}
+    throw error
+  }
+}
+
+export async function nativeLiveActivityStatus(): Promise<NativeLiveActivityStatus> {
+  if (!(await isNativeRuntime())) return { supported: false, enabled: false }
+  try {
+    return await (await followAppNativePlugin()).liveActivityStatus()
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) {
+      return { supported: false, enabled: false }
+    }
+    throw error
+  }
+}
+
+export async function startNativeEventLiveActivity(
+  input: NativeEventLiveActivityInput,
+): Promise<boolean> {
+  if (!(await isNativeRuntime())) return false
+  try {
+    const result = await (
+      await followAppNativePlugin()
+    ).startEventLiveActivity(input)
+    return result.started === true
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return false
+    throw error
+  }
+}
+
+export async function updateNativeEventLiveActivity(
+  input: Omit<NativeEventLiveActivityInput, 'eventName'>,
+): Promise<boolean> {
+  if (!(await isNativeRuntime())) return false
+  try {
+    const result = await (
+      await followAppNativePlugin()
+    ).updateEventLiveActivity(input)
+    return result.updated === true
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return false
+    throw error
+  }
+}
+
+export async function endNativeEventLiveActivity(
+  input: Omit<NativeEventLiveActivityInput, 'eventName'>,
+): Promise<number> {
+  if (!(await isNativeRuntime())) return 0
+  try {
+    const result = await (
+      await followAppNativePlugin()
+    ).endEventLiveActivity(input)
+    return Math.max(0, result.ended ?? 0)
+  } catch (error) {
+    if (isNativeMethodUnavailableError(error)) return 0
+    throw error
+  }
 }
 
 export async function chooseImageDataUrl(): Promise<string | null> {

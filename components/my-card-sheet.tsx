@@ -25,8 +25,15 @@ import {
 } from '@/lib/profile'
 import { cardFitsReliableQr, cardUrl } from '@/lib/card'
 import { getDeviceId } from '@/lib/device-id'
-import { isNativeUserCancelError } from '@/lib/native'
+import {
+  beginNativeQRPresentation,
+  endNativeQRPresentation,
+  isNativeUserCancelError,
+} from '@/lib/native'
 import { trackProductEvent } from '@/lib/product-analytics'
+import { cn } from '@/lib/utils'
+import { runViewTransition } from '@/lib/view-transition'
+import { useScreenWakeLock } from '@/hooks/use-screen-wake-lock'
 import {
   shareContentWithOutcome,
   type ShareOutcome,
@@ -106,8 +113,38 @@ export function MyCardSheet({
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const draftDirtyRef = useRef(false)
   const sharedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const nativePresentationGenerationRef = useRef(0)
   const onCloseRef = useRef(onClose)
   const onCardReadyRef = useRef(onCardReady)
+  const presenting = Boolean(!editing && profile)
+  const wakeLockState = useScreenWakeLock(open && presenting)
+
+  // The web wake lock protects browsers and PWAs. Native presentation also
+  // raises screen brightness for faster acquisition and remembers the exact
+  // idle-timer/brightness state to restore when the QR leaves the screen.
+  useEffect(() => {
+    if (!open || !presenting) return
+
+    const generation = ++nativePresentationGenerationRef.current
+    const randomId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${generation}`
+    const presentationId = `my-card-${generation}-${randomId}`
+
+    void beginNativeQRPresentation(presentationId).catch((error) => {
+      // Older binaries simply keep the existing web wake-lock behavior.
+      console.warn('[v0] Native QR presentation unavailable:', error)
+    })
+
+    return () => {
+      // End this exact generation. The native bridge reference-counts owners,
+      // so a late cleanup can never restore brightness beneath a newer QR.
+      void endNativeQRPresentation(presentationId).catch((error) => {
+        console.warn('[v0] Native QR presentation cleanup failed:', error)
+      })
+    }
+  }, [open, presenting])
 
   useEffect(() => {
     onCloseRef.current = onClose
@@ -217,7 +254,7 @@ export function MyCardSheet({
       width: 480,
       margin: 4,
       errorCorrectionLevel: 'M',
-      color: { dark: '#1a1830', light: '#ffffff' },
+      color: { dark: '#000000', light: '#ffffff' },
     })
       .then((dataUrl) => {
         if (cancelled) return
@@ -258,6 +295,11 @@ export function MyCardSheet({
       element.inert = true
       element.setAttribute('aria-hidden', 'true')
     }
+    const previousOverflow = document.documentElement.style.overflow
+    const previousOverscrollBehavior =
+      document.documentElement.style.overscrollBehavior
+    document.documentElement.style.overflow = 'hidden'
+    document.documentElement.style.overscrollBehavior = 'none'
 
     const focusFrame = window.requestAnimationFrame(() =>
       dialogRef.current?.focus(),
@@ -312,6 +354,9 @@ export function MyCardSheet({
         if (ariaHidden === null) element.removeAttribute('aria-hidden')
         else element.setAttribute('aria-hidden', ariaHidden)
       }
+      document.documentElement.style.overflow = previousOverflow
+      document.documentElement.style.overscrollBehavior =
+        previousOverscrollBehavior
       previousFocusRef.current?.focus()
       previousFocusRef.current = null
     }
@@ -357,9 +402,11 @@ export function MyCardSheet({
     }
     setSaving(true)
     setSaveNotice('Card ready. Syncing in the background…')
-    setProfile(next)
-    setDraft(next)
-    setEditing(false)
+    runViewTransition(() => {
+      setProfile(next)
+      setDraft(next)
+      setEditing(false)
+    })
     onCardReadyRef.current?.()
     trackProductEvent('qr_card_ready', {
       has_phone: Boolean(next.phone),
@@ -469,7 +516,13 @@ export function MyCardSheet({
         aria-labelledby="my-card-sheet-title"
         aria-describedby="my-card-sheet-announcement"
         tabIndex={-1}
-        className="app-field relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[2rem] shadow-xl outline-none"
+        data-transition-surface="my-card"
+        className={cn(
+          'relative flex w-full flex-col overflow-hidden outline-none',
+          presenting
+            ? 'qr-presentation h-[100dvh] max-w-none bg-white text-black'
+            : 'app-field max-h-[92dvh] max-w-md rounded-t-[2rem] shadow-xl',
+        )}
       >
         <p
           id="my-card-sheet-announcement"
@@ -480,17 +533,32 @@ export function MyCardSheet({
         >
           {announcement}
         </p>
-        <span className="field-grain" aria-hidden />
-        <header className="relative z-[1] flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
+        {!presenting && <span className="field-grain" aria-hidden />}
+        <header
+          className={cn(
+            'relative z-[1] flex items-center justify-between px-5 py-4',
+            presenting
+              ? 'border-b border-black/10 pt-[max(1rem,env(safe-area-inset-top))]'
+              : 'border-b border-[var(--hairline)]',
+          )}
+        >
           <div>
             <h2
               id="my-card-sheet-title"
-              className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
+              className={cn(
+                'font-heading text-[22px] font-bold tracking-[-0.03em]',
+                presenting ? 'text-black' : 'text-[var(--ink-strong)]',
+              )}
             >
               {editing ? (profile ? 'Edit your card' : 'Create your card') : 'Your card'}
             </h2>
             {!editing && (
-              <p className="mt-0.5 text-[12px] text-[var(--ink-secondary)]">
+              <p
+                className={cn(
+                  'mt-0.5 text-[13px]',
+                  presenting ? 'text-black/65' : 'text-[var(--ink-secondary)]',
+                )}
+              >
                 Let someone scan it — no app required
               </p>
             )}
@@ -499,13 +567,23 @@ export function MyCardSheet({
             type="button"
             onClick={close}
             aria-label="Close"
-            className="glass-button pressable flex size-11 items-center justify-center rounded-full text-[var(--ink-secondary)]"
+            className={cn(
+              'pressable flex size-11 items-center justify-center rounded-full',
+              presenting
+                ? 'border border-black/15 bg-black/[0.04] text-black'
+                : 'glass-button text-[var(--ink-secondary)]',
+            )}
           >
             <X className="size-5" />
           </button>
         </header>
 
-        <div className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div
+          className={cn(
+            'relative z-[1] flex-1 overflow-y-auto overscroll-contain',
+            presenting ? 'px-5 py-3' : 'px-5 py-5',
+          )}
+        >
           {editing ? (
             <div className="flex flex-col gap-4">
               <p className="text-pretty text-[13px] leading-relaxed text-[var(--ink-secondary)]">
@@ -620,94 +698,91 @@ export function MyCardSheet({
               )}
             </div>
           ) : profile ? (
-            <div className="flex flex-col items-center">
-              <div className="primary-action w-full rounded-3xl p-6">
-                <div className="flex items-center gap-4">
-                  {profile.photoUrl ? (
-                    <Image
-                      src={profile.photoUrl}
-                      alt=""
-                      width={64}
-                      height={64}
-                      unoptimized
-                      className="size-16 rounded-full object-cover ring-2 ring-primary-foreground/20"
-                    />
-                  ) : (
-                    <div className="flex size-16 items-center justify-center rounded-full bg-primary-foreground/15 font-serif text-2xl font-medium">
-                      {initials(profile.name)}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate font-heading text-2xl font-semibold leading-tight">
-                      {profile.name}
+            <div className="flex min-h-full flex-col items-center justify-center py-3 text-center text-black">
+              {profile.photoUrl ? (
+                <Image
+                  src={profile.photoUrl}
+                  alt=""
+                  width={56}
+                  height={56}
+                  unoptimized
+                  className="qr-profile-mark mb-2 size-14 rounded-full object-cover ring-1 ring-black/10"
+                />
+              ) : (
+                <div className="qr-profile-mark mb-2 flex size-14 items-center justify-center rounded-full bg-black font-heading text-xl font-semibold text-white">
+                  {initials(profile.name)}
+                </div>
+              )}
+              <p className="max-w-full truncate font-heading text-[clamp(1.6rem,7vw,2.25rem)] font-bold leading-tight tracking-[-0.035em]">
+                {profile.name}
+              </p>
+              {roleLine && (
+                <p className="mt-1 max-w-full truncate text-[15px] font-medium text-black/60">
+                  {roleLine}
+                </p>
+              )}
+
+              <div
+                data-transition-element="my-card-qr"
+                className="qr-exchange-frame mt-4 flex flex-col items-center rounded-[2rem] border border-black/10 bg-white p-3 shadow-[0_18px_50px_-32px_rgba(0,0,0,0.45)]"
+              >
+                {qrStatus === 'ready' && qr ? (
+                  <Image
+                    src={qr}
+                    alt={`QR code linking to ${profile.name}'s FollowApp card`}
+                    width={480}
+                    height={480}
+                    priority
+                    unoptimized
+                    className="aspect-square w-full"
+                  />
+                ) : qrStatus === 'error' || qrStatus === 'too-large' ? (
+                  <div className="flex aspect-square w-full flex-col items-center justify-center gap-3 rounded-[1.4rem] bg-neutral-100 px-6 text-center text-black/65">
+                    <AlertCircle className="size-7" aria-hidden />
+                    <p className="max-w-60 text-[14px] leading-relaxed">
+                      {qrStatus === 'too-large'
+                        ? 'Shorten the optional details so this code stays quick to scan.'
+                        : 'Could not create your QR code.'}
                     </p>
-                    {roleLine && (
-                      <p className="truncate text-[14px] text-primary-foreground/80">
-                        {roleLine}
-                      </p>
+                    {qrStatus === 'error' && (
+                      <button
+                        type="button"
+                        onClick={() => setQrAttempt((attempt) => attempt + 1)}
+                        className="pressable flex min-h-11 items-center gap-2 rounded-full border border-black/15 bg-white px-4 text-[14px] font-semibold text-black"
+                      >
+                        <RotateCcw className="size-4" />
+                        Try again
+                      </button>
                     )}
                   </div>
-                </div>
-
-                {(profile.phone || profile.email) && (
-                  <div className="mt-4 space-y-1 border-t border-primary-foreground/15 pt-4 text-[13px] text-primary-foreground/85">
-                    {profile.phone && <p className="truncate">{profile.phone}</p>}
-                    {profile.email && <p className="truncate">{profile.email}</p>}
+                ) : (
+                  <div className="flex aspect-square w-full items-center justify-center rounded-[1.4rem] bg-neutral-50" aria-hidden>
+                    <Loader2 className="size-7 animate-spin text-black/45" />
                   </div>
                 )}
-
-                <div className="glass-card mt-5 flex flex-col items-center gap-2 rounded-2xl bg-white/90 p-4">
-                  {qrStatus === 'ready' && qr ? (
-                    <Image
-                      src={qr}
-                      alt={`QR code linking to ${profile.name}'s FollowApp card`}
-                      width={192}
-                      height={192}
-                      unoptimized
-                      className="size-48"
-                    />
-                  ) : qrStatus === 'error' || qrStatus === 'too-large' ? (
-                    <div className="flex min-h-48 w-full flex-col items-center justify-center gap-3 text-center text-[var(--ink-secondary)]">
-                      <AlertCircle className="size-6" aria-hidden />
-                      <p className="max-w-56 text-[13px] leading-relaxed">
-                        {qrStatus === 'too-large'
-                          ? 'Edit and shorten the name or details for a reliable QR scan.'
-                          : 'Could not create your QR code.'}
-                      </p>
-                      {qrStatus === 'error' && (
-                        <button
-                          type="button"
-                          onClick={() => setQrAttempt((attempt) => attempt + 1)}
-                          className="glass-button pressable flex min-h-11 items-center gap-2 rounded-full px-4 text-[13px] font-semibold text-[var(--ink-strong)]"
-                        >
-                          <RotateCcw className="size-4" />
-                          Try again
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex size-48 items-center justify-center" aria-hidden>
-                      <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                    <QrCode className="size-3.5" />
-                    Scan with FollowApp or any camera
-                  </p>
-                </div>
               </div>
 
+              <p className="mt-3 flex items-center justify-center gap-1.5 text-[14px] font-semibold text-black">
+                <QrCode className="size-4" />
+                Point any camera here
+              </p>
+              <p className="mt-1 text-[13px] text-black/55">
+                No app required
+              </p>
+              <p className="mt-1 text-[12px] text-black/45">
+                Only the details you added to this card are shared
+              </p>
+              {wakeLockState === 'active' && (
+                <p className="mt-2 rounded-full bg-black/[0.05] px-3 py-1.5 text-[12px] font-medium text-black/60">
+                  Screen stays awake while this card is open
+                </p>
+              )}
               {!hasCardDetails(profile) && (
-                <p className="mt-4 text-pretty text-center text-[13px] leading-relaxed text-muted-foreground">
-                  Add your role, company, and contact details so a scan saves the
+                <p className="mt-3 max-w-xs text-pretty text-[13px] leading-relaxed text-black/55">
+                  Add your role and contact details so the next scan carries the
                   full picture.
                 </p>
               )}
-              <p className="mt-4 text-pretty text-center text-[11.5px] leading-relaxed text-[var(--ink-tertiary)]">
-                Anyone who scans this QR or receives its link can view and save
-                the details shown on this card. Shared copies do not expire
-                automatically, so share only the fields you want to make public.
-              </p>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
@@ -721,7 +796,10 @@ export function MyCardSheet({
           {(saveNotice || shareError || (loadingProfile && profile)) && (
             <p
               role="status"
-              className="mt-4 text-pretty text-center text-[12px] leading-relaxed text-[var(--ink-secondary)]"
+              className={cn(
+                'mt-4 text-pretty text-center text-[12px] leading-relaxed',
+                presenting ? 'text-black/60' : 'text-[var(--ink-secondary)]',
+              )}
             >
               {shareError ??
                 saveNotice ??
@@ -730,7 +808,14 @@ export function MyCardSheet({
           )}
         </div>
 
-        <footer className="relative z-[1] flex gap-2 border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
+        <footer
+          className={cn(
+            'relative z-[1] flex gap-2 border-t px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
+            presenting
+              ? 'border-black/10 bg-white'
+              : 'border-[var(--hairline)] backdrop-blur',
+          )}
+        >
           {editing ? (
             <button
               type="button"
@@ -753,13 +838,15 @@ export function MyCardSheet({
                   // Protect this explicit edit from a profile GET that was
                   // already in flight when the user opened the form.
                   draftDirtyRef.current = true
-                  setDraft(profile)
-                  setExtraDetailsOpen(Boolean(profile.title || profile.company))
-                  setValidationError(null)
-                  setEditing(true)
+                  runViewTransition(() => {
+                    setDraft(profile)
+                    setExtraDetailsOpen(Boolean(profile.title || profile.company))
+                    setValidationError(null)
+                    setEditing(true)
+                  })
                 }}
                 disabled={saving}
-                className="glass-button pressable flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold text-[var(--ink-strong)] disabled:opacity-60"
+                className="pressable flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full border border-black/15 bg-white px-4 text-[15px] font-semibold text-black disabled:opacity-60"
               >
                 <Pencil className="size-4" />
                 Edit
@@ -768,7 +855,7 @@ export function MyCardSheet({
                 type="button"
                 onClick={share}
                 disabled={sharing}
-                className="primary-action pressable flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-60"
+                className="pressable flex min-h-12 flex-[1.35] items-center justify-center gap-2 rounded-full bg-black px-4 text-[15px] font-semibold text-white shadow-lg disabled:opacity-60"
               >
                 {sharing ? (
                   <Loader2 className="size-4 animate-spin" />

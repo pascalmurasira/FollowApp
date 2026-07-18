@@ -1,7 +1,14 @@
 import type { Metadata, Viewport } from 'next'
 import { NativeAuthLinkHandler } from '@/components/native-auth-link-handler'
 import { ProductAnalytics } from '@/components/product-analytics'
+import { SystemTheme } from '@/components/system-theme'
 import './globals.css'
+
+const systemThemeBootstrap = `(() => {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+})()`
 
 export const metadata: Metadata = {
   title: 'FollowApp — keep your professional relationships warm',
@@ -36,8 +43,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
+    <html lang="en" className="bg-background" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: systemThemeBootstrap }} />
+      </head>
       <body className="font-sans antialiased">
+        <SystemTheme />
         <NativeAuthLinkHandler />
         {children}
         <ProductAnalytics />

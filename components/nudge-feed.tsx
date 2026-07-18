@@ -14,6 +14,8 @@ import {
 } from '@/lib/contact-dates'
 import type { ChannelId } from '@/lib/channels'
 import { ConferenceModeCard } from '@/components/conference-mode-card'
+import { EventModeHome } from '@/components/event-mode-home'
+import { EventPromiseQueue } from '@/components/event-promise-queue'
 import {
   conferencePriorityScore,
   hasActionableCommitment,
@@ -135,6 +137,19 @@ export function NudgeFeed({
   const dailyPick = todayPlan[0]
   const rest = todayPlan.slice(1)
 
+  if (conferenceSession?.active) {
+    return (
+      <EventModeHome
+        session={conferenceSession}
+        contacts={contacts}
+        onManage={onManageConference}
+        onScan={onScan}
+        onShowCard={onShowCard}
+        onReview={onReviewConference}
+      />
+    )
+  }
+
   return (
     <div className="relative z-[1] grid min-w-0 gap-6 px-4 py-4 sm:px-6 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-7">
       <ConferenceModeCard
@@ -145,6 +160,14 @@ export function NudgeFeed({
         onShowCard={onShowCard}
         onReview={onReviewConference}
       />
+      {conferenceSummary && (
+        <EventPromiseQueue
+          contacts={contacts}
+          summary={conferenceSummary}
+          onOpen={onOpen}
+          onReview={onReviewConference}
+        />
+      )}
       {groups.length > 0 && (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 lg:col-span-12 [&::-webkit-scrollbar]:hidden">
           <FilterChip

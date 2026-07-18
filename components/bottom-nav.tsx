@@ -21,7 +21,7 @@ export function BottomNav({
 
   return (
     <nav className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.15rem)] z-10 mx-auto w-[min(26rem,calc(100%-2rem))] lg:order-1 lg:static lg:w-full lg:max-w-none lg:px-8 lg:pb-0">
-      <div className="glass-card relative mx-auto grid max-w-md grid-cols-3 items-center gap-1 overflow-hidden rounded-[var(--r-nav)] p-1.5 lg:mx-0 lg:shadow-none">
+      <div className="glass-card glass-chrome relative mx-auto grid max-w-md grid-cols-3 items-center gap-1 overflow-hidden rounded-[var(--r-nav)] p-1.5 lg:mx-0 lg:shadow-none">
         <span
           key={tab}
           aria-hidden

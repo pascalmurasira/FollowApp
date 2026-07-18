@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import UserNotifications
+import LockedCameraCapture
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -71,12 +72,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        if let entryPoint = FollowAppSystemEntryPointStore.entryPoint(for: url) {
+            FollowAppSystemEntryPointStore.record(entryPoint)
+        }
         // Called when the app was launched with a url. Feel free to add additional processing here,
         // but if you want the App API to support tracking app url opens, make sure to keep this call
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+        if #available(iOS 18.0, *),
+           userActivity.activityType == NSUserActivityTypeLockedCameraCapture {
+            FollowAppSystemEntryPointStore.record(.scan)
+        }
         // Called when the app was launched with an activity, including Universal Links.
         // Feel free to add additional processing here, but if you want the App API to support
         // tracking app url opens, make sure to keep this call
