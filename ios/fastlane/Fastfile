@@ -17,7 +17,14 @@ platform :ios do
       xcargs: '-allowProvisioningUpdates',
       export_xcargs: '-allowProvisioningUpdates',
       export_options: {
-        signingStyle: 'automatic',
+        signingStyle: 'manual',
+        signingCertificate: 'Apple Distribution',
+        teamID: 'ZF489NYM57',
+        provisioningProfiles: {
+          'com.pascalmurasira.followapp' => 'FollowApp App Store',
+          'com.pascalmurasira.followapp.widgets' => 'FollowApp Widgets App Store',
+          'com.pascalmurasira.followapp.capture' => 'FollowApp Camera Capture App Store'
+        },
         manageAppVersionAndBuildNumber: false,
         stripSwiftSymbols: true,
         uploadSymbols: true
