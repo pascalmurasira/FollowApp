@@ -69,6 +69,20 @@ test('a stalled native bridge cannot leave contact saving pending forever', asyn
   )
 })
 
+test('contact saving registers its bridge eagerly inside the watchdog', () => {
+  const native = readFileSync(
+    new URL('../lib/native.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(native, /import \{ Capacitor, registerPlugin \}/)
+  assert.match(
+    native,
+    /nativeContactSaveWithin\(\s*followAppNativePlugin\(\)\.saveContact/,
+  )
+  assert.doesNotMatch(native, /import\('@capacitor\/core'\)\.then/)
+})
+
 test('a refined scan updates the same native contact instead of duplicating it', () => {
   const plugin = readFileSync(
     new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),

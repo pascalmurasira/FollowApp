@@ -1,5 +1,5 @@
 import type { CardData } from './card'
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { isNativeMethodUnavailableError } from './native-bridge.ts'
 import { nativeContactSaveWithin } from './native-contact-save.ts'
 
@@ -274,16 +274,14 @@ export interface NativeLiveActivityStatus {
   activities?: Array<{ id?: string; eventId?: string; eventName?: string }>
 }
 
-let followAppNativePluginPromise: Promise<FollowAppNativePlugin> | null = null
+let followAppNativePluginInstance: FollowAppNativePlugin | null = null
 
-async function followAppNativePlugin(): Promise<FollowAppNativePlugin> {
-  if (!followAppNativePluginPromise) {
-    followAppNativePluginPromise = import('@capacitor/core').then(
-      ({ registerPlugin }) =>
-        registerPlugin<FollowAppNativePlugin>('FollowAppNative'),
-    )
+function followAppNativePlugin(): FollowAppNativePlugin {
+  if (!followAppNativePluginInstance) {
+    followAppNativePluginInstance =
+      registerPlugin<FollowAppNativePlugin>('FollowAppNative')
   }
-  return followAppNativePluginPromise
+  return followAppNativePluginInstance
 }
 
 export async function nativeScannerAvailability(): Promise<NativeScannerAvailability> {
@@ -675,7 +673,7 @@ export async function saveContactToPhone(
   if (await isNativeRuntime()) {
     try {
       const result = await nativeContactSaveWithin(
-        (await followAppNativePlugin()).saveContact({ ...card, ...options }),
+        followAppNativePlugin().saveContact({ ...card, ...options }),
       )
       return {
         outcome: result.saved ? 'saved' : 'cancelled',
