@@ -114,7 +114,74 @@ test('cloud extraction cannot erase useful fields recognized on device', () => {
   assert.equal(result.card.phone, '+1 415 355 0186')
   assert.equal(result.card.email, 'elena@northwindlabs.com')
   assert.equal(result.card.website, 'northwindlabs.com')
-  assert.deepEqual(result.fallbackFields, ['phone', 'email', 'website'])
+  assert.deepEqual(result.reviewFields, ['title', 'phone', 'email', 'website'])
+})
+
+test('flags meaningful cloud and native OCR disagreements for review', () => {
+  const result = reconcileBusinessCardExtractions(
+    {
+      name: 'Elena Vasquez',
+      title: 'VP of Product',
+      company: 'Northwind Labs',
+      phone: '+1 (415) 355-0186',
+      email: 'ELENA@NOFTHWINDLABS.COM',
+      website: 'northwindlabs.com',
+    },
+    {
+      name: 'Elena Vasquez',
+      title: 'VP of Product',
+      company: 'Northwind Labs',
+      phone: '+1 415 355 0186',
+      email: 'elena@nofthwindlabs.com',
+      website: 'northwindiabs.com',
+    },
+  )
+
+  assert.equal(result.card.website, 'northwindlabs.com')
+  assert.deepEqual(result.reviewFields, ['website'])
+})
+
+test('comparison preserves meaningful URL path case and ignores Unicode form', () => {
+  const cloud = {
+    name: 'Jose\u0301 Alvarez',
+    title: '',
+    company: '',
+    phone: '',
+    email: '',
+    website: 'https://EXAMPLE.com/Profile',
+  }
+  const local = {
+    ...cloud,
+    name: 'Jos\u00e9 Alvarez',
+    website: 'www.example.com/profile',
+  }
+
+  assert.deepEqual(
+    reconcileBusinessCardExtractions(cloud, local).reviewFields,
+    ['website'],
+  )
+})
+
+test('low-confidence native disagreements do not overwhelm cloud review', () => {
+  const cloud = {
+    name: 'Elena Vasquez',
+    title: 'VP of Product',
+    company: 'Northwind Labs',
+    phone: '+1 415 355 0186',
+    email: 'elena@northwindlabs.com',
+    website: 'northwindlabs.com',
+  }
+  const local = {
+    name: 'Eiena Vasquez',
+    title: 'V? of Produet',
+    company: 'Northwlnd Labs',
+    phone: '',
+    email: '',
+    website: '',
+  }
+
+  const result = reconcileBusinessCardExtractions(cloud, local, 0.3)
+  assert.deepEqual(result.reviewFields, [])
 })
 
 test('turns a canonical FollowApp QR into the normal review card model', () => {

@@ -38,6 +38,8 @@ export function NativeContactSaveButton({
   const inFlightRef = useRef(false)
   const changedDuringSaveRef = useRef(false)
   const operationRef = useRef(0)
+  const savedIdentifierRef = useRef<string | undefined>(undefined)
+  const requestIdRef = useRef<string | undefined>(undefined)
   const onOutcomeRef = useRef(onOutcome)
   const cardSignature = JSON.stringify([
     card.n,
@@ -113,15 +115,25 @@ export function NativeContactSaveButton({
     const operation = ++operationRef.current
     update('saving')
     try {
-      const outcome = await saveContactToPhone(card)
+      if (!requestIdRef.current) {
+        requestIdRef.current =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      }
+      const result = await saveContactToPhone(card, {
+        existingIdentifier: savedIdentifierRef.current,
+        requestId: requestIdRef.current,
+      })
+      if (result.identifier) savedIdentifierRef.current = result.identifier
       if (operationRef.current !== operation) return
       const cardChanged =
         changedDuringSaveRef.current ||
         latestCardSignatureRef.current !== startingCardSignature
-      update(cardChanged ? 'idle' : outcome)
+      update(cardChanged ? 'idle' : result.outcome)
       trackProductEvent('native_contact_save', {
         source,
-        outcome,
+        outcome: result.outcome,
         card_changed_during_save: cardChanged,
       })
     } catch (error) {

@@ -538,6 +538,7 @@ export function ScanCardSheet({
     // parallel with the cloud extraction and lets users start reviewing while
     // the richer result is still in flight. Older builds return null here.
     let preliminaryCard: ScannedCard | null = null
+    let preliminaryConfidence: number | undefined
     let cloudFinished = false
     let cloudSucceeded = false
     const preliminaryStartedAt = performance.now()
@@ -554,6 +555,7 @@ export function ScanCardSheet({
       const fieldCount = preliminaryBusinessCardFieldCount(preview)
       if (fieldCount === 0) return
       preliminaryCard = preview
+      preliminaryConfidence = recognition.averageConfidence
       const editedFields = new Set(editedScanFieldsRef.current)
       setCard((current) => {
         const merged = { ...preview }
@@ -661,13 +663,18 @@ export function ScanCardSheet({
           const latePreview = parseBusinessCardLines(lateRecognition.lines)
           if (preliminaryBusinessCardFieldCount(latePreview) > 0) {
             preliminaryCard = latePreview
+            preliminaryConfidence = lateRecognition.averageConfidence
           }
         }
       }
       const modelNeedsReview = normalizeScanReviewFields(data.needsReview)
-      const reconciled = reconcileBusinessCardExtractions(scanned, preliminaryCard)
+      const reconciled = reconcileBusinessCardExtractions(
+        scanned,
+        preliminaryCard,
+        preliminaryConfidence,
+      )
       const needsReview = [
-        ...new Set([...modelNeedsReview, ...reconciled.fallbackFields]),
+        ...new Set([...modelNeedsReview, ...reconciled.reviewFields]),
       ]
       const imageQuality: ScanImageQuality =
         data.imageQuality === 'clear' ||

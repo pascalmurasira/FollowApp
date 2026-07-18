@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { nativeContactSaveLabel } from '../lib/native-contact-save.ts'
+import {
+  nativeContactSaveLabel,
+  nativeContactSaveWithin,
+} from '../lib/native-contact-save.ts'
 
 test('native contact save labels distinguish every outcome honestly', () => {
   assert.equal(nativeContactSaveLabel('idle'), 'Also save to phone')
@@ -29,7 +32,7 @@ test('native contact saving authorizes access and commits without a UIKit presen
   assert.match(plugin, /let request = CNSaveRequest\(\)/)
   assert.match(plugin, /request\.add\(contact, toContainerWithIdentifier: nil\)/)
   assert.match(plugin, /try contactStore\.execute\(request\)/)
-  assert.match(plugin, /call\.resolve\(\["saved": true/)
+  assert.match(plugin, /"saved": true/)
   assert.match(plugin, /CNError\.Code\.authorizationDenied\.rawValue/)
   assert.match(plugin, /permissionWasRevoked[\s\S]*CONTACT_PERMISSION_DENIED/)
   assert.match(plugin, /private func takeContactCall\(\)/)
@@ -52,6 +55,42 @@ test('native contact fields are trimmed and bounded before the device-store save
   assert.match(plugin, /contact\.urlAddresses =/)
 })
 
+test('a stalled native bridge cannot leave contact saving pending forever', async () => {
+  assert.equal(await nativeContactSaveWithin(Promise.resolve('saved'), 50), 'saved')
+
+  await assert.rejects(
+    nativeContactSaveWithin(new Promise<never>(() => undefined), 5),
+    (error: unknown) =>
+      Boolean(
+        error &&
+          typeof error === 'object' &&
+          (error as { code?: unknown }).code === 'CONTACT_SAVE_TIMEOUT',
+      ),
+  )
+})
+
+test('a refined scan updates the same native contact instead of duplicating it', () => {
+  const plugin = readFileSync(
+    new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),
+    'utf8',
+  )
+  const button = readFileSync(
+    new URL('../components/native-contact-save-button.tsx', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(plugin, /call\.getString\("existingIdentifier"\)/)
+  assert.match(plugin, /call\.getString\("requestId"\)/)
+  assert.match(plugin, /contactIdentifiersByRequestID/)
+  assert.match(plugin, /CNContact\.predicateForContacts/)
+  assert.match(plugin, /request\.update\(mutable\)/)
+  assert.match(plugin, /CONTACT_SAVE_TIMEOUT/)
+  assert.match(plugin, /cancelPendingContactSave\(generation\)/)
+  assert.match(plugin, /guard beginContactSaveIfCurrent\(generation\) else/)
+  assert.match(button, /savedIdentifierRef\.current = result\.identifier/)
+  assert.match(button, /requestId: requestIdRef\.current/)
+})
+
 test('reviewed local OCR can save immediately and later edits invalidate stale success', () => {
   const sheet = readFileSync(
     new URL('../components/scan-card-sheet.tsx', import.meta.url),
@@ -69,5 +108,5 @@ test('reviewed local OCR can save immediately and later edits invalidate stale s
   )
   assert.match(button, /changedDuringSaveRef\.current = true/)
   assert.match(button, /latestCardSignatureRef\.current !== startingCardSignature/)
-  assert.match(button, /update\(cardChanged \? 'idle' : outcome\)/)
+  assert.match(button, /update\(cardChanged \? 'idle' : result\.outcome\)/)
 })

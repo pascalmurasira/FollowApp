@@ -1,6 +1,7 @@
 import type { CardData } from './card'
 import { Capacitor } from '@capacitor/core'
 import { isNativeMethodUnavailableError } from './native-bridge.ts'
+import { nativeContactSaveWithin } from './native-contact-save.ts'
 
 function isNativeRuntimeNow(): boolean {
   if (typeof window === 'undefined') return false
@@ -175,7 +176,12 @@ interface FollowAppNativePlugin {
     listener: (event: NativeExchangeDockAction) => void,
   ): Promise<{ remove: () => Promise<void> }>
   openSettings(): Promise<void>
-  saveContact(card: CardData): Promise<{ saved?: boolean }>
+  saveContact(
+    card: CardData & {
+      existingIdentifier?: string
+      requestId?: string
+    },
+  ): Promise<{ saved?: boolean; identifier?: string }>
   notificationStatus(): Promise<{
     status?: 'granted' | 'denied' | 'prompt' | 'unsupported'
   }>
@@ -657,17 +663,24 @@ async function mediaResultToDataUrl(
   return thumbnail ? base64ToJpegDataUrl(thumbnail) : null
 }
 
-export type PhoneContactSaveResult = 'saved' | 'cancelled' | 'exported'
+export interface PhoneContactSaveResult {
+  outcome: 'saved' | 'cancelled' | 'exported'
+  identifier?: string
+}
 
 export async function saveContactToPhone(
   card: CardData,
+  options: { existingIdentifier?: string; requestId?: string } = {},
 ): Promise<PhoneContactSaveResult> {
   if (await isNativeRuntime()) {
     try {
-      const result = await (await followAppNativePlugin()).saveContact(card)
-      // The current iOS editor resolves false when the user cancels. Preserve
-      // that outcome instead of unexpectedly opening a second save flow.
-      return result.saved ? 'saved' : 'cancelled'
+      const result = await nativeContactSaveWithin(
+        (await followAppNativePlugin()).saveContact({ ...card, ...options }),
+      )
+      return {
+        outcome: result.saved ? 'saved' : 'cancelled',
+        ...(result.identifier ? { identifier: result.identifier } : {}),
+      }
     } catch (error) {
       if (
         isNativeUserCancelError(error) ||
@@ -685,7 +698,7 @@ export async function saveContactToPhone(
   saveToPhone(card)
   // A browser download/open is not proof that the person completed the import.
   // Keep this distinct from the native editor's confirmed saved result.
-  return 'exported'
+  return { outcome: 'exported' }
 }
 
 export type ReminderPermission =

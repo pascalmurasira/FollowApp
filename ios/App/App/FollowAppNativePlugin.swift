@@ -84,11 +84,19 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePrese
     ]
 
     private var contactCall: CAPPluginCall?
+    private var contactSaveGeneration: UInt64 = 0
     private let contactStore = CNContactStore()
     private let contactSaveQueue = DispatchQueue(
         label: "com.pascalmurasira.followapp.contact-save",
         qos: .userInitiated
     )
+    private let contactSaveWorkLock = NSLock()
+    private var enqueuedContactSaveGenerations: Set<UInt64> = []
+    private var startedContactSaveGenerations: Set<UInt64> = []
+    private var cancelledContactSaveGenerations: Set<UInt64> = []
+    // Accessed only on contactSaveQueue. A stable web request id lets a retry
+    // update an earlier save instead of creating a duplicate contact.
+    private var contactIdentifiersByRequestID: [String: String] = [:]
     private let reminderGenerationLock = NSLock()
     private var reminderGeneration: UInt64 = 0
     private var reminderIdentifierGenerations: [String: UInt64] = [:]
@@ -641,7 +649,9 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePrese
         DispatchQueue.global(qos: .userInitiated).async {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
+            // Keep this pass literal: it is the counterweight to cloud
+            // interpretation for unusual names, emails, and domains.
+            request.usesLanguageCorrection = false
             if #available(iOS 16.0, *) {
                 request.automaticallyDetectsLanguage = true
             }
@@ -912,8 +922,34 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePrese
                 ]
             }
 
+            let existingIdentifier = self.bounded(
+                call.getString("existingIdentifier"),
+                max: 200
+            )
+            let requestID = self.bounded(call.getString("requestId"), max: 200)
+            self.contactSaveGeneration &+= 1
+            let generation = self.contactSaveGeneration
             self.contactCall = call
-            self.authorizeAndSaveContact(contact, call: call)
+            // Permission prompts may legitimately take time, but a bridge call
+            // must never occupy the save slot forever.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+                guard let self,
+                      self.contactCall === call,
+                      self.contactSaveGeneration == generation else { return }
+                self.cancelPendingContactSave(generation)
+                self.rejectContactCall(
+                    call,
+                    message: "Saving to Contacts took too long. Please try again.",
+                    code: "CONTACT_SAVE_TIMEOUT"
+                )
+            }
+            self.authorizeAndSaveContact(
+                contact,
+                existingIdentifier: existingIdentifier,
+                requestID: requestID,
+                generation: generation,
+                call: call
+            )
         }
     }
 
@@ -929,10 +965,22 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePrese
         return false
     }
 
-    private func authorizeAndSaveContact(_ contact: CNMutableContact, call: CAPPluginCall) {
+    private func authorizeAndSaveContact(
+        _ contact: CNMutableContact,
+        existingIdentifier: String?,
+        requestID: String?,
+        generation: UInt64,
+        call: CAPPluginCall
+    ) {
         let status = CNContactStore.authorizationStatus(for: .contacts)
         if contactAccessAllowsSaving(status) {
-            saveContactToStore(contact, call: call)
+            saveContactToStore(
+                contact,
+                existingIdentifier: existingIdentifier,
+                requestID: requestID,
+                generation: generation,
+                call: call
+            )
             return
         }
 
@@ -948,7 +996,13 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePrese
                     // `.limited`, which still permits creating this contact.
                     let updatedStatus = CNContactStore.authorizationStatus(for: .contacts)
                     if granted || self.contactAccessAllowsSaving(updatedStatus) {
-                        self.saveContactToStore(contact, call: call)
+                        self.saveContactToStore(
+                            contact,
+                            existingIdentifier: existingIdentifier,
+                            requestID: requestID,
+                            generation: generation,
+                            call: call
+                        )
                     } else {
                         let detail = error.map { " \($0.localizedDescription)" } ?? ""
                         self.rejectContactCall(
@@ -975,21 +1029,127 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePrese
         }
     }
 
-    private func saveContactToStore(_ contact: CNMutableContact, call: CAPPluginCall) {
+    private func copyFollowAppFields(
+        from source: CNMutableContact,
+        to destination: CNMutableContact
+    ) {
+        destination.givenName = source.givenName
+        destination.middleName = source.middleName
+        destination.familyName = source.familyName
+        destination.jobTitle = source.jobTitle
+        destination.organizationName = source.organizationName
+        destination.phoneNumbers = source.phoneNumbers
+        destination.emailAddresses = source.emailAddresses
+        destination.urlAddresses = source.urlAddresses
+    }
+
+    private func markContactSaveEnqueued(_ generation: UInt64) {
+        contactSaveWorkLock.lock()
+        enqueuedContactSaveGenerations.insert(generation)
+        contactSaveWorkLock.unlock()
+    }
+
+    private func beginContactSaveIfCurrent(_ generation: UInt64) -> Bool {
+        contactSaveWorkLock.lock()
+        defer { contactSaveWorkLock.unlock() }
+        if cancelledContactSaveGenerations.remove(generation) != nil {
+            enqueuedContactSaveGenerations.remove(generation)
+            return false
+        }
+        enqueuedContactSaveGenerations.remove(generation)
+        startedContactSaveGenerations.insert(generation)
+        return true
+    }
+
+    private func cancelPendingContactSave(_ generation: UInt64) {
+        contactSaveWorkLock.lock()
+        if enqueuedContactSaveGenerations.contains(generation) &&
+            !startedContactSaveGenerations.contains(generation) {
+            cancelledContactSaveGenerations.insert(generation)
+        }
+        contactSaveWorkLock.unlock()
+    }
+
+    private func finishContactSave(_ generation: UInt64) {
+        contactSaveWorkLock.lock()
+        enqueuedContactSaveGenerations.remove(generation)
+        startedContactSaveGenerations.remove(generation)
+        cancelledContactSaveGenerations.remove(generation)
+        contactSaveWorkLock.unlock()
+    }
+
+    private func saveContactToStore(
+        _ contact: CNMutableContact,
+        existingIdentifier: String?,
+        requestID: String?,
+        generation: UInt64,
+        call: CAPPluginCall
+    ) {
         guard contactCall === call else { return }
+        markContactSaveEnqueued(generation)
         contactSaveQueue.async { [self] in
-            let request = CNSaveRequest()
-            request.add(contact, toContainerWithIdentifier: nil)
+            guard beginContactSaveIfCurrent(generation) else { return }
+            defer { finishContactSave(generation) }
             do {
+                let request = CNSaveRequest()
+                var savedContact = contact
+                let mappedIdentifier = requestID.flatMap {
+                    contactIdentifiersByRequestID[$0]
+                }
+                let identifierToUpdate = mappedIdentifier ?? existingIdentifier
+
+                if let identifierToUpdate {
+                    let keys = [
+                        CNContactIdentifierKey,
+                        CNContactGivenNameKey,
+                        CNContactMiddleNameKey,
+                        CNContactFamilyNameKey,
+                        CNContactJobTitleKey,
+                        CNContactOrganizationNameKey,
+                        CNContactPhoneNumbersKey,
+                        CNContactEmailAddressesKey,
+                        CNContactUrlAddressesKey,
+                    ] as [CNKeyDescriptor]
+                    let matches = try contactStore.unifiedContacts(
+                        matching: CNContact.predicateForContacts(
+                            withIdentifiers: [identifierToUpdate]
+                        ),
+                        keysToFetch: keys
+                    )
+                    if let mutable = matches.first?.mutableCopy() as? CNMutableContact {
+                        copyFollowAppFields(from: contact, to: mutable)
+                        savedContact = mutable
+                        request.update(mutable)
+                    } else {
+                        request.add(contact, toContainerWithIdentifier: nil)
+                    }
+                } else {
+                    request.add(contact, toContainerWithIdentifier: nil)
+                }
+
                 try contactStore.execute(request)
+                if let requestID, !savedContact.identifier.isEmpty {
+                    if contactIdentifiersByRequestID.count >= 256,
+                       contactIdentifiersByRequestID[requestID] == nil,
+                       let oldestKey = contactIdentifiersByRequestID.keys.first {
+                        contactIdentifiersByRequestID.removeValue(forKey: oldestKey)
+                    }
+                    contactIdentifiersByRequestID[requestID] = savedContact.identifier
+                }
                 DispatchQueue.main.async {
-                    guard self.contactCall === call else { return }
+                    guard self.contactCall === call,
+                          self.contactSaveGeneration == generation else { return }
                     _ = self.takeContactCall()
                     NSLog("[FollowApp] Contact saved to the device store.")
-                    call.resolve(["saved": true, "identifier": contact.identifier])
+                    call.resolve([
+                        "saved": true,
+                        "identifier": savedContact.identifier
+                    ])
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard self.contactCall === call,
+                          self.contactSaveGeneration == generation else { return }
                     let nsError = error as NSError
                     let permissionWasRevoked = nsError.domain == CNErrorDomain &&
                         nsError.code == CNError.Code.authorizationDenied.rawValue

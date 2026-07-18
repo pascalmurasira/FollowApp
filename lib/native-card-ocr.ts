@@ -45,7 +45,27 @@ const BUSINESS_CARD_FIELDS = [
 
 export interface ReconciledBusinessCard {
   card: PreliminaryBusinessCard
-  fallbackFields: (keyof PreliminaryBusinessCard)[]
+  reviewFields: (keyof PreliminaryBusinessCard)[]
+}
+
+function comparableCardField(
+  field: keyof PreliminaryBusinessCard,
+  value: string,
+): string {
+  const normalized = value.trim().normalize('NFKC')
+  if (field === 'phone') return normalized.replace(/\D/g, '')
+  if (field === 'email') return normalized.replace(/\s/g, '').toLowerCase()
+  if (field === 'website') {
+    const withoutPrefix = normalized
+      .replace(/^https?:\/\//i, '')
+      .replace(/^www\./i, '')
+    const authorityEnd = withoutPrefix.search(/[/?#]/)
+    if (authorityEnd < 0) return withoutPrefix.toLowerCase()
+    const authority = withoutPrefix.slice(0, authorityEnd).toLowerCase()
+    const suffix = withoutPrefix.slice(authorityEnd)
+    return `${authority}${suffix === '/' ? '' : suffix}`
+  }
+  return normalized.replace(/\s+/g, ' ').toLowerCase()
 }
 
 /**
@@ -56,18 +76,29 @@ export interface ReconciledBusinessCard {
 export function reconcileBusinessCardExtractions(
   cloud: PreliminaryBusinessCard,
   local: PreliminaryBusinessCard | null,
+  localConfidence?: number,
 ): ReconciledBusinessCard {
-  if (!local) return { card: { ...cloud }, fallbackFields: [] }
+  if (!local) return { card: { ...cloud }, reviewFields: [] }
 
   const card = { ...cloud }
-  const fallbackFields: (keyof PreliminaryBusinessCard)[] = []
+  const reviewFields: (keyof PreliminaryBusinessCard)[] = []
+  const trustDisagreements =
+    localConfidence === undefined || localConfidence >= 0.55
   for (const field of BUSINESS_CARD_FIELDS) {
     if (!card[field].trim() && local[field].trim()) {
       card[field] = local[field]
-      fallbackFields.push(field)
+      reviewFields.push(field)
+    } else if (
+      card[field].trim() &&
+      local[field].trim() &&
+      trustDisagreements &&
+      comparableCardField(field, card[field]) !==
+        comparableCardField(field, local[field])
+    ) {
+      reviewFields.push(field)
     }
   }
-  return { card, fallbackFields }
+  return { card, reviewFields }
 }
 
 interface FollowAppCardOcrPlugin {
