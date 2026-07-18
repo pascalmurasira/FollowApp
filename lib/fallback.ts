@@ -1,4 +1,5 @@
 import type { Contact, TalkingPoint } from '@/lib/types'
+import { actionEncounter } from '@/lib/encounters'
 
 // Deterministic, no-AI openers so the app is always useful even when the
 // model is rate-limited or offline. Varied by contact so the feed never
@@ -27,11 +28,31 @@ export function fallbackNudge(
   const days = contact.daysSinceContact
   const seed = contact.id + firstName
   const tone = fallbackTone(voice)
+  const encounter = actionEncounter(contact)
+  const nextStep = encounter?.nextStep?.status === 'open'
+    ? encounter.nextStep
+    : undefined
+
+  if (nextStep) {
+    const where = encounter?.event?.name
+      ? ` at ${encounter.event.name}`
+      : ''
+    const action = nextStep.label.replace(/^./, (character) =>
+      character.toLowerCase(),
+    )
+    return {
+      tone: 'direct',
+      text:
+        nextStep.kind === 'follow-up'
+          ? `Hi ${firstName}, it was great meeting you${where}. Following up as promised.`
+          : `Hi ${firstName}, it was great meeting you${where}. Following up as promised — I’ll ${action}.`,
+    }
+  }
 
   if (days >= 30) {
     const longGap: Record<typeof tone, string[]> = {
       warm: [
-        `${firstName}! It's been way too long. I keep thinking we're overdue for a proper catch-up — how are things?`,
+        `${firstName}! It's been way too long. I keep thinking a proper catch-up would be good — how are things?`,
         `Hey ${firstName}, you crossed my mind today and I realized it's been ages. No agenda — how have you been?`,
       ],
       direct: [
@@ -116,7 +137,7 @@ export function fallbackReplies(
       },
       {
         tone: 'plan',
-        text: `We're overdue for a proper catch-up. Free for a call this week?`,
+        text: `A proper catch-up would be good. Free for a call this week?`,
       },
     ]
   }
@@ -134,7 +155,7 @@ export function fallbackReplies(
     },
     {
       tone: 'plan',
-      text: `We're overdue for a proper catch-up. Free for a call this week?`,
+      text: `A proper catch-up would be good. Free for a call this week?`,
     },
   ]
 

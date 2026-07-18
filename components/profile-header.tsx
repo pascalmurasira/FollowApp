@@ -28,12 +28,12 @@ function initials(name: string) {
 export function ProfileHeader({
   voiceLabel,
   peopleCount,
-  streak,
+  conferenceCount,
   sentCount,
 }: {
   voiceLabel: string
   peopleCount: number
-  streak: number
+  conferenceCount: number
   sentCount: number
 }) {
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE)
@@ -159,10 +159,7 @@ export function ProfileHeader({
       )}
 
       <p className="-mt-1 text-sm text-[var(--ink-secondary)]">
-        {streak === 1
-          ? 'Active 1 day in a row'
-          : `Active ${streak} days in a row`}{' '}
-        ·{' '}
+        Follow-ups in{' '}
         <span className="font-medium text-[var(--ink-strong)]">{voiceLabel}</span>
       </p>
 
@@ -180,13 +177,13 @@ export function ProfileHeader({
           active={peopleCount > 0}
         />
         <Stat
-          value={streak}
-          label="day streak"
-          active={streak > 0}
+          value={conferenceCount}
+          label="met at events"
+          active={conferenceCount > 0}
         />
         <Stat
           value={sentCount}
-          label="sent"
+          label="followed up"
           active
         />
       </div>

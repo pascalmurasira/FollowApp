@@ -26,6 +26,8 @@ import { ImportContactsSheet } from '@/components/import-contacts-sheet'
 import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { MyCardSheet } from '@/components/my-card-sheet'
 import { QrScanSheet } from '@/components/qr-scan-sheet'
+import { ConferenceModeSheet } from '@/components/conference-mode-sheet'
+import { ConferenceInboxSheet } from '@/components/conference-inbox-sheet'
 import { InvitePrompt } from '@/components/invite-prompt'
 import {
   loadOnboarding,
@@ -78,7 +80,6 @@ import {
   normalizeLastContactedAt,
   todayDateInputValue,
 } from '@/lib/contact-dates'
-import { healthLevel } from '@/lib/format'
 import {
   isNativeRuntime,
   cancelAllFollowUpReminders,
@@ -95,12 +96,21 @@ import {
   clearContactAccessFailure,
   getContactSyncState,
 } from '@/lib/contact-sync-recovery'
+import { markInvited } from '@/lib/invite'
 import {
-  confirmedOutreachCount,
-  hasInvited,
-  INVITE_AFTER_CONFIRMED_OUTREACH,
-  markInvited,
-} from '@/lib/invite'
+  actionEncounter,
+  appendEncounter,
+  completeEncounterNextStep,
+  contactsForEvent,
+  createConferenceSession,
+  eventGroupsFromContacts,
+  findStrongContactMatch,
+  loadConferenceSession,
+  normalizeEncounters,
+  saveConferenceSession,
+  updateEncounterEventDetails,
+  type ConferenceSession,
+} from '@/lib/encounters'
 
 const TAB_ORDER: Tab[] = ['nudges', 'chats', 'you']
 const PENDING_OUTREACH_KEY = 'followapp.pending-outreach.v1'
@@ -120,6 +130,12 @@ interface ConfirmedOutreach {
   nextDate: string
   channel: OutreachChannel
   offerInvite: boolean
+  openNextStep?: {
+    label: string
+    capturedAt: string
+    eventId?: string
+  }
+  completedNextStep?: boolean
 }
 
 type ReminderTarget = Omit<ConfirmedOutreach, 'channel' | 'offerInvite'> & {
@@ -184,6 +200,12 @@ export function NudgeApp() {
   const [showScan, setShowScan] = useState(false)
   const [showCard, setShowCard] = useState(false)
   const [showScanQr, setShowScanQr] = useState(false)
+  const [conferenceSession, setConferenceSession] =
+    useState<ConferenceSession | null>(null)
+  const [showConferenceMode, setShowConferenceMode] = useState(false)
+  const [showConferenceInbox, setShowConferenceInbox] = useState(false)
+  const [conferenceInboxEventId, setConferenceInboxEventId] =
+    useState<string | null>(null)
   const [pendingOutreach, setPendingOutreach] =
     useState<PendingOutreach | null>(null)
   const [confirmedOutreach, setConfirmedOutreach] =
@@ -194,7 +216,6 @@ export function NudgeApp() {
   >('idle')
   const {
     hydrated: engagementHydrated,
-    streak,
     snoozedIds,
     remindersEnabled,
     scheduledReminderDates,
@@ -208,6 +229,11 @@ export function NudgeApp() {
     clearAllScheduledReminders,
   } = useEngagement()
   const reminderReconcileRef = useRef(new Set<string>())
+  const contactsRef = useRef(contacts)
+
+  useEffect(() => {
+    contactsRef.current = contacts
+  }, [contacts])
 
   // 'pending' until we've checked localStorage, then 'onboarding' or 'app'.
   const [phase, setPhase] = useState<'pending' | 'onboarding' | 'app'>('pending')
@@ -285,6 +311,7 @@ export function NudgeApp() {
 
   useEffect(() => {
     setPendingOutreach(readPendingOutreach())
+    setConferenceSession(loadConferenceSession())
   }, [])
 
   useEffect(() => {
@@ -510,6 +537,41 @@ export function NudgeApp() {
   }, [])
 
   const addContact = useCallback((input: NewContactInput): Contact => {
+    const incomingEncounter = input.encounters?.at(-1)
+    const existing = incomingEncounter
+      ? findStrongContactMatch(
+          contactsRef.current.filter(
+            (contact) => !DEMO_CONTACT_IDS.has(contact.id),
+          ),
+          input,
+        )
+      : undefined
+    if (existing && incomingEncounter) {
+      const combinedContext = input.context?.trim()
+        ? existing.context.includes(input.context.trim())
+          ? existing.context
+          : `${existing.context}\n${input.context.trim()}`.trim()
+        : existing.context
+      const updates: ContactUpdateInput = {
+        title: existing.title || input.title || '',
+        phone: existing.phone || input.phone || '',
+        email: existing.email || input.email || '',
+        context: combinedContext,
+        encounters: appendEncounter(existing.encounters, incomingEncounter),
+      }
+      const merged = applyContactUpdate(existing, updates)
+      contactsRef.current = contactsRef.current.map((contact) =>
+        contact.id === existing.id ? merged : contact,
+      )
+      setContacts(contactsRef.current)
+      const deviceId = getDeviceId()
+      if (deviceId) void apiUpdateContact(deviceId, existing.id, updates, signedIn)
+      trackProductEvent('encounter_duplicate_merged', {
+        match: existing.email && input.email ? 'email' : 'phone',
+      })
+      return merged
+    }
+
     const contact = createContact(input)
     const group = normalizeCircleName(input.group)
     const deviceId = getDeviceId()
@@ -519,10 +581,12 @@ export function NudgeApp() {
       setGroupTags((prev) => ({ ...prev, [contact.id]: [group] }))
     }
     leaveSampleMode()
-    setContacts((prev) => [
-      ...prev.filter((item) => !DEMO_CONTACT_IDS.has(item.id)),
+    const nextContacts = [
+      ...contactsRef.current.filter((item) => !DEMO_CONTACT_IDS.has(item.id)),
       { ...contact, groups: group ? [group] : [] },
-    ])
+    ]
+    contactsRef.current = nextContacts
+    setContacts(nextContacts)
     if (deviceId) {
       void apiAddContact(deviceId, contact, signedIn)
       if (group) void apiSetCircle(deviceId, contact.id, group, signedIn)
@@ -692,6 +756,100 @@ export function NudgeApp() {
 
   // Every group name currently in use, for the add sheet and feed filter.
   const groups = useMemo(() => allGroupNames(groupTags), [groupTags])
+  const conferenceEvents = useMemo(
+    () => eventGroupsFromContacts(contacts),
+    [contacts],
+  )
+  const currentConferenceSummary = useMemo(
+    () =>
+      conferenceSession
+        ? conferenceEvents.find(
+            (summary) => summary.event.id === conferenceSession.id,
+          )
+        : conferenceEvents[0],
+    [conferenceEvents, conferenceSession],
+  )
+  const currentConferenceContacts = useMemo(
+    () =>
+      conferenceSession
+        ? contactsForEvent(contacts, conferenceSession.id)
+        : [],
+    [conferenceSession, contacts],
+  )
+
+  const startConference = useCallback(
+    (name: string, location?: string) => {
+      const next = {
+        ...createConferenceSession(name),
+        location,
+      }
+      saveConferenceSession(next)
+      setConferenceSession(next)
+      setConferenceInboxEventId(next.id)
+      setShowConferenceMode(false)
+      setShowScan(true)
+      trackProductEvent('conference_mode_started', { has_location: Boolean(location) })
+    },
+    [],
+  )
+
+  const updateConference = useCallback(
+    (name: string, location?: string): ConferenceSession | null => {
+      if (!conferenceSession) return null
+      const next = { ...conferenceSession, name, location }
+      saveConferenceSession(next)
+      setConferenceSession(next)
+      const detailsChanged =
+        conferenceSession.name !== next.name ||
+        conferenceSession.location !== next.location
+      if (detailsChanged) {
+        for (const contact of contactsRef.current) {
+          if (
+            DEMO_CONTACT_IDS.has(contact.id) ||
+            !normalizeEncounters(contact.encounters).some(
+              (encounter) => encounter.event?.id === next.id,
+            )
+          ) {
+            continue
+          }
+          updateContact(contact.id, {
+            encounters: updateEncounterEventDetails(contact.encounters, next),
+          })
+        }
+      }
+      return next
+    },
+    [conferenceSession, updateContact],
+  )
+
+  const endConference = useCallback((name?: string, location?: string) => {
+    if (!conferenceSession) return
+    const current = name
+      ? updateConference(name, location) ?? conferenceSession
+      : conferenceSession
+    const next = {
+      ...current,
+      active: false,
+      endedAt: new Date().toISOString(),
+    }
+    saveConferenceSession(next)
+    setConferenceSession(next)
+    setConferenceInboxEventId(next.id)
+    setShowConferenceMode(false)
+    setShowScan(false)
+    setShowConferenceInbox(true)
+    trackProductEvent('conference_mode_ended', {
+      captured_count: currentConferenceContacts.length,
+    })
+  }, [conferenceSession, currentConferenceContacts.length, updateConference])
+
+  const openConferenceInbox = useCallback((eventId?: string) => {
+    setConferenceInboxEventId(
+      eventId ?? conferenceSession?.id ?? conferenceEvents[0]?.event.id ?? null,
+    )
+    setShowConferenceMode(false)
+    setShowConferenceInbox(true)
+  }, [conferenceEvents, conferenceSession])
 
   const activeContact = useMemo(
     () => contacts.find((c) => c.id === activeId) ?? null,
@@ -837,16 +995,24 @@ export function NudgeApp() {
         ) ??
         todayDateInputValue()
       : todayDateInputValue()
+    const encounter = actionEncounter(contact)
+    const openNextStep =
+      encounter?.nextStep?.status === 'open'
+        ? {
+            label: encounter.nextStep.label,
+            capturedAt: encounter.capturedAt,
+            eventId: encounter.event?.id,
+          }
+        : undefined
     const result: ConfirmedOutreach = {
       contactId: contact.id,
       contactName: contact.name,
       nextDate: nextFollowUpDateInput(lastContactedAt, contact.tier),
       channel: pendingOutreach.channel,
-      offerInvite:
-        !previousConfirmation &&
-        confirmedOutreachCount(contacts) + 1 >=
-          INVITE_AFTER_CONFIRMED_OUTREACH &&
-        !hasInvited(contact.id),
+      // Growth never interrupts a real relationship moment. Conference QR
+      // exchange is the acquisition loop; a confirmed personal message is not.
+      offerInvite: false,
+      openNextStep,
     }
 
     if (!previousConfirmation) {
@@ -898,6 +1064,35 @@ export function NudgeApp() {
     persistPendingOutreach(null)
     setPendingOutreach(null)
   }, [openContact, pendingOutreach])
+
+  const completeConfirmedNextStep = useCallback(() => {
+    const target = confirmedOutreach?.openNextStep
+    if (!confirmedOutreach || !target || confirmedOutreach.completedNextStep) {
+      return
+    }
+    const contact = contacts.find(
+      (item) => item.id === confirmedOutreach.contactId,
+    )
+    if (!contact) return
+    const current = normalizeEncounters(contact.encounters)
+    const stillOpen = current.some(
+      (encounter) =>
+        encounter.capturedAt === target.capturedAt &&
+        encounter.event?.id === target.eventId &&
+        encounter.nextStep?.status === 'open',
+    )
+    if (!stillOpen) return
+
+    updateContact(contact.id, {
+      encounters: completeEncounterNextStep(current, target),
+    })
+    setConfirmedOutreach((value) =>
+      value ? { ...value, completedNextStep: true } : value,
+    )
+    trackProductEvent('next_step_completed', {
+      source: 'outreach_confirmation',
+    })
+  }, [confirmedOutreach, contacts, updateContact])
 
   const optInToReminder = useCallback(async () => {
     if (!confirmedOutreach || reminderState === 'requesting') return
@@ -954,6 +1149,14 @@ export function NudgeApp() {
         contacts={contacts}
         onComplete={completeOnboarding}
         onScanContact={addScannedContact}
+        conferenceSession={conferenceSession}
+        onStartConference={() => {
+          const next = createConferenceSession("Today's conference")
+          saveConferenceSession(next)
+          setConferenceSession(next)
+          setConferenceInboxEventId(next.id)
+          return next
+        }}
       />
     )
   }
@@ -1020,22 +1223,9 @@ export function NudgeApp() {
                     {tab === 'nudges' ? 'Follow-ups' : tab === 'chats' ? 'People' : 'You'}
                   </h1>
                   <p className="mt-1 hidden text-[13px] text-[var(--ink-secondary)] lg:block">
-                    {
-                      contacts.filter(
-                        (contact) =>
-                          healthLevel(contact.daysSinceContact, contact.tier) ===
-                          'on-track',
-                      ).length
-                    }{' '}
-                    on track ·{' '}
-                    {
-                      contacts.filter(
-                        (contact) =>
-                          healthLevel(contact.daysSinceContact, contact.tier) ===
-                          'overdue',
-                      ).length
-                    }{' '}
-                    overdue
+                    {conferenceSession?.active
+                      ? `${currentConferenceContacts.length} captured at ${conferenceSession.name}`
+                      : `${contacts.length} people · ${conferenceEvents.length} conference ${conferenceEvents.length === 1 ? 'event' : 'events'}`}
                   </p>
                 </div>
               </div>
@@ -1091,6 +1281,12 @@ export function NudgeApp() {
                   onSnooze={snooze}
                   onScan={() => setShowScan(true)}
                   onShowCard={() => setShowCard(true)}
+                  conferenceSession={conferenceSession}
+                  conferenceSummary={currentConferenceSummary}
+                  onManageConference={() => setShowConferenceMode(true)}
+                  onReviewConference={() =>
+                    openConferenceInbox(currentConferenceSummary?.event.id)
+                  }
                 />
               ) : tab === 'chats' ? (
                 <div className="flex flex-col">
@@ -1101,7 +1297,6 @@ export function NudgeApp() {
                 <YouPanel
                   voiceLabel={toneLabel}
                   contacts={contacts}
-                  streak={streak}
                   groups={groups}
                   onAddPerson={() => setShowAddContact(true)}
                   onSetGroup={setContactGroup}
@@ -1147,6 +1342,13 @@ export function NudgeApp() {
         autoLaunchCamera
         onClose={() => setShowScan(false)}
         onAdd={addScannedContact}
+        conferenceSession={conferenceSession}
+        stayAfterSave={conferenceSession?.active === true}
+        onShowCard={() => {
+          setShowScan(false)
+          setShowCard(true)
+        }}
+        onFinishCapture={() => setShowScan(false)}
         onOpenContact={(contactId) => {
           setPinnedIds((previous) => [
             contactId,
@@ -1160,9 +1362,48 @@ export function NudgeApp() {
         open={showScanQr}
         onClose={() => setShowScanQr(false)}
         onAdd={addScannedContact}
+        conferenceSession={conferenceSession}
+        onShowCard={() => {
+          setShowScanQr(false)
+          setShowCard(true)
+        }}
       />
 
       <MyCardSheet open={showCard} onClose={() => setShowCard(false)} />
+
+      <ConferenceModeSheet
+        open={showConferenceMode}
+        session={conferenceSession}
+        capturedCount={currentConferenceContacts.length}
+        onClose={() => setShowConferenceMode(false)}
+        onStart={startConference}
+        onUpdate={(name, location) => {
+          updateConference(name, location)
+        }}
+        onScan={(name, location) => {
+          updateConference(name, location)
+          setShowConferenceMode(false)
+          setShowScan(true)
+        }}
+        onReview={() =>
+          openConferenceInbox(conferenceSession?.id ?? undefined)
+        }
+        onEnd={endConference}
+      />
+
+      <ConferenceInboxSheet
+        open={showConferenceInbox}
+        contacts={contacts.filter(
+          (contact) => !DEMO_CONTACT_IDS.has(contact.id),
+        )}
+        initialEventId={conferenceInboxEventId}
+        onClose={() => setShowConferenceInbox(false)}
+        onUpdate={updateContact}
+        onOpenContact={(contactId) => {
+          setShowConferenceInbox(false)
+          openContact(contactId)
+        }}
+      />
 
       <OutreachConfirmation
         pending={pendingOutreach}
@@ -1184,6 +1425,7 @@ export function NudgeApp() {
         reminderState={reminderState}
         onConfirm={confirmPendingOutreach}
         onNotYet={rejectPendingOutreach}
+        onCompleteNextStep={completeConfirmedNextStep}
         onEnableReminder={() => void optInToReminder()}
         onOpenSettings={() => void openAppSettings()}
         onDismissInvite={() => {
@@ -1214,6 +1456,7 @@ function OutreachConfirmation({
   reminderState,
   onConfirm,
   onNotYet,
+  onCompleteNextStep,
   onEnableReminder,
   onOpenSettings,
   onDismissInvite,
@@ -1227,6 +1470,7 @@ function OutreachConfirmation({
   reminderState: 'idle' | 'requesting' | 'scheduled' | 'denied' | 'error'
   onConfirm: () => void
   onNotYet: () => void
+  onCompleteNextStep: () => void
   onEnableReminder: () => void
   onOpenSettings: () => void
   onDismissInvite: () => void
@@ -1294,6 +1538,35 @@ function OutreachConfirmation({
                 </span>
                 .
               </p>
+
+              {confirmed.openNextStep && (
+                <div className="mt-4 rounded-2xl border border-[var(--hairline)] bg-white/20 p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
+                    Promised next step
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--ink-strong)]">
+                    {confirmed.openNextStep.label}
+                  </p>
+                  {confirmed.completedNextStep ? (
+                    <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--status-on-track)]">
+                      <Check className="size-3.5" /> Marked complete
+                    </p>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={onCompleteNextStep}
+                        className="glass-button pressable mt-3 min-h-10 w-full rounded-full px-4 text-xs font-semibold text-[var(--ink-strong)]"
+                      >
+                        Mark next step complete
+                      </button>
+                      <p className="mt-2 text-center text-[10px] leading-relaxed text-[var(--ink-tertiary)]">
+                        Leave it open if there is still more to do.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
 
               {reminderAvailable && reminderState !== 'scheduled' && (
                 <button

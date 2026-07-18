@@ -1,6 +1,9 @@
 import type { CardData } from './card'
 import { Capacitor } from '@capacitor/core'
-import { isNativeMethodUnavailableError } from './native-bridge.ts'
+import {
+  isNativeCameraAdapterUnavailableError,
+  isNativeMethodUnavailableError,
+} from './native-bridge.ts'
 
 function isNativeRuntimeNow(): boolean {
   if (typeof window === 'undefined') return false
@@ -127,12 +130,22 @@ export async function openAppSettings(): Promise<void> {
 export async function captureImageDataUrl(): Promise<string | null> {
   if (!(await isNativeRuntime())) return null
 
-  // Capacitor 8's maintained takePhoto implementation owns the camera hot
-  // path. The previous custom UIImagePickerController bridge could leave its
-  // promise pending when iOS declined or interrupted presentation, which kept
-  // the sheet on "Opening camera…" forever. takePhoto also gives us one camera
-  // implementation per tap instead of attempting a second picker after an
-  // ambiguous native failure.
+  // Prefer FollowApp's prewarmed native picker. Its presentation watchdog
+  // guarantees a rejected promise when UIKit declines the transition, so the
+  // UI cannot remain stuck on "Opening camera…". Only fall back when an older
+  // native shell genuinely does not expose the method; never open a second
+  // picker after a permission, cancellation, or presentation error.
+  try {
+    const result = await (await followAppNativePlugin()).takeBusinessCardPhoto()
+    return result.dataUrl ?? null
+  } catch (error) {
+    if (!isNativeCameraAdapterUnavailableError(error)) throw error
+    console.warn(
+      '[v0] Fast business-card camera unavailable, using Capacitor fallback:',
+      error,
+    )
+  }
+
   const { Camera, CameraDirection, EncodingType } = await import(
     '@capacitor/camera'
   )
@@ -150,6 +163,20 @@ export async function captureImageDataUrl(): Promise<string | null> {
   return mediaResultToDataUrl(photo.webPath, photo.uri, photo.thumbnail)
 }
 
+/** Prepare an already-authorized iOS camera without requesting or presenting. */
+export async function prepareBusinessCardCamera(): Promise<boolean> {
+  if (!(await isNativeRuntime())) return false
+  try {
+    const result = await (await followAppNativePlugin()).prepareBusinessCardCamera()
+    return result.prepared === true
+  } catch (error) {
+    if (!isNativeMethodUnavailableError(error)) {
+      console.warn('[v0] Business-card camera prewarm failed:', error)
+    }
+    return false
+  }
+}
+
 interface FollowAppNativePlugin {
   addListener(
     eventName: 'followUpReminderTapped',
@@ -160,6 +187,8 @@ interface FollowAppNativePlugin {
     available?: boolean
     permission?: 'granted' | 'prompt' | 'denied' | 'restricted' | 'unknown'
   }>
+  prepareBusinessCardCamera(): Promise<{ prepared?: boolean }>
+  takeBusinessCardPhoto(): Promise<{ dataUrl?: string }>
   saveContact(card: CardData): Promise<{ saved?: boolean }>
   notificationStatus(): Promise<{
     status?: 'granted' | 'denied' | 'prompt' | 'unsupported'

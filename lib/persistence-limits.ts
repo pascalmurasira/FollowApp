@@ -14,6 +14,15 @@ export const CONTACT_LIMITS = {
   daysSinceContact: 3_650,
 } as const
 
+export const ENCOUNTER_LIMITS = {
+  encounters: 20,
+  eventId: 160,
+  eventName: 120,
+  location: 160,
+  memorySeed: 280,
+  nextStepLabel: 280,
+} as const
+
 export const PROFILE_LIMITS = {
   name: 200,
   photoUrl: 500_000,

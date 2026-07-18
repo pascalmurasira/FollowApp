@@ -29,6 +29,9 @@ interface ReqContact {
   interests: string[]
   daysSinceContact: number
   lastMessage?: string
+  eventName?: string
+  memorySeed?: string
+  nextStep?: string
 }
 
 const requestSchema = z.object({
@@ -43,6 +46,9 @@ const requestSchema = z.object({
         interests: z.array(z.string().max(300)).max(30),
         daysSinceContact: z.number().finite().min(0).max(100_000),
         lastMessage: z.string().max(2_000).optional(),
+        eventName: z.string().max(120).optional(),
+        memorySeed: z.string().max(280).optional(),
+        nextStep: z.string().max(280).optional(),
       }),
     )
     .max(50),
@@ -80,6 +86,8 @@ export async function POST(req: Request) {
     'Rules for every message:',
     '- Sound like a real human texting, not a greeting card. No "Hope this finds you well".',
     '- Reference something specific about the person (their context or interests) so it feels personal.',
+    '- If a confirmed next step is supplied, make that commitment the natural purpose of the message.',
+    '- A memory clue is private grounding. Use it only when socially appropriate; never copy sensitive wording or claim certainty beyond it.',
     '- Acknowledge the gap lightly only when it has been a long time, and never guilt-trip.',
     '- Keep it to 1-2 sentences. Easy to send with zero editing.',
     `- Match this desired voice: "${voice}".`,
@@ -95,6 +103,9 @@ export async function POST(req: Request) {
         `Context: ${c.context}`,
         `Interests: ${c.interests.join(', ')}`,
         `Days since last contact: ${c.daysSinceContact}`,
+        c.eventName ? `Where we met: ${c.eventName}` : 'No event supplied.',
+        c.memorySeed ? `Private memory clue: ${c.memorySeed}` : 'No memory clue supplied.',
+        c.nextStep ? `Confirmed next step: ${c.nextStep}` : 'No promised next step supplied.',
         c.lastMessage ? `Their last message: "${c.lastMessage}"` : 'No prior messages.',
       ].join('\n'),
     )

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Contact } from '@/lib/types'
 import { fallbackNudge } from '@/lib/fallback'
+import { actionEncounter } from '@/lib/encounters'
 
 export interface Nudge {
   tone: string
@@ -54,15 +55,25 @@ export function useNudges(contacts: Contact[], voice: string) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           voice,
-          contacts: contacts.map((c) => ({
-            id: c.id,
-            name: c.name,
-            relationship: c.relationship,
-            context: c.context,
-            interests: c.interests,
-            daysSinceContact: c.daysSinceContact,
-            lastMessage: c.messages[c.messages.length - 1]?.text,
-          })),
+          contacts: contacts.map((c) => {
+            const encounter = actionEncounter(c)
+            const reviewed = encounter?.reviewState === 'reviewed'
+            return {
+              id: c.id,
+              name: c.name,
+              relationship: c.relationship,
+              context: c.context,
+              interests: c.interests,
+              daysSinceContact: c.daysSinceContact,
+              lastMessage: c.messages[c.messages.length - 1]?.text,
+              eventName: reviewed ? encounter.event?.name : undefined,
+              memorySeed: reviewed ? encounter.memorySeed : undefined,
+              nextStep:
+                reviewed && encounter.nextStep?.status === 'open'
+                  ? encounter.nextStep.label
+                  : undefined,
+            }
+          }),
         }),
         signal: controller.signal,
       })

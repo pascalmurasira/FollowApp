@@ -344,7 +344,7 @@ export function AddContactSheet({
               <p className="mt-1.5 px-1 text-[12px] text-[var(--ink-secondary)]">
                 {lastContactedAt
                   ? 'FollowApp will time reminders from this date.'
-                  : 'No date means due now as “never contacted”.'}
+                  : 'No date means ready for a first follow-up.'}
               </p>
             </Field>
 

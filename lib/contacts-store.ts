@@ -1,4 +1,4 @@
-import type { Contact, Message, Tier } from '@/lib/types'
+import type { Contact, ContactEncounter, Message, Tier } from '@/lib/types'
 import { cadenceForTier } from '@/lib/format'
 import {
   daysForLastContactedAt,
@@ -29,6 +29,7 @@ import {
   type PendingContactOperation,
 } from '@/lib/contact-sync-recovery'
 import { CONTACT_LIMITS } from '@/lib/persistence-limits'
+import { normalizeEncounters } from '@/lib/encounters'
 
 export { ContactImportError } from '@/lib/contact-import-utils'
 
@@ -133,6 +134,7 @@ export interface NewContactInput {
   email?: string
   context?: string
   interests?: string[]
+  encounters?: ContactEncounter[]
   group?: string
   /** YYYY-MM-DD. Null/blank means "never contacted". */
   lastContactedAt?: string | null
@@ -229,6 +231,7 @@ export function createContact(input: NewContactInput, seed = Date.now()): Contac
       .map((interest) => cappedText(interest, CONTACT_LIMITS.interest))
       .filter(Boolean)
       .slice(0, CONTACT_LIMITS.interests),
+    encounters: normalizeEncounters(input.encounters),
     groups: group ? [group] : [],
     messages: [],
   }
@@ -380,6 +383,7 @@ export function refreshContactFreshness(contact: Contact): Contact {
   )
   return {
     ...contact,
+    encounters: normalizeEncounters(contact.encounters),
     lastContactedAt:
       normalizedLastContactedAt === undefined
         ? contact.lastContactedAt
@@ -460,6 +464,7 @@ export interface ContactUpdateInput {
   email?: string
   context?: string
   interests?: string[]
+  encounters?: ContactEncounter[] | null
   lastContactedAt?: string | null
 }
 
@@ -515,6 +520,12 @@ export function applyContactUpdate(
             )
             .filter(Boolean)
             .slice(0, CONTACT_LIMITS.interests),
+    encounters:
+      updates.encounters === undefined
+        ? contact.encounters
+        : updates.encounters === null
+          ? undefined
+          : normalizeEncounters(updates.encounters),
     lastContactedAt: nextLastContactedAt,
     daysSinceContact: daysForLastContactedAt(
       nextLastContactedAt,
@@ -539,6 +550,9 @@ function normalizedUpdatePayload(
   if (requested.email !== undefined) result.email = next.email ?? ''
   if (requested.context !== undefined) result.context = next.context
   if (requested.interests !== undefined) result.interests = next.interests
+  if (requested.encounters !== undefined) {
+    result.encounters = next.encounters ?? null
+  }
   if (requested.lastContactedAt !== undefined) {
     result.lastContactedAt = next.lastContactedAt ?? null
   }
@@ -830,6 +844,7 @@ function fullContactUpdate(contact: Contact): ContactUpdateInput {
     email: contact.email ?? '',
     context: contact.context,
     interests: contact.interests,
+    encounters: contact.encounters ?? null,
     lastContactedAt: contact.lastContactedAt ?? null,
   }
 }
