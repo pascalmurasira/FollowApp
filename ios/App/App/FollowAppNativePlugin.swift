@@ -81,6 +81,9 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     ]
 
     private var contactCall: CAPPluginCall?
+    private var contactNavigationController: UINavigationController?
+    private var contactPresentationGeneration: UInt64 = 0
+    private var contactPresentationConfirmed = false
     private let contactStore = CNContactStore()
     private let reminderGenerationLock = NSLock()
     private var reminderGeneration: UInt64 = 0
@@ -271,6 +274,11 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     }
 
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        if presentationController.presentedViewController === contactNavigationController {
+            let call = takeContactCall()
+            call?.resolve(["saved": false])
+            return
+        }
         guard presentationController.presentedViewController === exchangeDockController else { return }
         exchangeDockController = nil
     }
@@ -879,13 +887,6 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
                 call.reject("A contact name is required.", "INVALID_CONTACT")
                 return
             }
-            guard let viewController = self.bridge?.viewController,
-                  let presenter = self.topViewController(from: viewController),
-                  presenter.viewIfLoaded?.window != nil,
-                  !presenter.isBeingDismissed else {
-                call.reject("Contacts could not be opened.", "CONTACT_UNAVAILABLE")
-                return
-            }
 
             let contact = CNMutableContact()
             let components = PersonNameComponentsFormatter().personNameComponents(from: name)
@@ -908,39 +909,209 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
                 ]
             }
 
-            let editor = CNContactViewController(forNewContact: contact)
-            // ContactsUI deliberately disables Add/Done when no store is set.
-            // Keep one store for the plugin lifetime and give it to every new
-            // contact editor so the reviewed card can actually be committed.
-            editor.contactStore = self.contactStore
-            editor.delegate = self
-            let navigationController = UINavigationController(rootViewController: editor)
-            navigationController.modalPresentationStyle =
-                UIDevice.current.userInterfaceIdiom == .pad ? .formSheet : .fullScreen
-            navigationController.isModalInPresentation = true
             self.contactCall = call
-            let presentationStartedAt = ProcessInfo.processInfo.systemUptime
-            presenter.present(navigationController, animated: true) {
-                let elapsedMilliseconds = Int(
-                    (ProcessInfo.processInfo.systemUptime - presentationStartedAt) * 1_000
-                )
-                NSLog("[FollowApp] Contact editor presented in %d ms.", elapsedMilliseconds)
-            }
+            self.authorizeAndPresentContact(contact, call: call)
+        }
+    }
 
-            // UIKit can decline a presentation during another controller's
-            // transition without completing the bridge call. Reject that case
-            // instead of leaving the web UI permanently busy.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak navigationController] in
-                guard let self,
-                      self.contactCall === call,
-                      let navigationController,
-                      navigationController.presentingViewController == nil ||
-                        navigationController.viewIfLoaded?.window == nil else {
-                    return
+    private func authorizeAndPresentContact(_ contact: CNMutableContact, call: CAPPluginCall) {
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        switch status {
+        case .authorized:
+            presentContactEditor(contact, call: call)
+        case .notDetermined:
+            // Request explicitly rather than letting ContactsUI perform
+            // implicit contact-store work during presentation. Apart from
+            // producing a clearer permission outcome, this keeps that work
+            // off the main queue so the presentation watchdog can always run.
+            contactStore.requestAccess(for: .contacts) { [weak self] granted, error in
+                DispatchQueue.main.async {
+                    guard let self, self.contactCall === call else { return }
+                    if granted {
+                        self.presentContactEditor(contact, call: call)
+                    } else {
+                        let detail = error.map { " \($0.localizedDescription)" } ?? ""
+                        self.rejectContactCall(
+                            call,
+                            message: "Contacts access was denied.\(detail)",
+                            code: "CONTACT_PERMISSION_DENIED",
+                            error: error
+                        )
+                    }
                 }
-                self.contactCall = nil
-                call.reject("Contacts could not be opened.", "CONTACT_PRESENTATION_FAILED")
             }
+        case .denied, .restricted:
+            rejectContactCall(
+                call,
+                message: "Contacts permission was denied. Open Settings to allow access.",
+                code: "CONTACT_PERMISSION_DENIED"
+            )
+        default:
+            if #available(iOS 18.0, *), status == .limited {
+                // Apps automatically retain access to contacts they create,
+                // so limited access is sufficient for this user-initiated add.
+                presentContactEditor(contact, call: call)
+            } else {
+                rejectContactCall(
+                    call,
+                    message: "Contacts are unavailable on this device.",
+                    code: "CONTACT_UNAVAILABLE"
+                )
+            }
+        }
+    }
+
+    private func presentContactEditor(
+        _ contact: CNMutableContact,
+        call: CAPPluginCall,
+        readinessAttempt: Int = 0,
+        presentationAttempt: Int = 0
+    ) {
+        guard contactCall === call else { return }
+        guard let viewController = bridge?.viewController,
+              let presenter = topViewController(from: viewController),
+              presenter.viewIfLoaded?.window != nil else {
+            rejectContactCall(
+                call,
+                message: "Contacts could not be opened.",
+                code: "CONTACT_UNAVAILABLE"
+            )
+            return
+        }
+
+        // A camera or another system controller can still be completing its
+        // dismissal when the web sheet becomes interactive. Wait briefly for
+        // a stable presenter instead of asking UIKit to overlap transitions.
+        let presenterIsTransitioning = presenter.isBeingPresented ||
+            presenter.isBeingDismissed || presenter.transitionCoordinator != nil
+        if presenterIsTransitioning {
+            guard readinessAttempt < 20 else {
+                rejectContactCall(
+                    call,
+                    message: "Contacts could not be opened while another screen was closing.",
+                    code: "CONTACT_PRESENTATION_FAILED"
+                )
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.presentContactEditor(
+                    contact,
+                    call: call,
+                    readinessAttempt: readinessAttempt + 1,
+                    presentationAttempt: presentationAttempt
+                )
+            }
+            return
+        }
+
+        let editor = CNContactViewController(forNewContact: contact)
+        // ContactsUI deliberately disables Add/Done when no store is set.
+        // Keep one store for the plugin lifetime and give it to every new
+        // contact editor so the reviewed card can actually be committed.
+        editor.contactStore = contactStore
+        editor.delegate = self
+        editor.allowsEditing = true
+
+        let navigationController = UINavigationController(rootViewController: editor)
+        navigationController.modalPresentationStyle =
+            UIDevice.current.userInterfaceIdiom == .pad ? .formSheet : .fullScreen
+        navigationController.isModalInPresentation = true
+        navigationController.presentationController?.delegate = self
+
+        contactPresentationGeneration &+= 1
+        let generation = contactPresentationGeneration
+        contactPresentationConfirmed = false
+        // Retain the controller until every success/failure path settles. The
+        // old weak watchdog lost the controller precisely when UIKit declined
+        // a presentation, leaving the Capacitor promise pending forever.
+        contactNavigationController = navigationController
+        let presentationStartedAt = ProcessInfo.processInfo.systemUptime
+        NSLog("[FollowApp] Contact editor presentation requested.")
+
+        presenter.present(navigationController, animated: true) { [weak self] in
+            guard let self,
+                  self.contactCall === call,
+                  self.contactPresentationGeneration == generation,
+                  self.contactNavigationController === navigationController else {
+                return
+            }
+            self.contactPresentationConfirmed = true
+            navigationController.presentationController?.delegate = self
+            let elapsedMilliseconds = Int(
+                (ProcessInfo.processInfo.systemUptime - presentationStartedAt) * 1_000
+            )
+            NSLog("[FollowApp] Contact editor presented in %d ms.", elapsedMilliseconds)
+        }
+
+        // View-hierarchy links can exist even when a presentation transition
+        // never completes. The completion callback is the authoritative proof
+        // that Contacts became visible.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self,
+                  self.contactCall === call,
+                  self.contactPresentationGeneration == generation else {
+                return
+            }
+            guard self.contactPresentationConfirmed,
+                  navigationController.presentingViewController != nil,
+                  navigationController.viewIfLoaded?.window != nil else {
+                NSLog("[FollowApp] Contact editor presentation did not complete.")
+                self.contactPresentationGeneration &+= 1
+                self.contactPresentationConfirmed = false
+                self.contactNavigationController = nil
+
+                let retryOrReject = { [weak self] in
+                    guard let self, self.contactCall === call else { return }
+                    if presentationAttempt == 0 {
+                        self.presentContactEditor(
+                            contact,
+                            call: call,
+                            presentationAttempt: 1
+                        )
+                    } else {
+                        self.rejectContactCall(
+                            call,
+                            message: "Contacts could not be opened.",
+                            code: "CONTACT_PRESENTATION_FAILED"
+                        )
+                    }
+                }
+
+                if navigationController.presentingViewController != nil {
+                    navigationController.dismiss(animated: false)
+                }
+                // Never depend on a dismissal completion to settle the bridge
+                // call. A failed UIKit transition is exactly the condition we
+                // are recovering from, so its completion is not authoritative.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: retryOrReject)
+                return
+            }
+        }
+    }
+
+    @discardableResult
+    private func takeContactCall() -> CAPPluginCall? {
+        let call = contactCall
+        contactCall = nil
+        contactNavigationController = nil
+        contactPresentationConfirmed = false
+        contactPresentationGeneration &+= 1
+        return call
+    }
+
+    private func rejectContactCall(
+        _ call: CAPPluginCall,
+        message: String,
+        code: String,
+        error: Error? = nil
+    ) {
+        guard contactCall === call else { return }
+        _ = takeContactCall()
+        NSLog("[FollowApp] Contact editor rejected: %@.", code)
+        if let error {
+            call.reject(message, code, error)
+        } else {
+            call.reject(message, code)
         }
     }
 
@@ -948,10 +1119,15 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
         _ viewController: CNContactViewController,
         didCompleteWith contact: CNContact?
     ) {
-        let call = contactCall
-        contactCall = nil
-        viewController.navigationController?.dismiss(animated: true) {
-            call?.resolve(["saved": contact != nil])
+        let call = takeContactCall()
+        let saved = contact != nil
+        NSLog("[FollowApp] Contact editor completed; saved=%@.", saved ? "true" : "false")
+        guard let navigationController = viewController.navigationController else {
+            call?.resolve(["saved": saved])
+            return
+        }
+        navigationController.dismiss(animated: true) {
+            call?.resolve(["saved": saved])
         }
     }
 

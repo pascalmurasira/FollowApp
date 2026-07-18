@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { isNativeMethodUnavailableError } from '../lib/native-bridge.ts'
+import { isNativePermissionDeniedError } from '../lib/native.ts'
 
 test('older or absent native contact methods are eligible for fallback', () => {
   assert.equal(
@@ -43,6 +44,16 @@ test('cancellation and real contact errors do not look like a missing bridge', (
       message: 'Contact editor is already open.',
     }),
     false,
+  )
+})
+
+test('native contact permission codes always route people to Settings', () => {
+  assert.equal(
+    isNativePermissionDeniedError({
+      code: 'CONTACT_PERMISSION_DENIED',
+      message: 'The operation could not be completed.',
+    }),
+    true,
   )
 })
 

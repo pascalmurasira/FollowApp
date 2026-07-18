@@ -78,6 +78,18 @@ export function isNativeUserCancelError(error: unknown): boolean {
 }
 
 export function isNativePermissionDeniedError(error: unknown): boolean {
+  const code =
+    error && typeof error === 'object' &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code.toUpperCase()
+      : ''
+  if (
+    code === 'CONTACT_PERMISSION_DENIED' ||
+    code === 'PERMISSION_DENIED' ||
+    code === 'AUTHORIZATION_DENIED'
+  ) {
+    return true
+  }
   return /(denied|not authorized|not authorised|permission|privacy|restricted|access)/i.test(
     nativeErrorMessage(error),
   )
