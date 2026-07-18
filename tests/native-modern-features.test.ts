@@ -6,17 +6,22 @@ function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
 
-test('live VisionKit scanning is additive to the maintained camera fallback', () => {
+test('the primary scan tap uses the maintained camera lifecycle', () => {
   const scanner = source('../ios/App/App/BusinessCardScannerCoordinator.swift')
   const plugin = source('../ios/App/App/FollowAppNativePlugin.swift')
   const native = source('../lib/native.ts')
+  const scanSheet = source('../components/scan-card-sheet.tsx')
 
+  // Keep the experimental VisionKit bridge available without letting it own
+  // the critical first-camera presentation used at conferences.
   assert.match(scanner, /DataScannerViewController/)
   assert.match(scanner, /isHighlightingEnabled: true/)
   assert.match(scanner, /asyncAfter\(deadline: \.now\(\) \+ 1\.0/)
   assert.match(plugin, /CAPPluginMethod\(name: "scanBusinessCard"/)
   assert.match(native, /export async function scanBusinessCardNatively/)
   assert.match(native, /Camera\.takePhoto\(/)
+  assert.match(scanSheet, /const capture = captureImageDataUrl\(\)/)
+  assert.doesNotMatch(scanSheet, /scanBusinessCardNatively/)
 })
 
 test('system entry points, controls and secure capture use stable routes', () => {

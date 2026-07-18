@@ -35,7 +35,6 @@ import {
   isNativePermissionDeniedError,
   isNativeUserCancelError,
   openAppSettings,
-  scanBusinessCardNatively,
   tapFeedback,
 } from '@/lib/native'
 import { NativeContactSaveButton } from '@/components/native-contact-save-button'
@@ -59,7 +58,6 @@ import {
 } from '@/lib/camera-launch'
 import { trackProductEvent } from '@/lib/product-analytics'
 import {
-  parseNativeBusinessCardScan,
   parseBusinessCardLines,
   preliminaryBusinessCardFieldCount,
   recognizeNativeBusinessCard,
@@ -807,107 +805,15 @@ export function ScanCardSheet({
         return
       }
 
-      // VisionKit keeps recognition entirely on-device and can return usable
-      // fields without taking, resizing, or uploading a photo. Unsupported
-      // devices and older app builds intentionally fall through to the proven
-      // Capacitor Camera implementation below.
-      trackProductEvent('camera_visible', {
-        source: 'native_live_scanner',
-        outcome: 'requested',
-      })
-      let nativeScan: Awaited<ReturnType<typeof scanBusinessCardNatively>>
-      try {
-        nativeScan = await scanBusinessCardNatively()
-      } catch (liveScannerError) {
-        // A transient VisionKit presentation failure must not take the camera
-        // away. Permission/cancellation are normally returned as structured
-        // outcomes; every other bridge failure degrades to the maintained
-        // Capacitor capture path.
-        console.warn(
-          '[v0] Native live scanner unavailable; using camera fallback:',
-          liveScannerError,
-        )
-        nativeScan = { available: false, reason: 'unavailable' }
-      }
-      if (!openRef.current || operationRef.current !== operation) return
-
-      if (nativeScan.cancelled) {
-        trackProductEvent('camera_permission_outcome', {
-          outcome: 'cancelled',
-        })
-        return
-      }
-
-      if (nativeScan.reason === 'permission-denied') {
-        trackProductEvent('camera_permission_outcome', {
-          outcome: 'denied',
-        })
-        setCameraHelp('blocked')
-        setStage('capture')
-        return
-      }
-
-      if (nativeScan.available) {
-        const scanned = parseNativeBusinessCardScan(
-          nativeScan.lines ?? [],
-          nativeScan.qrPayloads ?? [],
-        )
-        const fieldCount = preliminaryBusinessCardFieldCount(scanned)
-        trackProductEvent('ocr_preliminary', {
-          outcome: fieldCount > 0 ? 'live_scanner_success' : 'live_scanner_empty',
-          latency_ms:
-            nativeScan.elapsedMilliseconds ??
-            Math.round(performance.now() - startedAt),
-          filled_field_count: fieldCount,
-        })
-
-        if (fieldCount === 0) {
-          setError(
-            nativeScan.qrPayloads?.length
-              ? 'A QR code was detected, but it did not contain readable contact details. Try a photo or enter the essentials.'
-              : "Couldn't read enough from that card. Hold it flat and try again, choose a photo, or enter the essentials.",
-          )
-          setStage('capture')
-          return
-        }
-
-        originalScanRef.current = scanned
-        editedScanFieldsRef.current.clear()
-        setCard(scanned)
-        setReviewMeta({
-          // Live recognition is fast, not authoritative. Every populated value
-          // remains visibly reviewable before the contact can be saved.
-          needsReview: SCAN_REVIEW_FIELD_KEYS.filter((field) =>
-            scanned[field].trim(),
-          ),
-          imageQuality: 'usable',
-          qualityNote: '',
-        })
-        setReviewSource('scan')
-        setContextStatus('idle')
-        setContextNotes([])
-        setCloudScanPending(false)
-        setSavedToPhone(false)
-        setNote('')
-        setError(
-          scanned.name.trim() || scanned.company.trim()
-            ? null
-            : 'Add their name before saving. The other detected details are ready to review.',
-        )
-        setStage('review')
-        trackProductEvent('camera_permission_outcome', {
-          outcome: 'granted',
-        })
-        return
-      }
-
-      // Camera presentation owns the fallback hot path. Avoid a competing
-      // haptics bridge call; the physical camera transition is clear feedback.
+      // Keep the physical-camera transition as the only native presentation
+      // on this tap. A live VisionKit scanner previously ran first and could
+      // stay pending indefinitely, preventing the maintained Capacitor camera
+      // from ever opening. On-device Vision OCR still runs immediately after
+      // the captured still reaches readCardImage().
       const capture = captureImageDataUrl()
       trackProductEvent('camera_visible', {
         source: 'native_camera',
         outcome: 'bridge_handoff',
-        live_scanner_reason: nativeScan.reason ?? 'unavailable',
       })
       const image = await capture
       if (!openRef.current || operationRef.current !== operation) return
