@@ -19,16 +19,24 @@ import {
   ChevronDown,
   ScanLine,
   ArrowRight,
+  QrCode,
+  Lightbulb,
 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import type { NewContactInput } from '@/lib/contacts-store'
-import type { Contact, EnrichmentHook, Tier } from '@/lib/types'
+import type {
+  Contact,
+  EnrichmentHook,
+  NextStepKind,
+  Tier,
+} from '@/lib/types'
 import {
   captureImageDataUrl,
   chooseImageDataUrl,
   isNativePermissionDeniedError,
   isNativeUserCancelError,
   openAppSettings,
+  prepareBusinessCardCamera,
   tapFeedback,
 } from '@/lib/native'
 import { NativeContactSaveButton } from '@/components/native-contact-save-button'
@@ -57,6 +65,12 @@ import {
   recognizeNativeBusinessCard,
 } from '@/lib/native-card-ocr'
 import { cn } from '@/lib/utils'
+import {
+  createEncounterCapture,
+  NEXT_STEP_OPTIONS,
+  type ConferenceSession,
+} from '@/lib/encounters'
+import { ENCOUNTER_LIMITS } from '@/lib/persistence-limits'
 
 interface ScannedCard {
   name: string
@@ -164,22 +178,33 @@ export function ScanCardSheet({
   onAdd,
   onOpenContact,
   onTrySample,
+  onShowCard,
+  onFinishCapture,
   autoLaunchCamera = false,
   variant = 'standard',
+  conferenceSession = null,
+  stayAfterSave = false,
 }: {
   open: boolean
   onClose: () => void
   onAdd: (input: NewContactInput) => Contact | void
   onOpenContact?: (contactId: string) => void
   onTrySample?: () => void
+  onShowCard?: () => void
+  onFinishCapture?: (contactId: string) => void
   autoLaunchCamera?: boolean
   variant?: 'standard' | 'onboarding'
+  conferenceSession?: ConferenceSession | null
+  stayAfterSave?: boolean
 }) {
   const [stage, setStage] = useState<Stage>('capture')
   const [card, setCard] = useState<ScannedCard>(EMPTY)
   const [tier, setTier] = useState<Tier>('network')
   const [lastContactedAt, setLastContactedAt] = useState('')
   const [note, setNote] = useState('')
+  const [memorySeed, setMemorySeed] = useState('')
+  const [nextStepKind, setNextStepKind] = useState<NextStepKind | undefined>()
+  const [nextStepDueOn, setNextStepDueOn] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [savedToPhone, setSavedToPhone] = useState(false)
   const [contextStatus, setContextStatus] = useState<ContextStatus>('idle')
@@ -207,7 +232,9 @@ export function ScanCardSheet({
   const didTrackOpenRef = useRef(false)
   const scanAbortRef = useRef<AbortController | null>(null)
   const operationRef = useRef(0)
+  const submitGuardRef = useRef(false)
   const openRef = useRef(open)
+  const conferenceMode = conferenceSession?.active === true
   useEffect(() => {
     openRef.current = open
     if (!open) {
@@ -219,6 +246,14 @@ export function ScanCardSheet({
 
   useEffect(() => {
     setPortalRoot(document.body)
+  }, [])
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    // Returning users have already granted camera access. Prepare the inert
+    // native picker while they read the dashboard so their scan tap can
+    // present it immediately; this never requests permission or opens UI.
+    void prepareBusinessCardCamera()
   }, [])
 
   useEffect(() => {
@@ -257,6 +292,9 @@ export function ScanCardSheet({
     setTier('network')
     setLastContactedAt('')
     setNote('')
+    setMemorySeed('')
+    setNextStepKind(undefined)
+    setNextStepDueOn('')
     setError(null)
     setSavedToPhone(false)
     setContextStatus('idle')
@@ -270,6 +308,7 @@ export function ScanCardSheet({
     setReadingElapsedMs(0)
     setCloudScanPending(false)
     setAddedContactId(null)
+    submitGuardRef.current = false
     originalScanRef.current = null
     editedScanFieldsRef.current.clear()
     if (cameraFileRef.current) cameraFileRef.current.value = ''
@@ -469,6 +508,47 @@ export function ScanCardSheet({
       approximate_kb: Math.round((image.length * 0.75) / 1024),
     })
 
+    // A conference user can scan dozens of cards in one hour. On native iOS,
+    // a sufficiently complete Vision result is the hot path: it avoids both
+    // network latency and exhausting the bounded cloud OCR allowance. Low-
+    // confidence cards still fall through to the existing cloud verifier.
+    const nativeRecognition = recognizeNativeBusinessCard(image).catch(() => null)
+    if (conferenceMode && Capacitor.isNativePlatform()) {
+      const recognition = await nativeRecognition
+      if (!openRef.current || operationRef.current !== operation) return
+      if (recognition) {
+        const preview = parseBusinessCardLines(recognition.lines)
+        const fieldCount = preliminaryBusinessCardFieldCount(preview)
+        if (
+          fieldCount >= 3 &&
+          (recognition.averageConfidence ?? 0) >= 0.7 &&
+          (preview.name.trim() || preview.company.trim())
+        ) {
+          originalScanRef.current = preview
+          setCard(preview)
+          setReviewMeta({
+            // Native OCR is fast, not authoritative. Highlight populated
+            // fields so the user still owns the verification step.
+            needsReview: SCAN_REVIEW_FIELD_KEYS.filter((field) =>
+              preview[field].trim(),
+            ),
+            imageQuality: 'usable',
+            qualityNote: '',
+          })
+          setReviewSource('scan')
+          setContextStatus('idle')
+          setCloudScanPending(false)
+          setStage('review')
+          trackProductEvent('ocr_preliminary', {
+            outcome: 'conference_local_success',
+            filled_field_count: fieldCount,
+            average_confidence: recognition.averageConfidence,
+          })
+          return
+        }
+      }
+    }
+
     // Native Vision is a fast preview, not a source of certainty. It runs in
     // parallel with the cloud extraction and lets users start reviewing while
     // the richer result is still in flight. Older builds return null here.
@@ -476,7 +556,7 @@ export function ScanCardSheet({
     let cloudFinished = false
     let cloudSucceeded = false
     const preliminaryStartedAt = performance.now()
-    void recognizeNativeBusinessCard(image).then((recognition) => {
+    void nativeRecognition.then((recognition) => {
       if (
         !recognition ||
         cloudSucceeded ||
@@ -859,10 +939,20 @@ export function ScanCardSheet({
   }
 
   const submit = () => {
-    if (!card.name.trim()) return
+    if (!card.name.trim() || submitGuardRef.current) return
+    submitGuardRef.current = true
+    // A user can save the fast native preview while the cloud verifier is
+    // still running. The save is authoritative: invalidate that continuation
+    // so it cannot pull the UI back from "captured" into review.
+    operationRef.current += 1
+    scanAbortRef.current?.abort()
+    scanAbortRef.current = null
+    setCloudScanPending(false)
     const titleAndCompany = [card.title, card.company].filter(Boolean).join(' · ')
     const relationship =
-      card.company.trim() || card.title.trim()
+      conferenceMode && conferenceSession
+        ? `Met at ${conferenceSession.name}`
+        : card.company.trim() || card.title.trim()
         ? `Met ${card.company ? `at ${card.company}` : 'through work'}`
         : 'New connection'
     const acceptedNotes = contextNotes.filter((item) => item.accepted)
@@ -870,6 +960,13 @@ export function ScanCardSheet({
       note.trim(),
       ...acceptedNotes.map((item) => `${item.text} (${item.source})`),
     ].filter(Boolean)
+    const encounter = createEncounterCapture({
+      captureMethod: reviewSource === 'manual' ? 'manual' : 'card-scan',
+      session: conferenceSession,
+      memorySeed,
+      nextStepKind,
+      dueOn: nextStepDueOn,
+    })
     const added = onAdd({
       name: card.name,
       relationship,
@@ -880,13 +977,19 @@ export function ScanCardSheet({
       email: card.email || undefined,
       context: contextParts.join('\n') || undefined,
       interests: [],
+      encounters: [encounter],
     })
     const contactId = added?.id ?? null
     const correctionCount = countScanReviewCorrections(
       originalScanRef.current,
       card,
     )
-    if (contactId && onOpenContact) {
+    if (
+      contactId &&
+      onOpenContact &&
+      !conferenceMode &&
+      !stayAfterSave
+    ) {
       trackProductEvent('draft_open', {
         source: reviewSource,
         correction_count: correctionCount,
@@ -911,6 +1014,24 @@ export function ScanCardSheet({
     })
     close()
     if (contactId) onOpenContact?.(contactId)
+  }
+
+  const finishCapture = () => {
+    const contactId = addedContactId
+    close()
+    if (contactId) onFinishCapture?.(contactId)
+  }
+
+  const scanAnother = () => {
+    reset()
+    // Keep this directly inside the tap handler. Browser camera inputs and the
+    // native bridge both require a live user gesture for reliable relaunch.
+    void handleNativeCamera()
+  }
+
+  const showOwnCard = () => {
+    close()
+    onShowCard?.()
   }
 
   const hasDeliveryChannel =
@@ -963,10 +1084,12 @@ export function ScanCardSheet({
         >
           {stage === 'reading'
             ? 'Reading the business card and preparing a follow-up.'
-            : stage === 'review'
+              : stage === 'review'
               ? 'Card details are ready for review.'
               : stage === 'added'
-                ? `${hasDeliveryChannel ? 'Follow-up' : 'Draft'} for ${card.name || 'this contact'} is ready.`
+                ? conferenceMode
+                  ? `${card.name || 'This person'} is saved in your conference inbox.`
+                  : `${hasDeliveryChannel ? 'Follow-up' : 'Draft'} for ${card.name || 'this contact'} is ready.`
                 : 'Choose how to add a business card.'}
         </p>
         <span className="field-grain" aria-hidden />
@@ -981,7 +1104,9 @@ export function ScanCardSheet({
                   ? 'Add contact details'
                   : 'Check the essentials'
                 : stage === 'added'
-                  ? hasDeliveryChannel
+                  ? conferenceMode
+                    ? 'Person captured'
+                    : hasDeliveryChannel
                     ? 'Follow-up ready'
                     : 'Draft ready'
                   : variant === 'onboarding'
@@ -1158,29 +1283,75 @@ export function ScanCardSheet({
               </div>
               <div>
                 <p className="text-lg font-semibold text-[var(--ink-strong)]">
-                  {hasDeliveryChannel ? 'Your follow-up to' : 'Your draft for'}{' '}
-                  {card.name.trim().split(' ')[0]} is ready
+                  {conferenceMode
+                    ? `${card.name.trim().split(' ')[0]} is in your conference inbox`
+                    : `${hasDeliveryChannel ? 'Your follow-up to' : 'Your draft for'} ${card.name.trim().split(' ')[0]} is ready`}
                 </p>
                 <p className="mt-1 text-pretty text-sm text-[var(--ink-secondary)]">
-                  {hasDeliveryChannel
+                  {conferenceMode
+                    ? memorySeed || nextStepKind
+                      ? 'Your clue and next step are saved. Keep meeting people.'
+                      : 'Saved now. Add context later when the rush is over.'
+                    : hasDeliveryChannel
                     ? 'We used the card details to prepare an editable message.'
                     : 'Add a phone or email next, or copy the draft anywhere.'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={finishAdded}
-                className="primary-action pressable mt-2 flex min-h-12 w-full items-center justify-center rounded-full px-4 text-[15px] font-semibold"
-              >
-                Open the draft
-              </button>
-              <button
-                type="button"
-                onClick={reset}
-                className="glass-button pressable min-h-11 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
-              >
-                Scan another card
-              </button>
+              {conferenceMode ? (
+                <div className="mt-2 grid w-full grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={scanAnother}
+                    className="primary-action pressable flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold"
+                  >
+                    <ScanLine className="size-4" />
+                    Scan next
+                  </button>
+                  {onShowCard && (
+                    <button
+                      type="button"
+                      onClick={showOwnCard}
+                      className="glass-button pressable flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
+                    >
+                      <QrCode className="size-4" />
+                      My QR
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={finishCapture}
+                    className="pressable col-span-2 min-h-11 rounded-full px-4 text-sm font-semibold text-[var(--ink-secondary)]"
+                  >
+                    Done for now
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={finishAdded}
+                    className="primary-action pressable mt-2 flex min-h-12 w-full items-center justify-center rounded-full px-4 text-[15px] font-semibold"
+                  >
+                    Open the draft
+                  </button>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="glass-button pressable min-h-11 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
+                  >
+                    Scan another card
+                  </button>
+                  {onShowCard && (
+                    <button
+                      type="button"
+                      onClick={showOwnCard}
+                      className="pressable min-h-11 rounded-full px-4 text-sm font-semibold text-[var(--ink-secondary)]"
+                    >
+                      Show my QR instead
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -1219,7 +1390,77 @@ export function ScanCardSheet({
                 needsReview={reviewMeta.needsReview}
               />
 
-              <section className="glass-card rounded-3xl p-4">
+              {conferenceMode && (
+                <section className="glass-card rounded-3xl p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/30 text-[var(--ink-secondary)]">
+                      <Lightbulb className="size-5" />
+                    </span>
+                    <div>
+                      <p className="text-[13px] font-semibold text-[var(--ink-strong)]">
+                        Give future-you one clue
+                      </p>
+                      <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--ink-secondary)]">
+                        Optional · one detail that will bring this meeting back.
+                      </p>
+                    </div>
+                  </div>
+                  <textarea
+                    aria-label="Memory clue from this meeting"
+                    value={memorySeed}
+                    onChange={(event) => setMemorySeed(event.target.value)}
+                    maxLength={ENCOUNTER_LIMITS.memorySeed}
+                    rows={2}
+                    placeholder="Met after the food-tech panel; expanding into Rwanda."
+                    className="mt-3 w-full resize-none rounded-2xl border border-[var(--hairline)] bg-white/25 px-3 py-2.5 text-base leading-relaxed text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-tertiary)] focus-visible:border-[var(--action-bg)]"
+                  />
+                  <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
+                    What did you agree?
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {NEXT_STEP_OPTIONS.map((option) => (
+                      <button
+                        key={option.kind}
+                        type="button"
+                        onClick={() =>
+                          setNextStepKind((current) =>
+                            current === option.kind ? undefined : option.kind,
+                          )
+                        }
+                        aria-pressed={nextStepKind === option.kind}
+                        className={cn(
+                          'pressable min-h-10 rounded-full border px-3 text-[12px] font-semibold',
+                          nextStepKind === option.kind
+                            ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)]'
+                            : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
+                        )}
+                      >
+                        {option.shortLabel}
+                      </button>
+                    ))}
+                  </div>
+                  {nextStepKind && (
+                    <label className="mt-3 block">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-tertiary)]">
+                        When · optional
+                      </span>
+                      <div className="relative mt-2">
+                        <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+                        <input
+                          type="date"
+                          value={nextStepDueOn}
+                          onInput={(event) =>
+                            setNextStepDueOn(event.currentTarget.value)
+                          }
+                          className="h-11 w-full rounded-2xl border border-[var(--hairline)] bg-white/25 pl-10 pr-4 text-base text-[var(--ink-body)] outline-none"
+                        />
+                      </div>
+                    </label>
+                  )}
+                </section>
+              )}
+
+              {!conferenceMode && <section className="glass-card rounded-3xl p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-tertiary)]">
@@ -1255,9 +1496,9 @@ export function ScanCardSheet({
                     </button>
                   ))}
                 </div>
-              </section>
+              </section>}
 
-              <section className="glass-card rounded-3xl p-4">
+              {(!conferenceMode || showReviewDetails) && <section className="glass-card rounded-3xl p-4">
                 <div className="flex items-start gap-3">
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/30 text-[var(--ink-secondary)]">
                     <Smartphone className="size-5" />
@@ -1291,7 +1532,7 @@ export function ScanCardSheet({
                     setSavedToPhone(outcome === 'saved')
                   }
                 />
-              </section>
+              </section>}
 
               <button
                 type="button"
@@ -1299,7 +1540,7 @@ export function ScanCardSheet({
                 aria-expanded={showReviewDetails}
                 className="glass-button pressable flex min-h-11 w-full items-center justify-between rounded-2xl px-4 text-left text-[13px] font-semibold text-[var(--ink-secondary)]"
               >
-                <span>Add context or last-met date</span>
+                <span>{conferenceMode ? 'More options' : 'Add context or last-met date'}</span>
                 <ChevronDown
                   className={cn(
                     'size-4 transition-transform',
@@ -1333,7 +1574,9 @@ export function ScanCardSheet({
                           type="date"
                           value={lastContactedAt}
                           max={todayDateInputValue()}
-                          onChange={(event) => setLastContactedAt(event.target.value)}
+                          onInput={(event) =>
+                            setLastContactedAt(event.currentTarget.value)
+                          }
                           className="h-11 w-full rounded-2xl border border-[var(--hairline)] bg-white/25 pl-10 pr-4 text-base text-[var(--ink-body)] outline-none backdrop-blur focus-visible:border-[var(--action-bg)]"
                         />
                       </div>
@@ -1364,7 +1607,9 @@ export function ScanCardSheet({
         {stage === 'review' && (
           <footer className="relative z-[1] border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
             <p className="mb-2 text-center text-[12px] leading-relaxed text-[var(--ink-secondary)]">
-              Saves to FollowApp and opens an editable first message.
+              {conferenceMode
+                ? `Saves to ${conferenceSession?.name ?? 'this event'} without interrupting the conversation.`
+                : 'Saves to FollowApp and opens an editable first message.'}
             </p>
             <button
               type="button"
@@ -1372,7 +1617,7 @@ export function ScanCardSheet({
               disabled={!card.name.trim()}
               className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold disabled:opacity-40"
             >
-              <span>Review message</span>
+              <span>{conferenceMode ? 'Save person' : 'Review message'}</span>
               <ArrowRight className="size-4" />
             </button>
           </footer>

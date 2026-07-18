@@ -16,6 +16,7 @@ import { NudgeLogo } from '@/components/nudge-logo'
 import { ScanCardSheet } from '@/components/scan-card-sheet'
 import { MyCardSheet } from '@/components/my-card-sheet'
 import { activationAfterOwnCard } from '@/lib/onboarding'
+import type { ConferenceSession } from '@/lib/encounters'
 
 export interface WelcomeResult {
   selectedContactIds: string[]
@@ -29,6 +30,8 @@ interface WelcomeFlowProps {
   onComplete: (result: WelcomeResult) => void
   /** Persist a card scanned during onboarding (same path as the in-app scanner). */
   onScanContact: (input: NewContactInput) => Contact
+  conferenceSession: ConferenceSession | null
+  onStartConference: () => ConferenceSession
 }
 
 /**
@@ -40,26 +43,36 @@ export function WelcomeFlow({
   contacts,
   onComplete,
   onScanContact,
+  conferenceSession,
+  onStartConference,
 }: WelcomeFlowProps) {
   const [scanOpen, setScanOpen] = useState(false)
   const [cardOpen, setCardOpen] = useState(false)
   const [cardReady, setCardReady] = useState(false)
+  const [capturedContactId, setCapturedContactId] = useState<string | null>(null)
+  const conferenceMode = conferenceSession?.active === true
   const sampleContact = useMemo(
     () => contacts.find((contact) => DEMO_CONTACT_IDS.has(contact.id)),
     [contacts],
   )
 
-  const completeWithContact = (contactId: string, sampleMode: boolean) => {
+  const completeWithContact = (
+    contactId: string,
+    sampleMode: boolean,
+    openContact = true,
+  ) => {
     onComplete({
       selectedContactIds: [contactId],
       toneId: 'lowkey',
       sampleMode,
-      openContactId: contactId,
+      openContactId: openContact ? contactId : undefined,
     })
   }
 
   const handleScanAdd = (input: NewContactInput) => {
-    return onScanContact(input)
+    const contact = onScanContact(input)
+    setCapturedContactId(contact.id)
+    return contact
   }
 
   const handleScanClose = () => {
@@ -69,6 +82,11 @@ export function WelcomeFlow({
   const handleCardClose = () => {
     setCardOpen(false)
     if (!cardReady) return
+
+    if (capturedContactId) {
+      completeWithContact(capturedContactId, false, false)
+      return
+    }
 
     // Creating a shareable card is a valid first win. Samples remain explicitly
     // opt-in through "Try with a sample" and never appear as real relationships.
@@ -117,14 +135,17 @@ export function WelcomeFlow({
         <div className="mt-9 max-w-md">
           <div className="mb-3 flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
             <Sparkles className="size-3.5" />
-            First follow-up in under a minute
+            {conferenceMode
+              ? `${conferenceSession?.name} · conference mode`
+              : 'First follow-up in under a minute'}
           </div>
           <h1 className="text-balance font-heading text-[2.25rem] font-bold leading-[1.05] tracking-[-0.045em] text-[var(--ink-strong)] sm:text-[2.75rem]">
-            Scan theirs. Share yours.
+            {conferenceMode ? 'Meet. Scan. Remember.' : 'Scan theirs. Share yours.'}
           </h1>
           <p className="mx-auto mt-4 max-w-[22rem] text-pretty text-[15px] leading-relaxed text-[var(--ink-secondary)]">
-            Capture a business card and get a ready-to-send follow-up, or let
-            someone scan your digital card.
+            {conferenceMode
+              ? 'Capture each person in seconds. Add one clue now or review everyone together later.'
+              : 'Capture a business card and get a ready-to-send follow-up, or let someone scan your digital card.'}
           </p>
         </div>
 
@@ -135,7 +156,7 @@ export function WelcomeFlow({
             className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold"
           >
             <Camera className="size-4" />
-            Scan their card
+            {conferenceMode ? 'Scan next card' : 'Scan their card'}
             <ArrowRight className="size-4" />
           </button>
           <button
@@ -146,6 +167,18 @@ export function WelcomeFlow({
             <QrCode className="size-4" />
             Show my QR code
           </button>
+          {!conferenceMode && (
+            <button
+              type="button"
+              onClick={() => {
+                onStartConference()
+                setScanOpen(true)
+              }}
+              className="pressable mt-3 min-h-11 w-full rounded-full px-4 text-sm font-semibold text-[var(--ink-secondary)]"
+            >
+              I’m at a conference
+            </button>
+          )}
           {sampleContact && (
             <button
               type="button"
@@ -168,7 +201,16 @@ export function WelcomeFlow({
         variant="onboarding"
         onClose={handleScanClose}
         onAdd={handleScanAdd}
+        conferenceSession={conferenceSession}
+        stayAfterSave={conferenceMode}
         onOpenContact={(contactId) => completeWithContact(contactId, false)}
+        onFinishCapture={(contactId) =>
+          completeWithContact(contactId, false, !conferenceMode)
+        }
+        onShowCard={() => {
+          setScanOpen(false)
+          setCardOpen(true)
+        }}
         onTrySample={sampleContact ? trySample : undefined}
       />
       <MyCardSheet

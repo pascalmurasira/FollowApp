@@ -13,6 +13,17 @@ import {
   nextFollowUpForContact,
 } from '@/lib/contact-dates'
 import type { ChannelId } from '@/lib/channels'
+import { ConferenceModeCard } from '@/components/conference-mode-card'
+import {
+  conferencePriorityScore,
+  hasActionableCommitment,
+  isFollowUpDeferred,
+  isFollowUpSuppressed,
+  isPendingEncounterOnly,
+  normalizeEncounters,
+  type ConferenceSession,
+  type EncounterEventSummary,
+} from '@/lib/encounters'
 
 export function NudgeFeed({
   contacts,
@@ -27,6 +38,10 @@ export function NudgeFeed({
   onSnooze,
   onScan,
   onShowCard,
+  conferenceSession,
+  conferenceSummary,
+  onManageConference,
+  onReviewConference,
 }: {
   contacts: Contact[]
   voice: string
@@ -40,11 +55,14 @@ export function NudgeFeed({
   onSnooze: (id: string, duration: SnoozeDuration) => void
   onScan: () => void
   onShowCard: () => void
+  conferenceSession: ConferenceSession | null
+  conferenceSummary?: EncounterEventSummary
+  onManageConference: () => void
+  onReviewConference: () => void
 }) {
-  // Connections needing a follow-up: chosen contacts first, then by who's most
-  // overdue *relative to their tier's cadence* — so a key contact overdue by a
-  // week outranks a casual one overdue by a month. Snoozed people drop off
-  // until their snooze expires. An active circle filter narrows the feed.
+  // Conference promises are explicit user intent and outrank generic cadence.
+  // Pending captures stay in the Conference Inbox, while a live event remains
+  // quiet so FollowApp never asks users to message people mid-conversation.
   const drifting = useMemo(() => {
     const pinnedSet = new Set(pinnedIds)
     const snoozedSet = new Set(snoozedIds)
@@ -52,41 +70,81 @@ export function NudgeFeed({
       c.daysSinceContact / cadenceForTier(c.tier)
     return contacts
       .filter(
-        (c) =>
-          healthLevel(c.daysSinceContact, c.tier) !== 'on-track' &&
-          !snoozedSet.has(c.id),
+        (c) => {
+          const belongsToActiveEvent =
+            conferenceSession?.active === true &&
+            normalizeEncounters(c.encounters).some(
+              (item) => item.event?.id === conferenceSession.id,
+            )
+          return (
+            !belongsToActiveEvent &&
+            !isPendingEncounterOnly(c) &&
+            !isFollowUpDeferred(c) &&
+            !isFollowUpSuppressed(c) &&
+            (hasActionableCommitment(c) ||
+              healthLevel(c.daysSinceContact, c.tier) !== 'on-track') &&
+            !snoozedSet.has(c.id)
+          )
+        },
       )
       .filter((c) => !groupFilter || (c.groups ?? []).includes(groupFilter))
       .sort((a, b) => {
         const aPinned = pinnedSet.has(a.id)
         const bPinned = pinnedSet.has(b.id)
+        const priorityDifference =
+          conferencePriorityScore(b) - conferencePriorityScore(a)
+        if (priorityDifference !== 0) return priorityDifference
         if (aPinned !== bPinned) return aPinned ? -1 : 1
         return overdueRatio(b) - overdueRatio(a)
       })
-  }, [contacts, pinnedIds, snoozedIds, groupFilter])
+  }, [conferenceSession, contacts, pinnedIds, snoozedIds, groupFilter])
 
-  const { nudges, loading } = useNudges(drifting, voice)
+  // useNudges owns an effect keyed by this list. Keep the array identity stable
+  // across its own loading/result renders or React will refetch forever.
+  const todayPlan = useMemo(() => drifting.slice(0, 3), [drifting])
+  const deferredCount = Math.max(0, drifting.length - todayPlan.length)
+  const { nudges, loading } = useNudges(todayPlan, voice)
 
   const nextUp = useMemo(() => {
     const snoozedSet = new Set(snoozedIds)
     return contacts
       .filter(
-        (contact) =>
-          healthLevel(contact.daysSinceContact, contact.tier) === 'on-track' &&
-          !snoozedSet.has(contact.id) &&
-          (!groupFilter || (contact.groups ?? []).includes(groupFilter)),
+        (contact) => {
+          const belongsToActiveEvent =
+            conferenceSession?.active === true &&
+            normalizeEncounters(contact.encounters).some(
+              (item) => item.event?.id === conferenceSession.id,
+            )
+          return (
+            healthLevel(contact.daysSinceContact, contact.tier) === 'on-track' &&
+            !belongsToActiveEvent &&
+            !isPendingEncounterOnly(contact) &&
+            !isFollowUpDeferred(contact) &&
+            !isFollowUpSuppressed(contact) &&
+            !snoozedSet.has(contact.id) &&
+            (!groupFilter || (contact.groups ?? []).includes(groupFilter))
+          )
+        },
       )
       .sort((a, b) =>
         nextFollowUpForContact(a).localeCompare(nextFollowUpForContact(b)),
       )[0]
-  }, [contacts, groupFilter, snoozedIds])
+  }, [conferenceSession, contacts, groupFilter, snoozedIds])
 
-  // One person to focus on today, plus the rest below it.
-  const dailyPick = drifting[0]
-  const rest = drifting.slice(1)
+  // A calm, capacity-aware plan: one focus plus at most two supporting actions.
+  const dailyPick = todayPlan[0]
+  const rest = todayPlan.slice(1)
 
   return (
     <div className="relative z-[1] grid min-w-0 gap-6 px-4 py-4 sm:px-6 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-7">
+      <ConferenceModeCard
+        session={conferenceSession}
+        summary={conferenceSummary}
+        onManage={onManageConference}
+        onScan={onScan}
+        onShowCard={onShowCard}
+        onReview={onReviewConference}
+      />
       {groups.length > 0 && (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 lg:col-span-12 [&::-webkit-scrollbar]:hidden">
           <FilterChip
@@ -110,7 +168,7 @@ export function NudgeFeed({
       {dailyPick ? (
         <section className="min-w-0 flex flex-col gap-3 lg:col-span-7">
           <SectionLabel>
-            Today&apos;s follow-up
+            Today&apos;s plan
             {loading && (
               <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium normal-case tracking-normal text-muted-foreground">
                 <Sparkles className="size-3 animate-pulse text-primary" />
@@ -143,7 +201,7 @@ export function NudgeFeed({
       {rest.length > 0 && (
         <section className="min-w-0 flex flex-col gap-3 lg:col-span-5">
           <SectionLabel>
-            Needs a follow-up
+            Next actions
             <span className="ml-auto tnum text-muted-foreground/70">
               {rest.length}
             </span>
@@ -164,6 +222,12 @@ export function NudgeFeed({
             ))}
           </div>
         </section>
+      )}
+
+      {deferredCount > 0 && (
+        <p className="px-1 text-center text-[12px] leading-relaxed text-[var(--ink-secondary)] lg:col-span-12">
+          {deferredCount} more {deferredCount === 1 ? 'relationship is' : 'relationships are'} waiting quietly. Today’s plan stays intentionally small.
+        </p>
       )}
 
       {dailyPick && nextUp && (

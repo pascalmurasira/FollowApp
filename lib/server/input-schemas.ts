@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { CONTACT_LIMITS, PROFILE_LIMITS } from '../persistence-limits.ts'
+import {
+  CONTACT_LIMITS,
+  ENCOUNTER_LIMITS,
+  PROFILE_LIMITS,
+} from '../persistence-limits.ts'
 
 const optionalText = (max: number) => z.string().max(max).optional()
 export const dateOnlyInputSchema = z
@@ -44,6 +48,49 @@ export const profileInputSchema = z.object({
   email: optionalText(PROFILE_LIMITS.email),
 })
 
+const encounterEventSchema = z.object({
+  id: z.string().trim().min(1).max(ENCOUNTER_LIMITS.eventId),
+  name: z.string().trim().min(1).max(ENCOUNTER_LIMITS.eventName),
+  date: dateOnlyInputSchema.optional(),
+  location: optionalText(ENCOUNTER_LIMITS.location),
+})
+
+const encounterNextStepSchema = z.object({
+  kind: z.enum([
+    'send-deck',
+    'send-quote',
+    'make-introduction',
+    'book-meeting',
+    'send-sample',
+    'application',
+    'follow-up',
+    'custom',
+  ]),
+  label: z.string().trim().min(1).max(ENCOUNTER_LIMITS.nextStepLabel),
+  owner: z.enum(['me', 'them', 'shared']),
+  dueOn: dateOnlyInputSchema.optional(),
+  status: z.enum(['open', 'done', 'dismissed']),
+  createdAt: z.string().datetime(),
+  completedAt: z.string().datetime().optional(),
+})
+
+export const encounterInputSchema = z.object({
+  version: z.literal(1),
+  captureMethod: z.enum([
+    'card-scan',
+    'qr-scan',
+    'manual',
+    'contact-import',
+  ]),
+  capturedAt: z.string().datetime(),
+  event: encounterEventSchema.optional(),
+  memorySeed: optionalText(ENCOUNTER_LIMITS.memorySeed),
+  nextStep: encounterNextStepSchema.optional(),
+  reviewState: z.enum(['pending', 'reviewed']),
+  disposition: z.enum(['important', 'later', 'none']).optional(),
+  reviewedAt: z.string().datetime().optional(),
+})
+
 export const contactInputSchema = z.object({
   id: z.string().trim().min(1).max(CONTACT_LIMITS.id),
   name: z.string().trim().min(1).max(CONTACT_LIMITS.name),
@@ -68,6 +115,10 @@ export const contactInputSchema = z.object({
     .array(z.string().max(CONTACT_LIMITS.interest))
     .max(CONTACT_LIMITS.interests)
     .default([]),
+  encounters: z
+    .array(encounterInputSchema)
+    .max(ENCOUNTER_LIMITS.encounters)
+    .optional(),
   groups: z
     .array(z.string().max(CONTACT_LIMITS.group))
     .max(CONTACT_LIMITS.groups)
@@ -86,6 +137,11 @@ export const contactUpdateInputSchema = z.object({
   interests: z
     .array(z.string().max(CONTACT_LIMITS.interest))
     .max(CONTACT_LIMITS.interests)
+    .optional(),
+  encounters: z
+    .array(encounterInputSchema)
+    .max(ENCOUNTER_LIMITS.encounters)
+    .nullable()
     .optional(),
   lastContactedAt: dateOnlyInputSchema.nullable().optional(),
 })

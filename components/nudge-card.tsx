@@ -21,6 +21,7 @@ import {
   formatFollowUpDate,
   nextFollowUpForContact,
 } from '@/lib/contact-dates'
+import { actionEncounter, encounterWhyNow } from '@/lib/encounters'
 
 export function NudgeCard({
   contact,
@@ -52,6 +53,7 @@ export function NudgeCard({
   const isWhatsApp = channel === 'whatsapp'
   const level = healthLevel(contact.daysSinceContact, contact.tier)
   const isExample = DEMO_CONTACT_IDS.has(contact.id)
+  const whyNow = encounterWhyNow(contact)
 
   const handleHandoff = () => {
     if (!nudge || !canSend) return
@@ -135,6 +137,16 @@ export function NudgeCard({
 
       {/* Opener — the hero. No nested box; it breathes on the card. */}
       <div className="relative mt-5">
+        {whyNow && (
+          <div className="mb-4 rounded-2xl border border-[var(--hairline)] bg-white/20 px-3.5 py-3">
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-tertiary)]">
+              Why now
+            </span>
+            <p className="mt-1 text-[13px] leading-relaxed text-[var(--ink-secondary)] text-pretty">
+              {whyNow}
+            </p>
+          </div>
+        )}
         {!nudge ? (
           <div className="space-y-2.5 py-1">
             <div className="h-3 w-[88%] animate-pulse rounded-full bg-[var(--hairline)]" />
@@ -226,9 +238,18 @@ function statusCopy(
   level: 'on-track' | 'due-soon' | 'overdue',
   contact: Contact,
 ): { label: string; sublabel: string } {
+  const step = actionEncounter(contact)?.nextStep
+  if (step?.status === 'open') {
+    return {
+      label: 'Next step',
+      sublabel: step.dueOn
+        ? `Planned ${formatFollowUpDate(step.dueOn)}`
+        : 'Ready when you are',
+    }
+  }
   if (contact.lastContactedAt === null) {
     return {
-      label: 'Due now',
+      label: 'Ready',
       sublabel: 'First follow-up',
     }
   }
@@ -236,11 +257,11 @@ function statusCopy(
   return {
     label:
       level === 'overdue'
-        ? 'Overdue'
+        ? 'Ready'
         : level === 'due-soon'
-          ? 'Due soon'
-          : 'On track',
-    sublabel: `${level === 'on-track' ? 'Next' : 'Due'} ${date}`,
+          ? 'Upcoming'
+          : 'Waiting',
+    sublabel: `${level === 'on-track' ? 'Next' : 'Planned'} ${date}`,
   }
 }
 
@@ -259,7 +280,7 @@ function StatusBlock({
       className={cn(
         'tnum shrink-0 text-right leading-none',
         level === 'overdue'
-          ? 'status-overdue'
+          ? 'status-due-soon'
           : level === 'due-soon'
             ? 'status-due-soon'
             : 'status-on-track',

@@ -19,6 +19,7 @@ import {
   sameDeviceImportedContactConflict,
 } from '@/lib/server/contact-upsert'
 import { CONTACT_LIMITS } from '@/lib/persistence-limits'
+import { normalizeEncounters } from '@/lib/encounters'
 
 /**
  * Server-only persistence for the user's profile, added contacts, and circle
@@ -108,6 +109,9 @@ export function ensureContactSchema(): Promise<void> {
       )
       await pool.query(
         "ALTER TABLE user_contacts ADD COLUMN IF NOT EXISTS messages text NOT NULL DEFAULT '[]'",
+      )
+      await pool.query(
+        'ALTER TABLE user_contacts ADD COLUMN IF NOT EXISTS encounter_data text',
       )
     } catch (error) {
       // A cold-start database interruption must not poison this instance for
@@ -222,6 +226,7 @@ function sanitizeContact(contact: Contact): Contact {
       .map((interest) => cap(interest, TEXT_LIMITS.interest))
       .filter((interest): interest is string => Boolean(interest))
       .slice(0, CONTACT_LIMITS.interests),
+    encounters: normalizeEncounters(contact.encounters),
     messages: (contact.messages ?? [])
       .map(safeMessage)
       .filter((message): message is Message => Boolean(message))
@@ -261,6 +266,16 @@ function rowToContact(row: typeof userContacts.$inferSelect): Contact {
     lastContactedAt,
     context: row.context ?? '',
     interests,
+    encounters: normalizeEncounters(
+      (() => {
+        if (!row.encounterData) return undefined
+        try {
+          return JSON.parse(row.encounterData) as unknown
+        } catch {
+          return undefined
+        }
+      })(),
+    ),
     messages: parseMessages(row.messages),
   }
 }
@@ -297,6 +312,9 @@ export async function addUserContact(
     avatarHue: safe.avatarHue,
     context: safe.context,
     interests: JSON.stringify(safe.interests ?? []),
+    encounterData: safe.encounters?.length
+      ? JSON.stringify(safe.encounters)
+      : null,
     messages: JSON.stringify(safe.messages ?? []),
     lastContactedAt: safe.lastContactedAt
       ? dateInputToUtcNoon(safe.lastContactedAt)
@@ -346,6 +364,9 @@ export async function addUserContacts(
     avatarHue: contact.avatarHue,
     context: contact.context,
     interests: JSON.stringify(contact.interests ?? []),
+    encounterData: contact.encounters?.length
+      ? JSON.stringify(contact.encounters)
+      : null,
     messages: JSON.stringify(contact.messages ?? []),
     lastContactedAt: contact.lastContactedAt
       ? dateInputToUtcNoon(contact.lastContactedAt)
@@ -407,6 +428,11 @@ export async function updateUserContact(
         .filter((interest): interest is string => Boolean(interest))
         .slice(0, CONTACT_LIMITS.interests),
     )
+  }
+  if (updates.encounters !== undefined) {
+    set.encounterData = updates.encounters
+      ? JSON.stringify(normalizeEncounters(updates.encounters))
+      : null
   }
   if (updates.lastContactedAt !== undefined) {
     const normalized = normalizeLastContactedAt(updates.lastContactedAt)

@@ -73,7 +73,6 @@ async function responseError(response: Response, fallback: string): Promise<Erro
 export function YouPanel({
   voiceLabel,
   contacts,
-  streak,
   groups,
   onAddPerson,
   onSetGroup,
@@ -83,7 +82,6 @@ export function YouPanel({
 }: {
   voiceLabel: string
   contacts: Contact[]
-  streak: number
   groups: string[]
   onAddPerson: () => void
   onSetGroup: (contactId: string, group: string | null) => void
@@ -94,6 +92,9 @@ export function YouPanel({
   const { data: session, isPending: sessionPending } = useSession()
   const signedIn = Boolean(session?.user)
   const peopleCount = contacts.length
+  const conferenceCount = contacts.filter((contact) =>
+    contact.encounters?.some((encounter) => Boolean(encounter.event)),
+  ).length
   const sentCount = contacts.reduce(
     (total, contact) =>
       total +
@@ -320,7 +321,7 @@ export function YouPanel({
       <ProfileHeader
         voiceLabel={voiceLabel}
         peopleCount={peopleCount}
-        streak={streak}
+        conferenceCount={conferenceCount}
         sentCount={sentCount}
       />
 

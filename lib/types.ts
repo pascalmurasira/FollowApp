@@ -36,6 +36,64 @@ export interface Message {
  */
 export type Tier = 'key' | 'network' | 'casual'
 
+/** How a new relationship entered FollowApp. */
+export type EncounterCaptureMethod =
+  | 'card-scan'
+  | 'qr-scan'
+  | 'manual'
+  | 'contact-import'
+
+export type EncounterReviewState = 'pending' | 'reviewed'
+export type FollowUpDisposition = 'important' | 'later' | 'none'
+export type NextStepKind =
+  | 'send-deck'
+  | 'send-quote'
+  | 'make-introduction'
+  | 'book-meeting'
+  | 'send-sample'
+  | 'application'
+  | 'follow-up'
+  | 'custom'
+export type NextStepOwner = 'me' | 'them' | 'shared'
+export type NextStepStatus = 'open' | 'done' | 'dismissed'
+
+export interface EncounterEvent {
+  /** Random, immutable session id. Event names are editable and not unique. */
+  id: string
+  name: string
+  /** Local calendar date, YYYY-MM-DD. */
+  date?: string
+  location?: string
+}
+
+export interface EncounterNextStep {
+  kind: NextStepKind
+  label: string
+  owner: NextStepOwner
+  /** Local calendar date, YYYY-MM-DD. */
+  dueOn?: string
+  status: NextStepStatus
+  createdAt: string
+  completedAt?: string
+}
+
+/**
+ * A compact, user-approved memory of one relationship-forming encounter.
+ * Versioning lets future clients migrate this JSON without corrupting legacy
+ * contacts or treating inferred data as certain.
+ */
+export interface ContactEncounter {
+  version: 1
+  captureMethod: EncounterCaptureMethod
+  capturedAt: string
+  event?: EncounterEvent
+  memorySeed?: string
+  nextStep?: EncounterNextStep
+  reviewState: EncounterReviewState
+  disposition?: FollowUpDisposition
+  reviewedAt?: string
+}
+
 export interface Contact {
   id: string
   name: string
@@ -64,6 +122,8 @@ export interface Contact {
   context: string
   /** Things this person cares about — work focus, recent moves, shared history. */
   interests: string[]
+  /** Bounded encounter history; the latest entry drives the immediate plan. */
+  encounters?: ContactEncounter[]
   /** Circles this person belongs to, e.g. ["Clients"]. Used to filter the feed. */
   groups?: string[]
   messages: Message[]

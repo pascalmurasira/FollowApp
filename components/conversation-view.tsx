@@ -170,7 +170,7 @@ export function ConversationView({
           </p>
           <p className="truncate text-xs text-[var(--ink-secondary)]">
             {contact.lastContactedAt === null
-              ? `Cadence: ${cadence} · due now`
+              ? `Cadence: ${cadence} · ready now`
               : contact.daysSinceContact === 0
                 ? `Cadence: ${cadence} · next ${formatFollowUpDate(nextFollowUp)}`
                 : `Cadence: ${cadence} · ${driftLabel(contact.daysSinceContact)} · next ${formatFollowUpDate(nextFollowUp)}`}

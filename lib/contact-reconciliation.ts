@@ -119,5 +119,11 @@ export function mergeReimportedContact(
   existing: Contact | undefined,
   reviewed: Contact,
 ): Contact {
-  return existing ? { ...reviewed, messages: existing.messages } : reviewed
+  return existing
+    ? {
+        ...reviewed,
+        messages: existing.messages,
+        encounters: existing.encounters,
+      }
+    : reviewed
 }

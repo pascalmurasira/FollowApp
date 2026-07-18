@@ -13,9 +13,12 @@ import {
   RotateCcw,
   Settings,
   AlertCircle,
+  CalendarDays,
+  Lightbulb,
+  QrCode,
 } from 'lucide-react'
 import type { NewContactInput } from '@/lib/contacts-store'
-import type { Tier } from '@/lib/types'
+import type { Contact, NextStepKind, Tier } from '@/lib/types'
 import type { CardData } from '@/lib/card'
 import { readCardFromScan } from '@/lib/card'
 import {
@@ -28,8 +31,14 @@ import {
 import { cn } from '@/lib/utils'
 import { trackProductEvent } from '@/lib/product-analytics'
 import { NativeContactSaveButton } from '@/components/native-contact-save-button'
+import {
+  createEncounterCapture,
+  NEXT_STEP_OPTIONS,
+  type ConferenceSession,
+} from '@/lib/encounters'
+import { ENCOUNTER_LIMITS } from '@/lib/persistence-limits'
 
-type Stage = 'starting' | 'scanning' | 'result' | 'blocked' | 'error'
+type Stage = 'starting' | 'scanning' | 'result' | 'saved' | 'blocked' | 'error'
 
 const CAMERA_START_TIMEOUT_MS = 10_000
 
@@ -43,10 +52,14 @@ export function QrScanSheet({
   open,
   onClose,
   onAdd,
+  conferenceSession = null,
+  onShowCard,
 }: {
   open: boolean
   onClose: () => void
-  onAdd: (input: NewContactInput) => void
+  onAdd: (input: NewContactInput) => Contact | void
+  conferenceSession?: ConferenceSession | null
+  onShowCard?: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -60,6 +73,7 @@ export function QrScanSheet({
   const openRef = useRef(open)
   const cameraAttemptRef = useRef(0)
   const decodeAttemptRef = useRef(0)
+  const submitGuardRef = useRef(false)
   // True while the sheet wants the camera running. Guards against an async
   // getUserMedia resolving after the sheet was already closed (camera-light leak).
   const wantCameraRef = useRef(false)
@@ -70,10 +84,15 @@ export function QrScanSheet({
   const [stage, setStage] = useState<Stage>('starting')
   const [card, setCard] = useState<CardData | null>(null)
   const [tier, setTier] = useState<Tier>('network')
+  const [memorySeed, setMemorySeed] = useState('')
+  const [nextStepKind, setNextStepKind] = useState<NextStepKind | undefined>()
+  const [nextStepDueOn, setNextStepDueOn] = useState('')
+  const [savedName, setSavedName] = useState('')
   const [hint, setHint] = useState<string | null>(null)
   const [nativeContactSaved, setNativeContactSaved] = useState(false)
   const [native, setNative] = useState(false)
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
+  const conferenceMode = conferenceSession?.active === true
 
   useEffect(() => {
     setPortalRoot(document.body)
@@ -125,7 +144,11 @@ export function QrScanSheet({
       setHint(null)
       setCard(data)
       setTier('network')
+      setMemorySeed('')
+      setNextStepKind(undefined)
+      setNextStepDueOn('')
       setNativeContactSaved(false)
+      submitGuardRef.current = false
       setStage('result')
       trackProductEvent('qr_scan_result', { source, valid: true })
       return true
@@ -410,8 +433,9 @@ export function QrScanSheet({
     }
   }
 
-  const addToFollowApp = () => {
-    if (!card) return
+  const addToFollowApp = (next: 'close' | 'scan' | 'card' = 'close') => {
+    if (!card || submitGuardRef.current) return
+    submitGuardRef.current = true
     const titleAndCompany = [card.t, card.co].filter(Boolean).join(' · ')
     onAdd({
       name: card.n,
@@ -422,11 +446,35 @@ export function QrScanSheet({
       email: card.e || undefined,
       context: 'Added from a self-provided FollowApp card.',
       interests: [],
+      encounters: [
+        createEncounterCapture({
+          captureMethod: 'qr-scan',
+          session: conferenceSession,
+          memorySeed,
+          nextStepKind,
+          dueOn: nextStepDueOn,
+        }),
+      ],
     })
     trackProductEvent('qr_contact_saved', {
       native_contact: nativeContactSaved,
     })
-    close()
+    if (!conferenceMode || next === 'close') {
+      close()
+      return
+    }
+    if (next === 'card') {
+      close()
+      onShowCard?.()
+      return
+    }
+    setSavedName(card.n)
+    setCard(null)
+    setMemorySeed('')
+    setNextStepKind(undefined)
+    setNextStepDueOn('')
+    setStage('saved')
+    submitGuardRef.current = false
   }
 
   const roleLine = card ? [card.t, card.co].filter(Boolean).join(' · ') : ''
@@ -437,7 +485,11 @@ export function QrScanSheet({
       : stage === 'scanning'
         ? 'Camera ready. Point it at a FollowApp QR code.'
         : stage === 'result'
-          ? 'FollowApp card found. Review how often to stay in touch.'
+          ? conferenceMode
+            ? 'FollowApp card found. Add one clue or save it for later.'
+            : 'FollowApp card found. Review how often to stay in touch.'
+          : stage === 'saved'
+            ? `${savedName} is saved in your conference inbox.`
           : stage === 'blocked'
             ? 'Camera access is blocked. Settings and photo options are available.'
             : 'The camera could not start. Retry and photo options are available.'
@@ -479,7 +531,11 @@ export function QrScanSheet({
             id="qr-scan-sheet-title"
             className="font-heading text-[22px] font-bold tracking-[-0.03em] text-[var(--ink-strong)]"
           >
-            {stage === 'result' ? 'Save this contact' : 'Scan a FollowApp card'}
+            {stage === 'result'
+              ? 'Save this contact'
+              : stage === 'saved'
+                ? 'Person captured'
+                : 'Scan a FollowApp card'}
           </h2>
           <button
             type="button"
@@ -618,6 +674,43 @@ export function QrScanSheet({
             </div>
           )}
 
+          {stage === 'saved' && (
+            <div className="flex flex-col items-center gap-4 py-12 text-center">
+              <div className="flex size-16 items-center justify-center rounded-2xl bg-[var(--status-on-track-tint)] text-[var(--status-on-track)]">
+                <UserPlus className="size-7" />
+              </div>
+              <div>
+                <p className="font-heading text-xl font-semibold text-[var(--ink-strong)]">
+                  {savedName} is saved
+                </p>
+                <p className="mt-1 text-sm text-[var(--ink-secondary)]">
+                  Keep moving. You can review every encounter together later.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void startCamera()}
+                className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold"
+              >
+                <ScanLine className="size-4" />
+                Scan next QR
+              </button>
+              {onShowCard && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    close()
+                    onShowCard()
+                  }}
+                  className="glass-button pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
+                >
+                  <QrCode className="size-4" />
+                  Show my QR
+                </button>
+              )}
+            </div>
+          )}
+
           {stage === 'result' && card && (
             <div className="flex flex-col gap-5">
               <div className="glass-card rounded-2xl p-5 text-center">
@@ -639,7 +732,7 @@ export function QrScanSheet({
                 with the person before relying on them.
               </p>
 
-              <div>
+              {!conferenceMode ? <div>
                 <p className="mb-2 px-1 text-sm font-medium text-foreground">
                   How often do you want to stay in touch?
                 </p>
@@ -661,7 +754,63 @@ export function QrScanSheet({
                     </button>
                   ))}
                 </div>
-              </div>
+              </div> : (
+                <section className="glass-card rounded-3xl p-4">
+                  <p className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink-strong)]">
+                    <Lightbulb className="size-4" />
+                    Give future-you one clue
+                  </p>
+                  <textarea
+                    aria-label="Memory clue from this meeting"
+                    value={memorySeed}
+                    onChange={(event) => setMemorySeed(event.target.value)}
+                    maxLength={ENCOUNTER_LIMITS.memorySeed}
+                    rows={2}
+                    placeholder="Met by the main stage; wants an introduction to Sam."
+                    className="mt-3 w-full resize-none rounded-2xl border border-[var(--hairline)] bg-white/25 px-3 py-2.5 text-base text-[var(--ink-body)] outline-none"
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {NEXT_STEP_OPTIONS.map((option) => (
+                      <button
+                        key={option.kind}
+                        type="button"
+                        onClick={() =>
+                          setNextStepKind((current) =>
+                            current === option.kind ? undefined : option.kind,
+                          )
+                        }
+                        aria-pressed={nextStepKind === option.kind}
+                        className={cn(
+                          'pressable min-h-10 rounded-full border px-3 text-[12px] font-semibold',
+                          nextStepKind === option.kind
+                            ? 'border-[var(--action-bg)] bg-[var(--action-bg)] text-[var(--action-fg)]'
+                            : 'border-[var(--glass-border)] bg-white/25 text-[var(--ink-secondary)]',
+                        )}
+                      >
+                        {option.shortLabel}
+                      </button>
+                    ))}
+                  </div>
+                  {nextStepKind && (
+                    <label className="mt-3 block">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-tertiary)]">
+                        When · optional
+                      </span>
+                      <div className="relative mt-2">
+                        <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+                        <input
+                          type="date"
+                          value={nextStepDueOn}
+                          onInput={(event) =>
+                            setNextStepDueOn(event.currentTarget.value)
+                          }
+                          className="h-11 w-full rounded-2xl border border-[var(--hairline)] bg-white/25 pl-10 pr-3 text-base text-[var(--ink-body)] outline-none"
+                        />
+                      </div>
+                    </label>
+                  )}
+                </section>
+              )}
             </div>
           )}
         </div>
@@ -670,12 +819,22 @@ export function QrScanSheet({
           <footer className="relative z-[1] flex flex-col gap-2 border-t border-[var(--hairline)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
             <button
               type="button"
-              onClick={addToFollowApp}
+              onClick={() => addToFollowApp(conferenceMode ? 'scan' : 'close')}
               className="primary-action pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[15px] font-semibold"
             >
               <UserPlus className="size-4" />
-              Save contact to FollowApp
+              {conferenceMode ? 'Save & continue' : 'Save contact to FollowApp'}
             </button>
+            {conferenceMode && onShowCard && (
+              <button
+                type="button"
+                onClick={() => addToFollowApp('card')}
+                className="glass-button pressable flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--ink-strong)]"
+              >
+                <QrCode className="size-4" />
+                Save & show my QR
+              </button>
+            )}
             <NativeContactSaveButton
               card={card}
               source="qr"
