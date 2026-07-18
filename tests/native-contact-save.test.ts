@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import {
-  nativeContactSaveLabel,
-  nativeContactSaveWithin,
-} from '../lib/native-contact-save.ts'
+import { nativeContactSaveLabel } from '../lib/native-contact-save.ts'
 
 test('native contact save labels distinguish every outcome honestly', () => {
   assert.equal(nativeContactSaveLabel('idle'), 'Also save to phone')
@@ -16,31 +13,68 @@ test('native contact save labels distinguish every outcome honestly', () => {
   assert.equal(nativeContactSaveLabel('error'), 'Could not save — try again')
 })
 
-test('native contact saving authorizes access and commits without a UIKit presentation', () => {
+test('native contact adding uses Apple\'s editor without requesting the address book', () => {
   const plugin = readFileSync(
     new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),
     'utf8',
   )
 
-  assert.match(plugin, /CNContactStore\.authorizationStatus\(for: \.contacts\)/)
-  assert.match(plugin, /contactStore\.requestAccess\(for: \.contacts\)/)
-  assert.match(plugin, /contactAccessAllowsSaving\(_ status: CNAuthorizationStatus\)/)
-  assert.match(plugin, /updatedStatus = CNContactStore\.authorizationStatus/)
-  assert.match(plugin, /contactAccessAllowsSaving\(updatedStatus\)/)
-  assert.match(plugin, /status == \.limited/)
-  assert.match(plugin, /private let contactSaveQueue = DispatchQueue/)
-  assert.match(plugin, /let request = CNSaveRequest\(\)/)
-  assert.match(plugin, /request\.add\(contact, toContainerWithIdentifier: nil\)/)
-  assert.match(plugin, /try contactStore\.execute\(request\)/)
-  assert.match(plugin, /"saved": true/)
-  assert.match(plugin, /CNError\.Code\.authorizationDenied\.rawValue/)
-  assert.match(plugin, /permissionWasRevoked[\s\S]*CONTACT_PERMISSION_DENIED/)
-  assert.match(plugin, /private func takeContactCall\(\)/)
-  assert.doesNotMatch(plugin, /CNContactViewController/)
-  assert.doesNotMatch(plugin, /contactPresentationConfirmed/)
+  assert.match(plugin, /import ContactsUI/)
+  assert.match(plugin, /CNContactViewControllerDelegate/)
+  assert.match(plugin, /CNContactViewController\(forNewContact: contact\)/)
+  assert.match(plugin, /editor\.contactStore = contactStore/)
+  assert.match(plugin, /editor\.delegate = self/)
+  assert.match(plugin, /presenter\.present\(navigationController, animated: true\)/)
+  assert.doesNotMatch(plugin, /contactStore\.requestAccess\(for: \.contacts\)/)
+  assert.doesNotMatch(plugin, /request\.add\(/)
 })
 
-test('native contact fields are trimmed and bounded before the device-store save', () => {
+test('the contact editor reports cancellation and confirmed saves honestly', () => {
+  const plugin = readFileSync(
+    new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),
+    'utf8',
+  )
+  const completion = plugin.slice(
+    plugin.indexOf('public func contactViewController('),
+    plugin.indexOf('private func topViewController('),
+  )
+
+  assert.match(completion, /didCompleteWith contact: CNContact\?/)
+  assert.match(
+    completion,
+    /if let call, let identifier = contact\?\.identifier/,
+  )
+  assert.match(completion, /call\.resolve\(\["saved": true, "identifier": identifier\]\)/)
+  assert.match(completion, /else \{\s*call\?\.resolve\(\["saved": false\]\)/)
+  assert.match(completion, /rememberContactIdentifier\(identifier, for: requestID\)/)
+  assert.ok(
+    completion.indexOf('call.resolve(["saved": true') <
+      completion.indexOf('dismiss(animated: true)'),
+  )
+  assert.match(plugin, /presentationControllerDidDismiss[\s\S]*call\?\.resolve\(\["saved": false\]\)/)
+})
+
+test('only UIKit presentation is watched; contact review has no wall-clock timeout', () => {
+  const plugin = readFileSync(
+    new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),
+    'utf8',
+  )
+  const native = readFileSync(
+    new URL('../lib/native.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(plugin, /contactPresentationConfirmed = false/)
+  assert.match(plugin, /DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 3\)/)
+  assert.match(plugin, /Contact editor presentation did not complete/)
+  assert.doesNotMatch(plugin, /CONTACT_SAVE_TIMEOUT/)
+  assert.doesNotMatch(plugin, /deadline: \.now\(\) \+ 60/)
+  assert.doesNotMatch(native, /nativeContactSaveWithin/)
+  assert.doesNotMatch(native, /CONTACT_SAVE_TIMEOUT/)
+  assert.doesNotMatch(native, /65_000/)
+})
+
+test('native contact fields are trimmed and bounded before opening the editor', () => {
   const plugin = readFileSync(
     new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),
     'utf8',
@@ -55,21 +89,7 @@ test('native contact fields are trimmed and bounded before the device-store save
   assert.match(plugin, /contact\.urlAddresses =/)
 })
 
-test('a stalled native bridge cannot leave contact saving pending forever', async () => {
-  assert.equal(await nativeContactSaveWithin(Promise.resolve('saved'), 50), 'saved')
-
-  await assert.rejects(
-    nativeContactSaveWithin(new Promise<never>(() => undefined), 5),
-    (error: unknown) =>
-      Boolean(
-        error &&
-          typeof error === 'object' &&
-          (error as { code?: unknown }).code === 'CONTACT_SAVE_TIMEOUT',
-      ),
-  )
-})
-
-test('contact saving registers its bridge eagerly inside the watchdog', () => {
+test('contact saving registers its bridge eagerly and awaits the editor directly', () => {
   const native = readFileSync(
     new URL('../lib/native.ts', import.meta.url),
     'utf8',
@@ -78,12 +98,13 @@ test('contact saving registers its bridge eagerly inside the watchdog', () => {
   assert.match(native, /import \{ Capacitor, registerPlugin \}/)
   assert.match(
     native,
-    /nativeContactSaveWithin\(\s*followAppNativePlugin\(\)\.saveContact/,
+    /const result = await followAppNativePlugin\(\)\.saveContact\(\{/,
   )
+  assert.doesNotMatch(native, /nativeContactSaveWithin/)
   assert.doesNotMatch(native, /import\('@capacitor\/core'\)\.then/)
 })
 
-test('a refined scan updates the same native contact instead of duplicating it', () => {
+test('a completed Apple save cannot prompt for broad access or create a duplicate', () => {
   const plugin = readFileSync(
     new URL('../ios/App/App/FollowAppNativePlugin.swift', import.meta.url),
     'utf8',
@@ -96,16 +117,19 @@ test('a refined scan updates the same native contact instead of duplicating it',
   assert.match(plugin, /call\.getString\("existingIdentifier"\)/)
   assert.match(plugin, /call\.getString\("requestId"\)/)
   assert.match(plugin, /contactIdentifiersByRequestID/)
-  assert.match(plugin, /CNContact\.predicateForContacts/)
-  assert.match(plugin, /request\.update\(mutable\)/)
-  assert.match(plugin, /CONTACT_SAVE_TIMEOUT/)
-  assert.match(plugin, /cancelPendingContactSave\(generation\)/)
-  assert.match(plugin, /guard beginContactSaveIfCurrent\(generation\) else/)
+  assert.match(plugin, /mappedIdentifier == nil/)
+  assert.match(plugin, /CONTACT_IDENTIFIER_UNTRUSTED/)
+  assert.match(plugin, /if mappedIdentifier != nil/)
+  assert.match(plugin, /CONTACT_ALREADY_SAVED_NEEDS_MANUAL_EDIT/)
+  assert.doesNotMatch(plugin, /unifiedContacts\(/)
+  assert.doesNotMatch(plugin, /CNSaveRequest\(/)
+  assert.doesNotMatch(plugin, /request\.update\(/)
+  assert.doesNotMatch(plugin, /request\.add\(/)
   assert.match(button, /savedIdentifierRef\.current = result\.identifier/)
   assert.match(button, /requestId: requestIdRef\.current/)
 })
 
-test('reviewed local OCR can save immediately and later edits invalidate stale success', () => {
+test('reviewed local OCR can save immediately without invalidating a completed Apple save', () => {
   const sheet = readFileSync(
     new URL('../components/scan-card-sheet.tsx', import.meta.url),
     'utf8',
@@ -122,5 +146,30 @@ test('reviewed local OCR can save immediately and later edits invalidate stale s
   )
   assert.match(button, /changedDuringSaveRef\.current = true/)
   assert.match(button, /latestCardSignatureRef\.current !== startingCardSignature/)
-  assert.match(button, /update\(cardChanged \? 'idle' : result\.outcome\)/)
+  assert.match(button, /card_changed_during_save: cardChanged/)
+  assert.match(
+    button,
+    /resultIsComplete \|\| !cardChanged \? result\.outcome : 'idle'/,
+  )
+})
+
+test('completed contact exports remain sticky across later OCR and card prop changes', () => {
+  const button = readFileSync(
+    new URL('../components/native-contact-save-button.tsx', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(
+    button,
+    /Extract<ContactSaveOutcome, 'saved' \| 'exported'>/,
+  )
+  assert.match(button, /if \(completedOutcomeRef\.current\) return/)
+  assert.match(
+    button,
+    /if \(outcome === 'saved' \|\| outcome === 'exported'\) \{\s*completedOutcomeRef\.current = outcome/,
+  )
+  assert.match(
+    button,
+    /const complete =\s*completedOutcomeRef\.current !== undefined \|\|\s*state === 'saved' \|\|\s*state === 'exported'/,
+  )
 })

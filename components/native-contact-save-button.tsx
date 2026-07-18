@@ -38,6 +38,9 @@ export function NativeContactSaveButton({
   const inFlightRef = useRef(false)
   const changedDuringSaveRef = useRef(false)
   const operationRef = useRef(0)
+  const completedOutcomeRef = useRef<
+    Extract<ContactSaveOutcome, 'saved' | 'exported'> | undefined
+  >(undefined)
   const savedIdentifierRef = useRef<string | undefined>(undefined)
   const requestIdRef = useRef<string | undefined>(undefined)
   const onOutcomeRef = useRef(onOutcome)
@@ -60,13 +63,18 @@ export function NativeContactSaveButton({
   }, [onOutcome])
 
   useEffect(() => {
-    // A cloud OCR refinement or user correction may arrive while the direct
-    // Contacts write is running. Remember that change so the completed write
-    // cannot claim the newer on-screen values were saved.
+    // A cloud OCR refinement or user correction may arrive while Apple's
+    // contact editor is open. Keep that fact for analytics while treating the
+    // contact the person actually reviewed and saved as the final outcome.
     if (inFlightRef.current) {
       changedDuringSaveRef.current = true
       return
     }
+    // A successful Apple contact review is final for this button instance.
+    // Cloud OCR may still refine the FollowApp card afterward, but silently
+    // turning this control back into an update action could overwrite the
+    // contact exactly as the user reviewed it in Apple's editor.
+    if (completedOutcomeRef.current) return
     operationRef.current += 1
     setState('idle')
     onOutcomeRef.current?.('idle')
@@ -93,12 +101,18 @@ export function NativeContactSaveButton({
   }, [])
 
   const update = (outcome: ContactSaveOutcome) => {
+    if (outcome === 'saved' || outcome === 'exported') {
+      completedOutcomeRef.current = outcome
+    }
     setState(outcome)
     onOutcomeRef.current?.(outcome)
   }
 
   const run = async () => {
-    const complete = state === 'saved' || state === 'exported'
+    const complete =
+      completedOutcomeRef.current !== undefined ||
+      state === 'saved' ||
+      state === 'exported'
     if (disabled || inFlightRef.current || state === 'saving' || complete) return
     if (state === 'denied' && native) {
       inFlightRef.current = true
@@ -130,7 +144,9 @@ export function NativeContactSaveButton({
       const cardChanged =
         changedDuringSaveRef.current ||
         latestCardSignatureRef.current !== startingCardSignature
-      update(cardChanged ? 'idle' : result.outcome)
+      const resultIsComplete =
+        result.outcome === 'saved' || result.outcome === 'exported'
+      update(resultIsComplete || !cardChanged ? result.outcome : 'idle')
       trackProductEvent('native_contact_save', {
         source,
         outcome: result.outcome,

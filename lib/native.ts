@@ -1,7 +1,6 @@
 import type { CardData } from './card'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { isNativeMethodUnavailableError } from './native-bridge.ts'
-import { nativeContactSaveWithin } from './native-contact-save.ts'
 
 function isNativeRuntimeNow(): boolean {
   if (typeof window === 'undefined') return false
@@ -672,9 +671,15 @@ export async function saveContactToPhone(
 ): Promise<PhoneContactSaveResult> {
   if (await isNativeRuntime()) {
     try {
-      const result = await nativeContactSaveWithin(
-        followAppNativePlugin().saveContact({ ...card, ...options }),
-      )
+      // This promise intentionally has no wall-clock watchdog. The native
+      // operation includes Apple-owned UI where someone may spend as long as
+      // they need reviewing or editing the contact before choosing Done or
+      // Cancel. Timing it out can report failure while a later save is still
+      // possible, which risks both lost saves and duplicates on retry.
+      const result = await followAppNativePlugin().saveContact({
+        ...card,
+        ...options,
+      })
       return {
         outcome: result.saved ? 'saved' : 'cancelled',
         ...(result.identifier ? { identifier: result.identifier } : {}),

@@ -1686,7 +1686,7 @@ export function ScanCardSheet({
                       Save to iPhone Contacts
                     </p>
                     <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--ink-secondary)]">
-                      Optional · saves the details you reviewed above.
+                      Optional · opens an editable Apple contact before saving.
                     </p>
                   </div>
                 </div>
