@@ -24,6 +24,7 @@ export const SCAN_REVIEW_FIELD_KEYS = [
   'company',
   'phone',
   'email',
+  'website',
 ] as const
 
 export type ScanCardField = (typeof SCAN_CARD_FIELD_KEYS)[number]
@@ -108,12 +109,15 @@ export function scanQualityNotice(
 }
 
 export function countScanReviewCorrections(
-  before: Record<(typeof SCAN_REVIEW_FIELD_KEYS)[number], string> | null,
-  after: Record<(typeof SCAN_REVIEW_FIELD_KEYS)[number], string>,
+  before:
+    | Partial<Record<(typeof SCAN_REVIEW_FIELD_KEYS)[number], string>>
+    | null,
+  after: Partial<Record<(typeof SCAN_REVIEW_FIELD_KEYS)[number], string>>,
 ): number {
   if (!before) return 0
   return SCAN_REVIEW_FIELD_KEYS.filter(
-    (field) => before[field].trim() !== after[field].trim(),
+    (field) =>
+      (before[field] ?? '').trim() !== (after[field] ?? '').trim(),
   ).length
 }
 

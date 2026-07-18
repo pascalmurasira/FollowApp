@@ -24,6 +24,45 @@ test('the primary scan tap uses the maintained camera lifecycle', () => {
   assert.doesNotMatch(scanSheet, /scanBusinessCardNatively/)
 })
 
+test('cancelling a replacement camera or photo picker keeps the active scan valid', () => {
+  const scanSheet = source('../components/scan-card-sheet.tsx')
+  const cameraHandler = scanSheet.slice(
+    scanSheet.indexOf('const handleNativeCamera'),
+    scanSheet.indexOf('const handleChoosePhoto'),
+  )
+  const photoHandler = scanSheet.slice(
+    scanSheet.indexOf('const handleChoosePhoto'),
+    scanSheet.indexOf('const handleOpenSettings'),
+  )
+  const fileHandler = scanSheet.slice(
+    scanSheet.indexOf('const handleFile'),
+    scanSheet.indexOf('const update ='),
+  )
+
+  assert.match(cameraHandler, /let operation = operationRef\.current/)
+  assert.match(
+    cameraHandler,
+    /const image = await capture[\s\S]*?operation = \+\+operationRef\.current/,
+  )
+  assert.doesNotMatch(
+    cameraHandler,
+    /const operation = \+\+operationRef\.current/,
+  )
+  assert.match(photoHandler, /let operation = operationRef\.current/)
+  assert.match(
+    photoHandler,
+    /const image = await chooseImageDataUrl\(\)[\s\S]*?operation = \+\+operationRef\.current/,
+  )
+  assert.ok(
+    fileHandler.indexOf('if (!file) return') <
+      fileHandler.indexOf('const image = await downscale(file)'),
+  )
+  assert.ok(
+    fileHandler.indexOf('const image = await downscale(file)') <
+      fileHandler.indexOf('operation = ++operationRef.current'),
+  )
+})
+
 test('system entry points, controls and secure capture use stable routes', () => {
   const appPlist = source('../ios/App/App/Info.plist')
   const intents = source('../ios/App/App/FollowAppSystemIntents.swift')
@@ -44,6 +83,18 @@ test('system entry points, controls and secure capture use stable routes', () =>
   assert.match(capturePlist, /com\.apple\.securecapture/)
   assert.match(project, /dstPath = Extensions;/)
   assert.match(project, /dstSubfolderSpec = 13;/)
+})
+
+test('the iOS 15 app weak-links the iOS 18 locked-camera framework', () => {
+  const project = source('../ios/App/App.xcodeproj/project.pbxproj')
+  const appDelegate = source('../ios/App/App/AppDelegate.swift')
+  const plugin = source('../ios/App/App/FollowAppNativePlugin.swift')
+
+  assert.match(project, /IPHONEOS_DEPLOYMENT_TARGET = 15\.0;/)
+  assert.match(appDelegate, /@_weakLinked import LockedCameraCapture/)
+  assert.match(plugin, /@_weakLinked import LockedCameraCapture/)
+  assert.doesNotMatch(appDelegate, /\nimport LockedCameraCapture\n/)
+  assert.doesNotMatch(plugin, /\nimport LockedCameraCapture\n/)
 })
 
 test('QR presentation and event Live Activity lifecycle are reversible', () => {

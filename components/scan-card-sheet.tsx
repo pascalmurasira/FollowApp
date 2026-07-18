@@ -40,6 +40,7 @@ import {
 import { NativeContactSaveButton } from '@/components/native-contact-save-button'
 import { todayDateInputValue, toDateInputValue } from '@/lib/contact-dates'
 import { isDeliverableEmail } from '@/lib/contact-validation'
+import { getDeviceId } from '@/lib/device-id'
 import {
   beginCameraLaunch,
   cancelCameraLaunch,
@@ -60,6 +61,8 @@ import { trackProductEvent } from '@/lib/product-analytics'
 import {
   parseBusinessCardLines,
   preliminaryBusinessCardFieldCount,
+  nativeRecognitionWithin,
+  reconcileBusinessCardExtractions,
   recognizeNativeBusinessCard,
 } from '@/lib/native-card-ocr'
 import { cn } from '@/lib/utils'
@@ -526,46 +529,10 @@ export function ScanCardSheet({
       approximate_kb: Math.round((image.length * 0.75) / 1024),
     })
 
-    // A conference user can scan dozens of cards in one hour. On native iOS,
-    // a sufficiently complete Vision result is the hot path: it avoids both
-    // network latency and exhausting the bounded cloud OCR allowance. Low-
-    // confidence cards still fall through to the existing cloud verifier.
+    // Start local and cloud recognition together. Event Mode previously waited
+    // indefinitely for the native bridge and could accept a heuristic preview
+    // without the stronger extraction ever running.
     const nativeRecognition = recognizeNativeBusinessCard(image).catch(() => null)
-    if (conferenceMode && Capacitor.isNativePlatform()) {
-      const recognition = await nativeRecognition
-      if (!openRef.current || operationRef.current !== operation) return
-      if (recognition) {
-        const preview = parseBusinessCardLines(recognition.lines)
-        const fieldCount = preliminaryBusinessCardFieldCount(preview)
-        if (
-          fieldCount >= 3 &&
-          (recognition.averageConfidence ?? 0) >= 0.7 &&
-          (preview.name.trim() || preview.company.trim())
-        ) {
-          originalScanRef.current = preview
-          setCard(preview)
-          setReviewMeta({
-            // Native OCR is fast, not authoritative. Highlight populated
-            // fields so the user still owns the verification step.
-            needsReview: SCAN_REVIEW_FIELD_KEYS.filter((field) =>
-              preview[field].trim(),
-            ),
-            imageQuality: 'usable',
-            qualityNote: '',
-          })
-          setReviewSource('scan')
-          setContextStatus('idle')
-          setCloudScanPending(false)
-          setStage('review')
-          trackProductEvent('ocr_preliminary', {
-            outcome: 'conference_local_success',
-            filled_field_count: fieldCount,
-            average_confidence: recognition.averageConfidence,
-          })
-          return
-        }
-      }
-    }
 
     // Native Vision is a fast preview, not a source of certainty. It runs in
     // parallel with the cloud extraction and lets users start reviewing while
@@ -627,9 +594,13 @@ export function ScanCardSheet({
       controller.abort()
     }, SCAN_CARD_CLIENT_TIMEOUT_MS)
     try {
+      const deviceId = getDeviceId()
       const res = await fetch('/api/scan-card', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(deviceId ? { 'X-FollowApp-Device-Id': deviceId } : {}),
+        },
         body: JSON.stringify({ image }),
         signal: controller.signal,
       })
@@ -677,7 +648,27 @@ export function ScanCardSheet({
         email: data.email ?? '',
         website: data.website ?? '',
       }
-      const needsReview = normalizeScanReviewFields(data.needsReview)
+      // If the network happened to win the race, give fast on-device Vision a
+      // short grace period so a cloud blank cannot erase its phone/email. This
+      // remains bounded: a stuck native bridge can never strand the scan.
+      if (!preliminaryCard) {
+        const lateRecognition = await nativeRecognitionWithin(
+          nativeRecognition,
+          1_500,
+        )
+        if (!openRef.current || operationRef.current !== operation) return
+        if (lateRecognition) {
+          const latePreview = parseBusinessCardLines(lateRecognition.lines)
+          if (preliminaryBusinessCardFieldCount(latePreview) > 0) {
+            preliminaryCard = latePreview
+          }
+        }
+      }
+      const modelNeedsReview = normalizeScanReviewFields(data.needsReview)
+      const reconciled = reconcileBusinessCardExtractions(scanned, preliminaryCard)
+      const needsReview = [
+        ...new Set([...modelNeedsReview, ...reconciled.fallbackFields]),
+      ]
       const imageQuality: ScanImageQuality =
         data.imageQuality === 'clear' ||
         data.imageQuality === 'usable' ||
@@ -689,8 +680,8 @@ export function ScanCardSheet({
       setCloudScanPending(false)
       const editedFields = new Set(editedScanFieldsRef.current)
       setCard((current) => {
-        const merged = { ...scanned }
-        const baseline = { ...scanned }
+        const merged = { ...reconciled.card }
+        const baseline = { ...reconciled.card }
         if (preliminaryCard) {
           for (const field of editedFields) {
             merged[field] = current[field]
@@ -705,7 +696,7 @@ export function ScanCardSheet({
         imageQuality,
         qualityNote: data.qualityNote?.trim().slice(0, 160) ?? '',
       })
-      if (!scanned.name && !scanned.company) {
+      if (!reconciled.card.name && !reconciled.card.company) {
         setError("Couldn't read much — check the details below.")
       } else {
         setError(null)
@@ -720,7 +711,7 @@ export function ScanCardSheet({
         source: captureSource,
         image_quality: imageQuality,
         filled_field_count: SCAN_REVIEW_FIELD_KEYS.filter((field) =>
-          scanned[field].trim(),
+          reconciled.card[field].trim(),
         ).length,
         review_field_count: needsReview.length,
       })
@@ -775,9 +766,13 @@ export function ScanCardSheet({
     // call. One user action must never create two competing camera controllers.
     const cameraAttempt = beginCameraLaunch(cameraLaunchRef.current)
     if (cameraAttempt === null) return
-    const operation = ++operationRef.current
+    // Do not invalidate the current scan merely because the replacement camera
+    // opened. If the user cancels, its cloud verifier must remain able to
+    // finish instead of leaving "Checking the photo" stranded forever.
+    let operation = operationRef.current
+    const stageAtLaunch = stage
     const startedAt = performance.now()
-    setError(null)
+    if (stageAtLaunch !== 'review') setError(null)
     setCameraHelp(null)
     setIsOpeningCamera(true)
     try {
@@ -792,13 +787,16 @@ export function ScanCardSheet({
         // it consumed before decoding so a parent rerender cannot replay it.
         consumedInitialImageRef.current = lockedCapture
         onInitialImageConsumed?.()
-        setStage('reading')
         trackProductEvent('camera_visible', {
           source: 'locked_camera_capture',
           outcome: 'handoff',
         })
+        const normalizedImage = await normalizeDataUrl(lockedCapture)
+        if (!openRef.current || operationRef.current !== operation) return
+        operation = ++operationRef.current
+        setStage('reading')
         await readCardImage(
-          await normalizeDataUrl(lockedCapture),
+          normalizedImage,
           operation,
           'native_camera',
         )
@@ -818,6 +816,7 @@ export function ScanCardSheet({
       const image = await capture
       if (!openRef.current || operationRef.current !== operation) return
       if (!image) throw new Error('Camera returned no photo.')
+      operation = ++operationRef.current
 
       // Native adapters already return a bounded JPEG. Change the visible state
       // before any upload work so users never remain stuck on “Opening camera”.
@@ -838,7 +837,7 @@ export function ScanCardSheet({
           outcome: 'denied',
         })
         setCameraHelp('blocked')
-        setStage('capture')
+        if (stageAtLaunch !== 'review') setStage('capture')
       } else if (isNativeUserCancelError(err)) {
         trackProductEvent('camera_permission_outcome', {
           outcome: 'cancelled',
@@ -850,7 +849,7 @@ export function ScanCardSheet({
         console.error('[v0] Native card capture failed:', err)
         setError('Camera did not open. Try again, or choose a photo instead.')
         setCameraHelp('unavailable')
-        setStage('capture')
+        if (stageAtLaunch !== 'review') setStage('capture')
       }
     } finally {
       // Camera ownership is independent from scan/upload operations. Clearing
@@ -864,9 +863,9 @@ export function ScanCardSheet({
 
   const handleChoosePhoto = async () => {
     if (isCameraLaunchActive(cameraLaunchRef.current)) return
-    const operation = ++operationRef.current
-    setError(null)
-    setCameraHelp(null)
+    // Like Rescan, opening Photos is not itself a replacement. Keep the
+    // current verifier alive unless the user actually returns an image.
+    let operation = operationRef.current
     const native = Capacitor.isNativePlatform()
     if (!native) {
       photoFileRef.current?.click()
@@ -881,8 +880,12 @@ export function ScanCardSheet({
         photoFileRef.current?.click()
         return
       }
+      const normalizedImage = await normalizeDataUrl(image)
+      if (!openRef.current || operationRef.current !== operation) return
+      operation = ++operationRef.current
+      setCameraHelp(null)
       await readCardImage(
-        await normalizeDataUrl(image),
+        normalizedImage,
         operation,
         'photo_library',
       )
@@ -944,16 +947,23 @@ export function ScanCardSheet({
   }
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const operation = ++operationRef.current
     const input = e.currentTarget
     const file = e.target.files?.[0]
     if (!file) return
+    let operation = operationRef.current
     try {
+      const image = await downscale(file)
+      if (!openRef.current || operationRef.current !== operation) return
+      operation = ++operationRef.current
       await readCardImage(
-        await downscale(file),
+        image,
         operation,
         input === cameraFileRef.current ? 'camera_file' : 'photo_library',
       )
+    } catch (fileError) {
+      if (!openRef.current || operationRef.current !== operation) return
+      console.error('[v0] Selected card photo could not be decoded:', fileError)
+      setError('That photo could not be read. Choose another one or enter the details by hand.')
     } finally {
       input.value = ''
     }
@@ -999,7 +1009,10 @@ export function ScanCardSheet({
     const acceptedNotes = contextNotes.filter((item) => item.accepted)
     const contextParts = [
       note.trim(),
-      ...acceptedNotes.map((item) => `${item.text} (${item.source})`),
+      card.website.trim() ? `Website on card: ${card.website.trim()}` : '',
+      ...acceptedNotes
+        .filter((item) => item.id !== 'card-website')
+        .map((item) => `${item.text} (${item.source})`),
     ].filter(Boolean)
     const encounter = createEncounterCapture({
       captureMethod: reviewSource === 'manual' ? 'manual' : 'card-scan',
@@ -1008,18 +1021,26 @@ export function ScanCardSheet({
       nextStepKind,
       dueOn: nextStepDueOn,
     })
-    const added = onAdd({
-      name: card.name,
-      relationship,
-      title: titleAndCompany || undefined,
-      tier,
-      lastContactedAt: lastContactedAt || null,
-      phone: card.phone || undefined,
-      email: card.email || undefined,
-      context: contextParts.join('\n') || undefined,
-      interests: [],
-      encounters: [encounter],
-    })
+    let added: Contact | void
+    try {
+      added = onAdd({
+        name: card.name,
+        relationship,
+        title: titleAndCompany || undefined,
+        tier,
+        lastContactedAt: lastContactedAt || null,
+        phone: card.phone || undefined,
+        email: card.email || undefined,
+        context: contextParts.join('\n') || undefined,
+        interests: [],
+        encounters: [encounter],
+      })
+    } catch (saveError) {
+      console.error('[v0] Captured contact could not be saved:', saveError)
+      submitGuardRef.current = false
+      setError('The card is still here, but it could not be saved. Please try again.')
+      return
+    }
     const contactId = added?.id ?? null
     const correctionCount = countScanReviewCorrections(
       originalScanRef.current,
@@ -1468,6 +1489,28 @@ export function ScanCardSheet({
                 </p>
               )}
 
+              {cameraHelp && (
+                <div className="flex items-center gap-2 rounded-2xl border border-[var(--hairline)] bg-white/20 p-2.5">
+                  {cameraHelp === 'blocked' && (
+                    <button
+                      type="button"
+                      onClick={handleOpenSettings}
+                      className="glass-button pressable flex min-h-10 flex-1 items-center justify-center gap-2 rounded-full px-3 text-[13px] font-semibold text-[var(--ink-strong)]"
+                    >
+                      <Settings className="size-4" />
+                      Open Settings
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleChoosePhoto}
+                    className="glass-button pressable min-h-10 flex-1 rounded-full px-3 text-[13px] font-semibold text-[var(--ink-strong)]"
+                  >
+                    Choose a photo
+                  </button>
+                </div>
+              )}
+
               {cloudScanPending && (
                 <div
                   role="status"
@@ -1636,7 +1679,7 @@ export function ScanCardSheet({
                       Save to iPhone Contacts
                     </p>
                     <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--ink-secondary)]">
-                      Optional · opens an editable Apple contact before saving.
+                      Optional · saves the details you reviewed above.
                     </p>
                   </div>
                 </div>
@@ -1647,15 +1690,12 @@ export function ScanCardSheet({
                     co: card.company || undefined,
                     p: card.phone || undefined,
                     e: card.email || undefined,
+                    w: card.website || undefined,
                   }}
                   source="business_card"
-                  idleLabel={
-                    cloudScanPending
-                      ? 'Finishing card check…'
-                      : 'Save to iPhone Contacts'
-                  }
+                  idleLabel="Save to iPhone Contacts"
                   className="mt-3 min-h-11 text-[13px]"
-                  disabled={!card.name.trim() || cloudScanPending}
+                  disabled={!card.name.trim()}
                   onOutcome={(outcome) =>
                     setSavedToPhone(outcome === 'saved')
                   }
@@ -1899,6 +1939,18 @@ function ParsedSummary({
         autoComplete="email"
         onChange={(value) => onUpdate('email', value)}
       />
+      <EditableSummaryRow
+        label="Website"
+        value={card.website}
+        placeholder="Website or domain"
+        needsReview={
+          !manual && scanFieldNeedsReview('website', card.website, needsReview)
+        }
+        type="url"
+        inputMode="url"
+        autoComplete="url"
+        onChange={(value) => onUpdate('website', value)}
+      />
     </section>
   )
 }
@@ -1918,8 +1970,8 @@ function EditableSummaryRow({
   value: string
   placeholder: string
   needsReview: boolean
-  type?: 'text' | 'tel' | 'email'
-  inputMode?: 'text' | 'tel' | 'email'
+  type?: 'text' | 'tel' | 'email' | 'url'
+  inputMode?: 'text' | 'tel' | 'email' | 'url'
   autoComplete?: string
   required?: boolean
   onChange: (value: string) => void

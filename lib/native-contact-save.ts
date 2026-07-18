@@ -13,7 +13,7 @@ export function nativeContactSaveLabel(
 ): string {
   switch (state) {
     case 'saving':
-      return 'Opening Contacts…'
+      return 'Saving to Contacts…'
     case 'saved':
       return 'Saved to Contacts'
     case 'exported':

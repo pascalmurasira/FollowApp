@@ -1,13 +1,16 @@
 import Capacitor
 import UIKit
 import Contacts
-import ContactsUI
 import UserNotifications
 import Vision
 import VisionKit
 import AVFoundation
 import ActivityKit
-import LockedCameraCapture
+// The containing app still supports iOS 15. LockedCameraCapture ships only on
+// iOS 18+, so the module must be weak-linked even though every use is guarded
+// by an availability check. A normal import emits LC_LOAD_DYLIB and prevents
+// the app from launching at all on iOS 15–17.
+@_weakLinked import LockedCameraCapture
 
 enum FollowAppReminderNotification {
     static let identifierPrefix = "followapp-follow-up-"
@@ -53,7 +56,7 @@ enum FollowAppReminderNotification {
 }
 
 @objc(FollowAppNativePlugin)
-public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePresentationControllerDelegate {
     public let identifier = "FollowAppNativePlugin"
     public let jsName = "FollowAppNative"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -81,10 +84,11 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     ]
 
     private var contactCall: CAPPluginCall?
-    private var contactNavigationController: UINavigationController?
-    private var contactPresentationGeneration: UInt64 = 0
-    private var contactPresentationConfirmed = false
     private let contactStore = CNContactStore()
+    private let contactSaveQueue = DispatchQueue(
+        label: "com.pascalmurasira.followapp.contact-save",
+        qos: .userInitiated
+    )
     private let reminderGenerationLock = NSLock()
     private var reminderGeneration: UInt64 = 0
     private var reminderIdentifierGenerations: [String: UInt64] = [:]
@@ -274,11 +278,6 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     }
 
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        if presentationController.presentedViewController === contactNavigationController {
-            let call = takeContactCall()
-            call?.resolve(["saved": false])
-            return
-        }
         guard presentationController.presentedViewController === exchangeDockController else { return }
         exchangeDockController = nil
     }
@@ -879,11 +878,10 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     @objc func saveContact(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard self.contactCall == nil else {
-                call.reject("Contact editor is already open.", "CONTACT_BUSY")
+                call.reject("A contact is already being saved.", "CONTACT_BUSY")
                 return
             }
-            guard let name = call.getString("n")?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !name.isEmpty else {
+            guard let name = self.bounded(call.getString("n"), max: 200) else {
                 call.reject("A contact name is required.", "INVALID_CONTACT")
                 return
             }
@@ -893,9 +891,9 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
             contact.givenName = components?.givenName ?? name
             contact.middleName = components?.middleName ?? ""
             contact.familyName = components?.familyName ?? ""
-            contact.jobTitle = call.getString("t") ?? ""
-            contact.organizationName = call.getString("co") ?? ""
-            if let phone = call.getString("p"), !phone.isEmpty {
+            contact.jobTitle = self.bounded(call.getString("t"), max: 300) ?? ""
+            contact.organizationName = self.bounded(call.getString("co"), max: 300) ?? ""
+            if let phone = self.bounded(call.getString("p"), max: 100) {
                 contact.phoneNumbers = [
                     CNLabeledValue(
                         label: CNLabelPhoneNumberMobile,
@@ -903,32 +901,54 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
                     )
                 ]
             }
-            if let email = call.getString("e"), !email.isEmpty {
+            if let email = self.bounded(call.getString("e"), max: 320) {
                 contact.emailAddresses = [
                     CNLabeledValue(label: CNLabelWork, value: email as NSString)
                 ]
             }
+            if let website = self.bounded(call.getString("w"), max: 300) {
+                contact.urlAddresses = [
+                    CNLabeledValue(label: CNLabelWork, value: website as NSString)
+                ]
+            }
 
             self.contactCall = call
-            self.authorizeAndPresentContact(contact, call: call)
+            self.authorizeAndSaveContact(contact, call: call)
         }
     }
 
-    private func authorizeAndPresentContact(_ contact: CNMutableContact, call: CAPPluginCall) {
+    private func contactAccessAllowsSaving(_ status: CNAuthorizationStatus) -> Bool {
+        if status == .authorized {
+            return true
+        }
+        if #available(iOS 18.0, *), status == .limited {
+            // Contacts created by the app are automatically part of its
+            // limited-access set, so a new-contact save is supported.
+            return true
+        }
+        return false
+    }
+
+    private func authorizeAndSaveContact(_ contact: CNMutableContact, call: CAPPluginCall) {
         let status = CNContactStore.authorizationStatus(for: .contacts)
+        if contactAccessAllowsSaving(status) {
+            saveContactToStore(contact, call: call)
+            return
+        }
+
         switch status {
-        case .authorized:
-            presentContactEditor(contact, call: call)
         case .notDetermined:
-            // Request explicitly rather than letting ContactsUI perform
-            // implicit contact-store work during presentation. Apart from
-            // producing a clearer permission outcome, this keeps that work
-            // off the main queue so the presentation watchdog can always run.
+            // Ask explicitly so denial and limited access settle with a clear
+            // bridge result before the background save begins.
             contactStore.requestAccess(for: .contacts) { [weak self] granted, error in
                 DispatchQueue.main.async {
                     guard let self, self.contactCall === call else { return }
-                    if granted {
-                        self.presentContactEditor(contact, call: call)
+                    // On iOS 18 the callback's Boolean is not the complete
+                    // authorization model: the resulting state can be
+                    // `.limited`, which still permits creating this contact.
+                    let updatedStatus = CNContactStore.authorizationStatus(for: .contacts)
+                    if granted || self.contactAccessAllowsSaving(updatedStatus) {
+                        self.saveContactToStore(contact, call: call)
                     } else {
                         let detail = error.map { " \($0.localizedDescription)" } ?? ""
                         self.rejectContactCall(
@@ -947,144 +967,43 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
                 code: "CONTACT_PERMISSION_DENIED"
             )
         default:
-            if #available(iOS 18.0, *), status == .limited {
-                // Apps automatically retain access to contacts they create,
-                // so limited access is sufficient for this user-initiated add.
-                presentContactEditor(contact, call: call)
-            } else {
-                rejectContactCall(
-                    call,
-                    message: "Contacts are unavailable on this device.",
-                    code: "CONTACT_UNAVAILABLE"
-                )
-            }
+            rejectContactCall(
+                call,
+                message: "Contacts are unavailable on this device.",
+                code: "CONTACT_UNAVAILABLE"
+            )
         }
     }
 
-    private func presentContactEditor(
-        _ contact: CNMutableContact,
-        call: CAPPluginCall,
-        readinessAttempt: Int = 0,
-        presentationAttempt: Int = 0
-    ) {
+    private func saveContactToStore(_ contact: CNMutableContact, call: CAPPluginCall) {
         guard contactCall === call else { return }
-        guard let viewController = bridge?.viewController,
-              let presenter = topViewController(from: viewController),
-              presenter.viewIfLoaded?.window != nil else {
-            rejectContactCall(
-                call,
-                message: "Contacts could not be opened.",
-                code: "CONTACT_UNAVAILABLE"
-            )
-            return
-        }
-
-        // A camera or another system controller can still be completing its
-        // dismissal when the web sheet becomes interactive. Wait briefly for
-        // a stable presenter instead of asking UIKit to overlap transitions.
-        let presenterIsTransitioning = presenter.isBeingPresented ||
-            presenter.isBeingDismissed || presenter.transitionCoordinator != nil
-        if presenterIsTransitioning {
-            guard readinessAttempt < 20 else {
-                rejectContactCall(
-                    call,
-                    message: "Contacts could not be opened while another screen was closing.",
-                    code: "CONTACT_PRESENTATION_FAILED"
-                )
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.presentContactEditor(
-                    contact,
-                    call: call,
-                    readinessAttempt: readinessAttempt + 1,
-                    presentationAttempt: presentationAttempt
-                )
-            }
-            return
-        }
-
-        let editor = CNContactViewController(forNewContact: contact)
-        // ContactsUI deliberately disables Add/Done when no store is set.
-        // Keep one store for the plugin lifetime and give it to every new
-        // contact editor so the reviewed card can actually be committed.
-        editor.contactStore = contactStore
-        editor.delegate = self
-        editor.allowsEditing = true
-
-        let navigationController = UINavigationController(rootViewController: editor)
-        navigationController.modalPresentationStyle =
-            UIDevice.current.userInterfaceIdiom == .pad ? .formSheet : .fullScreen
-        navigationController.isModalInPresentation = true
-        navigationController.presentationController?.delegate = self
-
-        contactPresentationGeneration &+= 1
-        let generation = contactPresentationGeneration
-        contactPresentationConfirmed = false
-        // Retain the controller until every success/failure path settles. The
-        // old weak watchdog lost the controller precisely when UIKit declined
-        // a presentation, leaving the Capacitor promise pending forever.
-        contactNavigationController = navigationController
-        let presentationStartedAt = ProcessInfo.processInfo.systemUptime
-        NSLog("[FollowApp] Contact editor presentation requested.")
-
-        presenter.present(navigationController, animated: true) { [weak self] in
-            guard let self,
-                  self.contactCall === call,
-                  self.contactPresentationGeneration == generation,
-                  self.contactNavigationController === navigationController else {
-                return
-            }
-            self.contactPresentationConfirmed = true
-            navigationController.presentationController?.delegate = self
-            let elapsedMilliseconds = Int(
-                (ProcessInfo.processInfo.systemUptime - presentationStartedAt) * 1_000
-            )
-            NSLog("[FollowApp] Contact editor presented in %d ms.", elapsedMilliseconds)
-        }
-
-        // View-hierarchy links can exist even when a presentation transition
-        // never completes. The completion callback is the authoritative proof
-        // that Contacts became visible.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self,
-                  self.contactCall === call,
-                  self.contactPresentationGeneration == generation else {
-                return
-            }
-            guard self.contactPresentationConfirmed,
-                  navigationController.presentingViewController != nil,
-                  navigationController.viewIfLoaded?.window != nil else {
-                NSLog("[FollowApp] Contact editor presentation did not complete.")
-                self.contactPresentationGeneration &+= 1
-                self.contactPresentationConfirmed = false
-                self.contactNavigationController = nil
-
-                let retryOrReject = { [weak self] in
-                    guard let self, self.contactCall === call else { return }
-                    if presentationAttempt == 0 {
-                        self.presentContactEditor(
-                            contact,
-                            call: call,
-                            presentationAttempt: 1
-                        )
-                    } else {
-                        self.rejectContactCall(
-                            call,
-                            message: "Contacts could not be opened.",
-                            code: "CONTACT_PRESENTATION_FAILED"
-                        )
-                    }
+        contactSaveQueue.async { [self] in
+            let request = CNSaveRequest()
+            request.add(contact, toContainerWithIdentifier: nil)
+            do {
+                try contactStore.execute(request)
+                DispatchQueue.main.async {
+                    guard self.contactCall === call else { return }
+                    _ = self.takeContactCall()
+                    NSLog("[FollowApp] Contact saved to the device store.")
+                    call.resolve(["saved": true, "identifier": contact.identifier])
                 }
-
-                if navigationController.presentingViewController != nil {
-                    navigationController.dismiss(animated: false)
+            } catch {
+                DispatchQueue.main.async {
+                    let nsError = error as NSError
+                    let permissionWasRevoked = nsError.domain == CNErrorDomain &&
+                        nsError.code == CNError.Code.authorizationDenied.rawValue
+                    self.rejectContactCall(
+                        call,
+                        message: permissionWasRevoked
+                            ? "Contacts permission was denied. Open Settings to allow access."
+                            : "The contact could not be saved. \(error.localizedDescription)",
+                        code: permissionWasRevoked
+                            ? "CONTACT_PERMISSION_DENIED"
+                            : "CONTACT_SAVE_FAILED",
+                        error: error
+                    )
                 }
-                // Never depend on a dismissal completion to settle the bridge
-                // call. A failed UIKit transition is exactly the condition we
-                // are recovering from, so its completion is not authoritative.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: retryOrReject)
-                return
             }
         }
     }
@@ -1093,9 +1012,6 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     private func takeContactCall() -> CAPPluginCall? {
         let call = contactCall
         contactCall = nil
-        contactNavigationController = nil
-        contactPresentationConfirmed = false
-        contactPresentationGeneration &+= 1
         return call
     }
 
@@ -1107,27 +1023,11 @@ public class FollowAppNativePlugin: CAPPlugin, CAPBridgedPlugin, CNContactViewCo
     ) {
         guard contactCall === call else { return }
         _ = takeContactCall()
-        NSLog("[FollowApp] Contact editor rejected: %@.", code)
+        NSLog("[FollowApp] Contact save rejected: %@.", code)
         if let error {
             call.reject(message, code, error)
         } else {
             call.reject(message, code)
-        }
-    }
-
-    public func contactViewController(
-        _ viewController: CNContactViewController,
-        didCompleteWith contact: CNContact?
-    ) {
-        let call = takeContactCall()
-        let saved = contact != nil
-        NSLog("[FollowApp] Contact editor completed; saved=%@.", saved ? "true" : "false")
-        guard let navigationController = viewController.navigationController else {
-            call?.resolve(["saved": saved])
-            return
-        }
-        navigationController.dismiss(animated: true) {
-            call?.resolve(["saved": saved])
         }
     }
 

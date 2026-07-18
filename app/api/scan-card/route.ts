@@ -5,7 +5,7 @@ import {
   SCAN_CARD_FIELD_KEYS,
   SCAN_CARD_MODEL_TIMEOUT_MS,
 } from '@/lib/camera-launch'
-import { protectExpensiveRequest } from '@/lib/server/api-protection'
+import { protectScanCardRequest } from '@/lib/server/scan-card-protection'
 import {
   isScanCardUnavailable,
   scanCardErrorMetadata,
@@ -18,21 +18,29 @@ export const maxDuration = 30
 const cardSchema = z.object({
   name: z
     .string()
+    .max(200)
     .describe("The person's full name as printed. Empty string if not legible."),
   title: z
     .string()
+    .max(300)
     .describe('Job title / role as printed, e.g. "Head of Design". Empty if absent.'),
   company: z
     .string()
+    .max(300)
     .describe('Company or organization name. Empty if absent.'),
   phone: z
     .string()
+    .max(100)
     .describe(
       'Primary phone number, normalized to international format (e.g. +14155550123) when the country is unambiguous; otherwise as printed. Empty if absent.',
     ),
-  email: z.string().describe('Email address, lowercased. Empty if absent.'),
+  email: z
+    .string()
+    .max(320)
+    .describe('Email address, lowercased. Empty if absent.'),
   website: z
     .string()
+    .max(300)
     .describe('Website or domain as printed, e.g. "linear.app". Empty if absent.'),
   needsReview: z
     .array(z.enum(SCAN_CARD_FIELD_KEYS))
@@ -55,10 +63,7 @@ const cardSchema = z.object({
 const requestSchema = z.object({ image: z.string() })
 
 export async function POST(req: Request) {
-  const blocked = await protectExpensiveRequest(req, 'scan-card', {
-    limit: 10,
-    windowMs: 10 * 60_000,
-  })
+  const blocked = await protectScanCardRequest(req)
   if (blocked) return blocked
 
   let input: unknown

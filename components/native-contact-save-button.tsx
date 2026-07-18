@@ -36,22 +36,45 @@ export function NativeContactSaveButton({
   const [state, setState] = useState<ContactSaveOutcome>('idle')
   const [native, setNative] = useState(false)
   const inFlightRef = useRef(false)
+  const changedDuringSaveRef = useRef(false)
   const operationRef = useRef(0)
+  const onOutcomeRef = useRef(onOutcome)
+  const cardSignature = JSON.stringify([
+    card.n,
+    card.p ?? '',
+    card.e ?? '',
+    card.co ?? '',
+    card.t ?? '',
+    card.w ?? '',
+  ])
+  const latestCardSignatureRef = useRef(cardSignature)
 
   useEffect(() => {
-    // Native Contacts owns the screen until the user saves or cancels. Card
-    // fields can still improve in the background (for example cloud OCR
-    // replacing the fast Vision preview), but that must not invalidate the
-    // active editor or make its eventual outcome disappear.
-    if (inFlightRef.current) return
+    latestCardSignatureRef.current = cardSignature
+  }, [cardSignature])
+
+  useEffect(() => {
+    onOutcomeRef.current = onOutcome
+  }, [onOutcome])
+
+  useEffect(() => {
+    // A cloud OCR refinement or user correction may arrive while the direct
+    // Contacts write is running. Remember that change so the completed write
+    // cannot claim the newer on-screen values were saved.
+    if (inFlightRef.current) {
+      changedDuringSaveRef.current = true
+      return
+    }
     operationRef.current += 1
     setState('idle')
-  }, [card.n, card.p, card.e, card.co, card.t])
+    onOutcomeRef.current?.('idle')
+  }, [card.n, card.p, card.e, card.co, card.t, card.w])
 
   useEffect(
     () => () => {
       operationRef.current += 1
       inFlightRef.current = false
+      changedDuringSaveRef.current = false
     },
     [],
   )
@@ -69,7 +92,7 @@ export function NativeContactSaveButton({
 
   const update = (outcome: ContactSaveOutcome) => {
     setState(outcome)
-    onOutcome?.(outcome)
+    onOutcomeRef.current?.(outcome)
   }
 
   const run = async () => {
@@ -85,20 +108,32 @@ export function NativeContactSaveButton({
       return
     }
     inFlightRef.current = true
+    changedDuringSaveRef.current = false
+    const startingCardSignature = cardSignature
     const operation = ++operationRef.current
     update('saving')
     try {
       const outcome = await saveContactToPhone(card)
       if (operationRef.current !== operation) return
-      update(outcome)
-      trackProductEvent('native_contact_save', { source, outcome })
+      const cardChanged =
+        changedDuringSaveRef.current ||
+        latestCardSignatureRef.current !== startingCardSignature
+      update(cardChanged ? 'idle' : outcome)
+      trackProductEvent('native_contact_save', {
+        source,
+        outcome,
+        card_changed_during_save: cardChanged,
+      })
     } catch (error) {
       if (operationRef.current !== operation) return
       const outcome = isNativePermissionDeniedError(error) ? 'denied' : 'error'
       update(outcome)
       trackProductEvent('native_contact_save', { source, outcome })
     } finally {
-      if (operationRef.current === operation) inFlightRef.current = false
+      if (operationRef.current === operation) {
+        inFlightRef.current = false
+        changedDuringSaveRef.current = false
+      }
     }
   }
 

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   normalizeNativeBusinessCardRecognition,
+  nativeRecognitionWithin,
   parseBusinessCardLines,
   parseNativeBusinessCardScan,
   parseSupportedBusinessCardQrPayload,
   preliminaryBusinessCardFieldCount,
+  reconcileBusinessCardExtractions,
 } from '../lib/native-card-ocr.ts'
 import { cardUrl } from '../lib/card.ts'
 
@@ -34,6 +36,22 @@ test('normalizes native OCR output and bounds untrusted bridge values', () => {
     },
   )
   assert.equal(normalizeNativeBusinessCardRecognition({ lines: [] }), null)
+})
+
+test('late native OCR gets a bounded reconciliation grace period', async () => {
+  const recognized = {
+    lines: ['Ada Lovelace', 'ada@example.org'],
+    averageConfidence: 0.9,
+  }
+  assert.deepEqual(
+    await nativeRecognitionWithin(Promise.resolve(recognized), 50),
+    recognized,
+  )
+
+  const never = new Promise<null>(() => undefined)
+  const startedAt = Date.now()
+  assert.equal(await nativeRecognitionWithin(never, 5), null)
+  assert.ok(Date.now() - startedAt < 250)
 })
 
 test('extracts a useful preliminary card without treating company text as a name', () => {
@@ -68,6 +86,35 @@ test('prefers a labelled mobile number over fax and leaves uncertain identity bl
   assert.equal(card.email, 'hello@example.nl')
   assert.equal(card.name, '')
   assert.equal(card.company, '')
+})
+
+test('cloud extraction cannot erase useful fields recognized on device', () => {
+  const local = parseBusinessCardLines([
+    'Elena Vasquez',
+    'VP of Product',
+    'Northwind Labs',
+    '+1 415 355 0186',
+    'elena@northwindlabs.com',
+    'northwindlabs.com',
+  ])
+  const result = reconcileBusinessCardExtractions(
+    {
+      name: 'Elena Vasquez',
+      title: 'Vice President, Product',
+      company: 'Northwind Labs',
+      phone: '',
+      email: '',
+      website: '',
+    },
+    local,
+  )
+
+  assert.equal(result.card.title, 'Vice President, Product')
+  assert.equal(local.company, 'Northwind Labs')
+  assert.equal(result.card.phone, '+1 415 355 0186')
+  assert.equal(result.card.email, 'elena@northwindlabs.com')
+  assert.equal(result.card.website, 'northwindlabs.com')
+  assert.deepEqual(result.fallbackFields, ['phone', 'email', 'website'])
 })
 
 test('turns a canonical FollowApp QR into the normal review card model', () => {

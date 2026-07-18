@@ -1,7 +1,7 @@
 import UIKit
 import Capacitor
 import UserNotifications
-import LockedCameraCapture
+@_weakLinked import LockedCameraCapture
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {

@@ -7,6 +7,24 @@ export interface NativeBusinessCardRecognition {
   averageConfidence?: number
 }
 
+/** Wait briefly for local Vision data without ever letting it block cloud OCR. */
+export async function nativeRecognitionWithin(
+  recognition: Promise<NativeBusinessCardRecognition | null>,
+  timeoutMs: number,
+): Promise<NativeBusinessCardRecognition | null> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      recognition,
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => resolve(null), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 export interface PreliminaryBusinessCard {
   name: string
   title: string
@@ -14,6 +32,42 @@ export interface PreliminaryBusinessCard {
   phone: string
   email: string
   website: string
+}
+
+const BUSINESS_CARD_FIELDS = [
+  'name',
+  'title',
+  'company',
+  'phone',
+  'email',
+  'website',
+] as const satisfies readonly (keyof PreliminaryBusinessCard)[]
+
+export interface ReconciledBusinessCard {
+  card: PreliminaryBusinessCard
+  fallbackFields: (keyof PreliminaryBusinessCard)[]
+}
+
+/**
+ * The cloud result is the stronger interpretation, but an empty cloud field is
+ * not evidence that clearly recognized on-device text was wrong. Preserve that
+ * local value and mark it for review instead of silently deleting it.
+ */
+export function reconcileBusinessCardExtractions(
+  cloud: PreliminaryBusinessCard,
+  local: PreliminaryBusinessCard | null,
+): ReconciledBusinessCard {
+  if (!local) return { card: { ...cloud }, fallbackFields: [] }
+
+  const card = { ...cloud }
+  const fallbackFields: (keyof PreliminaryBusinessCard)[] = []
+  for (const field of BUSINESS_CARD_FIELDS) {
+    if (!card[field].trim() && local[field].trim()) {
+      card[field] = local[field]
+      fallbackFields.push(field)
+    }
+  }
+  return { card, fallbackFields }
 }
 
 interface FollowAppCardOcrPlugin {
@@ -31,7 +85,7 @@ let pluginPromise: Promise<FollowAppCardOcrPlugin> | null = null
 const ROLE_WORDS =
   /\b(?:architect|advisor|agent|broker|chief|consultant|coordinator|co-?founder|designer|developer|director|engineer|executive|founder|head|lead|manager|marketing|owner|partner|president|producer|sales|specialist|vice president|vp|ceo|cfo|coo|cto)\b/i
 const COMPANY_WORDS =
-  /\b(?:agency|association|b\. ?v\.?|company|corp(?:oration)?|expo|foundation|gmbh|group|holding|hotel|inc(?:orporated)?|limited|llc|ltd|n\. ?v\.?|properties|real estate|s\. ?a\.?|sas|studio|university)\b/i
+  /\b(?:agency|association|b\. ?v\.?|capital|company|consulting|corp(?:oration)?|digital|enterprises?|expo|foundation|gmbh|group|holding|hotel|inc(?:orporated)?|institut(?:e|ion)|labs?|limited|llc|ltd|media|network|n\. ?v\.?|partners?|properties|real estate|s\. ?a\.?|sas|services|solutions|studio|systems|tech(?:nology|nologies)?|university|ventures?)\b/i
 const ADDRESS_WORDS =
   /\b(?:address|avenue|boulevard|building|floor|road|street|suite|postal|postcode|zip)\b/i
 const EMAIL_PATTERN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/iu

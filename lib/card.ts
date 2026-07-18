@@ -18,6 +18,8 @@ export interface CardData {
   p?: string
   /** Email. */
   e?: string
+  /** Website. Used by scanned physical cards; omitted from compact profile QR. */
+  w?: string
 }
 
 /** Conservative ceiling that keeps screen-scanned QR codes reasonably sparse. */
@@ -234,6 +236,7 @@ export function buildVCard(card: CardData): string {
   if (card.t) lines.push(`TITLE:${vc(card.t)}`)
   if (card.p) lines.push(`TEL;TYPE=CELL:${vc(card.p)}`)
   if (card.e) lines.push(`EMAIL;TYPE=INTERNET:${vc(card.e)}`)
+  if (card.w) lines.push(`URL:${vc(card.w)}`)
   lines.push('END:VCARD')
   return lines.join('\r\n')
 }

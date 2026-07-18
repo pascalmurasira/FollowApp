@@ -277,6 +277,7 @@ test('a full vCard preserves Unicode and escapes reserved text characters', () =
     t: 'Design\nResearch',
     p: '+31 6 12 34 56 78',
     e: 'zoë@example.com',
+    w: 'https://example.com/zoë',
   })
 
   assert.equal(
@@ -290,6 +291,7 @@ test('a full vCard preserves Unicode and escapes reserved text characters', () =
       'TITLE:Design\\nResearch',
       'TEL;TYPE=CELL:+31 6 12 34 56 78',
       'EMAIL;TYPE=INTERNET:zoë@example.com',
+      'URL:https://example.com/zoë',
       'END:VCARD',
     ].join('\r\n'),
   )
